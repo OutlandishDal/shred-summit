@@ -62,12 +62,23 @@ export class Player {
     this.capsuleRadius = 0.4;
     this.capsuleHalfH = 0.8;
 
+    // Sideways stance
+    this.STANCE_YAW = 1.3; // 75° sideways (regular stance)
+
+    // Landing impact spring system
+    this.landingImpact = 0;
+    this.landingImpactVel = 0;
+
     this.group = new THREE.Group();
     this.boardGroup = new THREE.Group();
     this.riderGroup = new THREE.Group();
 
     this.buildModel();
     this.scene.add(this.group);
+  }
+
+  lerpJoint(joint, axis, target, speed) {
+    joint.rotation[axis] = THREE.MathUtils.lerp(joint.rotation[axis], target, speed);
   }
 
   // Materials stored for color customization
@@ -102,46 +113,174 @@ export class Player {
     }
     this.boardGroup.add(board);
 
+    // === RIDER (sideways stance) ===
     this.jacketMat = new THREE.MeshStandardMaterial({ color: 0xd32f2f, roughness: 0.8 });
     this.pantsMat = new THREE.MeshStandardMaterial({ color: 0x263238, roughness: 0.9 });
     const jacketMat = this.jacketMat;
     const pantsMat = this.pantsMat;
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf5c6a0 });
+    this.gloveMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 });
+    this.bootMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.55, 0.25), jacketMat);
-    torso.position.set(0, 0.85, 0); torso.castShadow = true; this.riderGroup.add(torso);
+    // Sideways stance
+    this.riderGroup.rotation.y = this.STANCE_YAW;
 
-    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.22), pantsMat);
+    // Hips
+    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.22), pantsMat);
     hips.position.set(0, 0.55, 0); this.riderGroup.add(hips);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0xf5c6a0 }));
-    head.position.set(0, 1.32, 0); head.castShadow = true; this.riderGroup.add(head);
+    // Torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.25), jacketMat);
+    torso.position.set(0, 0.85, 0); torso.castShadow = true; this.riderGroup.add(torso);
+
+    // Neck + Head (counter-rotated to look downhill)
+    this.neckGroup = new THREE.Group();
+    this.neckGroup.position.set(0, 1.15, 0);
+    this.riderGroup.add(this.neckGroup);
+
+    this.headGroup = new THREE.Group();
+    this.headGroup.rotation.y = -0.6; // counter-rotate to look downhill
+    this.neckGroup.add(this.headGroup);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), skinMat);
+    head.position.set(0, 0.17, 0); head.castShadow = true; this.headGroup.add(head);
 
     this.helmetMat = new THREE.MeshStandardMaterial({ color: 0x212121 });
     const helmet = new THREE.Mesh(
-      new THREE.SphereGeometry(0.19, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      new THREE.SphereGeometry(0.18, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
       this.helmetMat);
-    helmet.position.set(0, 1.36, 0); this.riderGroup.add(helmet);
+    helmet.position.set(0, 0.21, 0); this.headGroup.add(helmet);
 
-    const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.07, 0.08),
+    const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.08),
       new THREE.MeshStandardMaterial({ color: 0xff9800, metalness: 0.7, roughness: 0.1 }));
-    goggles.position.set(0, 1.33, 0.15); this.riderGroup.add(goggles);
+    goggles.position.set(0, 0.17, 0.14); this.headGroup.add(goggles);
 
-    const armGeo = new THREE.CapsuleGeometry(0.06, 0.4, 3, 6);
-    this.leftArm = new THREE.Mesh(armGeo, jacketMat);
-    this.leftArm.position.set(-0.3, 0.9, 0); this.leftArm.rotation.z = 0.5;
-    this.leftArm.castShadow = true; this.riderGroup.add(this.leftArm);
+    // === SEGMENTED ARMS (longer, wider shoulders, meshes centered below pivots) ===
+    // Left arm: shoulderL → upperArmL → elbowL → forearmL → gloveL
+    this.shoulderL = new THREE.Group();
+    this.shoulderL.position.set(-0.3, 1.05, 0);
+    this.riderGroup.add(this.shoulderL);
 
-    this.rightArm = new THREE.Mesh(armGeo, jacketMat);
-    this.rightArm.position.set(0.3, 0.9, 0); this.rightArm.rotation.z = -0.5;
-    this.rightArm.castShadow = true; this.riderGroup.add(this.rightArm);
+    // upperArm: capsule h=0.24 + 2*r=0.12 = total 0.36, center at -0.18 so top = pivot
+    const upperArmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 6), jacketMat);
+    upperArmL.position.set(0, -0.18, 0); upperArmL.castShadow = true;
+    this.shoulderL.add(upperArmL);
 
-    const legGeo = new THREE.CapsuleGeometry(0.08, 0.35, 3, 6);
-    const ll = new THREE.Mesh(legGeo, pantsMat); ll.position.set(-0.1, 0.28, 0.2); this.riderGroup.add(ll);
-    const rl = new THREE.Mesh(legGeo, pantsMat); rl.position.set(0.1, 0.28, -0.2); this.riderGroup.add(rl);
+    this.elbowL = new THREE.Group();
+    this.elbowL.position.set(0, -0.36, 0); // bottom of upper arm
+    this.shoulderL.add(this.elbowL);
+
+    // forearm: capsule h=0.22 + 2*r=0.11 = total 0.33, center at -0.165
+    const forearmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.22, 4, 6), jacketMat);
+    forearmL.position.set(0, -0.165, 0); forearmL.castShadow = true;
+    this.elbowL.add(forearmL);
+
+    const gloveL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 4), this.gloveMat);
+    gloveL.position.set(0, -0.33, 0);
+    this.elbowL.add(gloveL);
+
+    // Right arm: shoulderR → upperArmR → elbowR → forearmR → gloveR
+    this.shoulderR = new THREE.Group();
+    this.shoulderR.position.set(0.3, 1.05, 0);
+    this.riderGroup.add(this.shoulderR);
+
+    const upperArmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 6), jacketMat);
+    upperArmR.position.set(0, -0.18, 0); upperArmR.castShadow = true;
+    this.shoulderR.add(upperArmR);
+
+    this.elbowR = new THREE.Group();
+    this.elbowR.position.set(0, -0.36, 0);
+    this.shoulderR.add(this.elbowR);
+
+    const forearmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.22, 4, 6), jacketMat);
+    forearmR.position.set(0, -0.165, 0); forearmR.castShadow = true;
+    this.elbowR.add(forearmR);
+
+    const gloveR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 4), this.gloveMat);
+    gloveR.position.set(0, -0.33, 0);
+    this.elbowR.add(gloveR);
+
+    // Default arm pose: arms hang DOWN, angled outward from body
+    this.shoulderL.rotation.z = 0.4;
+    this.shoulderL.rotation.x = 0.3; // pushes arms forward (= sideways in world due to stance)
+    this.elbowL.rotation.x = -0.3;
+
+    this.shoulderR.rotation.z = -0.4;
+    this.shoulderR.rotation.x = 0.3;
+    this.elbowR.rotation.x = -0.3;
+
+    // === SEGMENTED LEGS ===
+    // Left leg (front foot): hipL → thighL → kneeL → calfL → bootL
+    this.hipL = new THREE.Group();
+    this.hipL.position.set(-0.1, 0.48, 0.08);
+    this.riderGroup.add(this.hipL);
+
+    const thighL = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.16, 3, 6), pantsMat);
+    thighL.position.set(0, -0.1, 0); thighL.castShadow = true;
+    this.hipL.add(thighL);
+
+    this.kneeL = new THREE.Group();
+    this.kneeL.position.set(0, -0.22, 0);
+    this.hipL.add(this.kneeL);
+
+    const calfL = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.16, 3, 6), pantsMat);
+    calfL.position.set(0, -0.1, 0); calfL.castShadow = true;
+    this.kneeL.add(calfL);
+
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.18), this.bootMat);
+    bootL.position.set(0, -0.22, 0.03);
+    this.kneeL.add(bootL);
+
+    // Right leg (rear foot): hipR → thighR → kneeR → calfR → bootR
+    this.hipR = new THREE.Group();
+    this.hipR.position.set(0.1, 0.48, -0.08);
+    this.riderGroup.add(this.hipR);
+
+    const thighR = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.16, 3, 6), pantsMat);
+    thighR.position.set(0, -0.1, 0); thighR.castShadow = true;
+    this.hipR.add(thighR);
+
+    this.kneeR = new THREE.Group();
+    this.kneeR.position.set(0, -0.22, 0);
+    this.hipR.add(this.kneeR);
+
+    const calfR = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.16, 3, 6), pantsMat);
+    calfR.position.set(0, -0.1, 0); calfR.castShadow = true;
+    this.kneeR.add(calfR);
+
+    const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.18), this.bootMat);
+    bootR.position.set(0, -0.22, 0.03);
+    this.kneeR.add(bootR);
+
+    // Default leg pose: knees bent for riding stance
+    this.hipL.rotation.x = -0.3;
+    this.kneeL.rotation.x = 0.6;
+    this.hipR.rotation.x = -0.3;
+    this.kneeR.rotation.x = 0.6;
 
     this.boardGroup.add(this.riderGroup);
     this.group.add(this.boardGroup);
+  }
+
+  resetJointsToRiding(speed) {
+    const s = speed || 0.1;
+    // Arms: hanging down, angled out
+    this.lerpJoint(this.shoulderL, 'z', 0.4, s);
+    this.lerpJoint(this.shoulderL, 'x', 0.3, s);
+    this.lerpJoint(this.elbowL, 'x', -0.3, s);
+
+    this.lerpJoint(this.shoulderR, 'z', -0.4, s);
+    this.lerpJoint(this.shoulderR, 'x', 0.3, s);
+    this.lerpJoint(this.elbowR, 'x', -0.3, s);
+
+    // Legs: default riding bend
+    this.lerpJoint(this.hipL, 'x', -0.3, s);
+    this.lerpJoint(this.kneeL, 'x', 0.6, s);
+    this.lerpJoint(this.hipR, 'x', -0.3, s);
+    this.lerpJoint(this.kneeR, 'x', 0.6, s);
+
+    // Head look
+    this.lerpJoint(this.headGroup, 'y', -0.6, s);
   }
 
   update(dt, input, terrain) {
@@ -209,6 +348,12 @@ export class Player {
         return this.getState(terrain);
       }
 
+      // Landing impact spring — trigger on landing
+      if (wasInAir && this.airTime > 0.2) {
+        this.landingImpact = Math.min(Math.abs(this.velocity.y) / 20, 1.0);
+        this.landingImpactVel = 0;
+      }
+
       // Slope-aware landing: convert some downward speed to forward speed
       if (this.velocity.y < 0) {
         const normal = terrain.getSlopeNormalAt(this.position.x, this.position.z);
@@ -246,6 +391,17 @@ export class Player {
 
     // ===== RAIL GRIND CHECK =====
     this.updateRailGrind(terrain, dt);
+
+    // ===== LANDING IMPACT SPRING =====
+    if (this.landingImpact > 0.01) {
+      const springK = 12;
+      const damping = 6;
+      const springForce = -springK * this.landingImpact;
+      this.landingImpactVel += springForce * dt;
+      this.landingImpactVel *= (1 - damping * dt);
+      this.landingImpact += this.landingImpactVel * dt;
+      if (this.landingImpact < 0) { this.landingImpact = 0; this.landingImpactVel = 0; }
+    }
 
     if (this.grounded && !this.grinding) {
       // ===== GROUND MOVEMENT (CARVING SYSTEM) =====
@@ -363,22 +519,63 @@ export class Player {
         this.boardGroup.rotation.y, 0, 0.25
       );
 
+      // --- GROUNDED RIDER ANIMATIONS ---
+      const lean = this.edgeLeanSmooth;
+      const impactBend = this.landingImpact * 0.8;
+
       if (this.isTucking) {
+        // Ground tuck: deep crouch
         this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.15, 0.12);
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.3, 0.12);
+        // Deep knee bend
+        this.lerpJoint(this.hipL, 'x', -0.7, 0.12);
+        this.lerpJoint(this.kneeL, 'x', 1.2, 0.12);
+        this.lerpJoint(this.hipR, 'x', -0.7, 0.12);
+        this.lerpJoint(this.kneeR, 'x', 1.2, 0.12);
+        // Arms fold in for tuck (but still out from body)
+        this.lerpJoint(this.shoulderL, 'z', 0.5, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0.3, 0.12);
+        this.lerpJoint(this.elbowL, 'x', -1.2, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', -0.5, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', 0.3, 0.12);
+        this.lerpJoint(this.elbowR, 'x', -1.2, 0.12);
       } else {
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
+        // Legs: carving + landing impact
+        const frontKnee = 0.6 + impactBend + lean * 0.15;
+        const rearKnee = 0.6 + impactBend - lean * 0.15;
+        const frontHip = -0.3 - impactBend * 0.5;
+        const rearHip = -0.3 - impactBend * 0.5;
+
+        this.lerpJoint(this.hipL, 'x', frontHip, 0.12);
+        this.lerpJoint(this.kneeL, 'x', frontKnee, 0.12);
+        this.lerpJoint(this.hipR, 'x', rearHip, 0.12);
+        this.lerpJoint(this.kneeR, 'x', rearKnee, 0.12);
+
+        // Arms: hanging down, sway with turns
+        this.lerpJoint(this.shoulderL, 'z', 0.4 + lean * 0.15, 0.1);
+        this.lerpJoint(this.shoulderL, 'x', 0.3 - lean * 0.2, 0.1);
+        this.lerpJoint(this.elbowL, 'x', -0.3 - lean * 0.25, 0.1);
+
+        this.lerpJoint(this.shoulderR, 'z', -0.4 + lean * 0.15, 0.1);
+        this.lerpJoint(this.shoulderR, 'x', 0.3 + lean * 0.2, 0.1);
+        this.lerpJoint(this.elbowR, 'x', -0.3 + lean * 0.25, 0.1);
       }
-      // Reset arm positions from grabs
-      this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.12);
-      this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.12);
-      this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, 0.12);
-      this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.9, 0.12);
+
+      // Rider body drop from landing impact
+      const dropY = this.isTucking ? -0.15 : (-impactBend * 0.15);
+      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, dropY, 0.12);
 
       // Rider leans into carve (shoulder rotation + body lean)
       this.riderGroup.rotation.z = THREE.MathUtils.lerp(
         this.riderGroup.rotation.z, this.edgeLeanSmooth * 0.3, 0.15
       );
+
+      // Head looks into turns slightly
+      this.lerpJoint(this.headGroup, 'y', -0.6 - lean * 0.2, 0.1);
+
+      // Keep stance yaw
+      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.15);
 
     } else if (this.grinding) {
       // ===== RAIL GRIND =====
@@ -443,6 +640,25 @@ export class Player {
 
         // Combine spin rotation with boardslide angle
         this.boardGroup.rotation.y = this.trickRotation.y + this.boardslideAngle;
+
+        // Grind rider animations: arms spread wide for balance
+        this.lerpJoint(this.shoulderL, 'z', 1.3, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0, 0.12);
+        this.lerpJoint(this.elbowL, 'x', -0.15, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', -1.3, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', 0, 0.12);
+        this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
+
+        // Legs: slight crouch
+        this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
+        this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
+        this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
+        this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
+
+        // Maintain stance yaw
+        this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
+        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
+        this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
 
         // Jump off rail
         if (input.jump) {
@@ -538,6 +754,10 @@ export class Player {
 
       this.isGrabbing = input.grab;
       this.grabType = input.grabType;
+
+      // --- AIRBORNE RIDER ANIMATIONS ---
+      // Maintain sideways stance in air
+      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
     }
 
     // ===== OBSTACLE COLLISIONS (capsule vs cylinder/sphere) =====
@@ -578,29 +798,41 @@ export class Player {
 
     this.position.x = THREE.MathUtils.clamp(this.position.x, -50, 50);
 
-    // Grab & tuck animations
+    // Grab & tuck & default air animations
     if (this.isGrabbing && !this.grounded) {
       this.applyGrabPose(this.grabType);
     } else if (this.isTucking && !this.grounded && !this.grinding) {
       // Air tuck — crouched tight for faster rotation
       this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.2, 0.15);
       this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.4, 0.15);
-      this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 1.2, 0.15);
-      this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -1.2, 0.15);
-      // Reset grab-specific arm axes
-      this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.15);
-      this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.15);
-      this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, 0.15);
-      this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.9, 0.15);
-    } else if (!this.isTucking && !this.grinding) {
-      this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.5, 0.1);
-      this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -0.5, 0.1);
-      this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
-      this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1);
-      this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, 0.1);
-      this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.9, 0.1);
+      // Arms fold in tight
+      this.lerpJoint(this.shoulderL, 'z', 1.2, 0.15);
+      this.lerpJoint(this.shoulderL, 'x', 0.3, 0.15);
+      this.lerpJoint(this.elbowL, 'x', -1.5, 0.15);
+      this.lerpJoint(this.shoulderR, 'z', -1.2, 0.15);
+      this.lerpJoint(this.shoulderR, 'x', 0.3, 0.15);
+      this.lerpJoint(this.elbowR, 'x', -1.5, 0.15);
+      // Legs tuck up
+      this.lerpJoint(this.hipL, 'x', -0.8, 0.15);
+      this.lerpJoint(this.kneeL, 'x', 1.4, 0.15);
+      this.lerpJoint(this.hipR, 'x', -0.8, 0.15);
+      this.lerpJoint(this.kneeR, 'x', 1.4, 0.15);
+    } else if (!this.grounded && !this.grinding) {
+      // Default air pose: arms spread WIDE for balance/style
       this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
+      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.1, 0.1);
+      // Arms spread wide out to sides — one slightly higher for style
+      this.lerpJoint(this.shoulderL, 'z', 1.4, 0.12);
+      this.lerpJoint(this.shoulderL, 'x', 0.1, 0.12);
+      this.lerpJoint(this.elbowL, 'x', -0.15, 0.12);
+      this.lerpJoint(this.shoulderR, 'z', -1.2, 0.12);
+      this.lerpJoint(this.shoulderR, 'x', -0.1, 0.12);
+      this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
+      // Legs slightly tucked
+      this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
+      this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
+      this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
+      this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
     }
 
     // Update visual
@@ -758,90 +990,99 @@ export class Player {
 
   applyGrabPose(type) {
     const L = 0.18; // lerp speed for smooth transitions
-    // Deeper crouch for all grabs — brings arms closer to the board
     let crouchY = -0.35;
-    let leanX = 0.3; // slight forward lean by default
+    let leanX = 0.3;
+
+    // All grabs: legs pull up to meet the hand
+    const grabHipX = -0.6;
+    const grabKneeX = 1.2;
+
+    this.lerpJoint(this.hipL, 'x', grabHipX, L);
+    this.lerpJoint(this.kneeL, 'x', grabKneeX, L);
+    this.lerpJoint(this.hipR, 'x', grabHipX, L);
+    this.lerpJoint(this.kneeR, 'x', grabKneeX, L);
 
     switch (type) {
       case 'indy':
-        // Right hand grabs toe edge between feet — arm reaches straight down
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -2.2, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0.2, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.6, L);
+        // Right hand grabs toe edge between feet — arm reaches down
+        this.lerpJoint(this.shoulderR, 'z', -1.8, L);
+        this.lerpJoint(this.shoulderR, 'x', 0.2, L);
+        this.lerpJoint(this.elbowR, 'x', -1.3, L);
         // Left arm relaxed / balanced
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.9, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, L);
+        this.lerpJoint(this.shoulderL, 'z', 0.8, L);
+        this.lerpJoint(this.shoulderL, 'x', 0, L);
+        this.lerpJoint(this.elbowL, 'x', -0.3, L);
         break;
 
       case 'method':
         // Left hand reaches behind and up to heel edge — classic tweaked method
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 2.0, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, -1.0, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.7, L);
+        this.lerpJoint(this.shoulderL, 'z', 1.6, L);
+        this.lerpJoint(this.shoulderL, 'x', -0.8, L);
+        this.lerpJoint(this.elbowL, 'x', -1.4, L);
         // Right arm forward for balance
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -0.6, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0.5, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.9, L);
-        leanX = 0.45; // more forward lean for method
+        this.lerpJoint(this.shoulderR, 'z', -0.5, L);
+        this.lerpJoint(this.shoulderR, 'x', 0.4, L);
+        this.lerpJoint(this.elbowR, 'x', -0.3, L);
+        leanX = 0.45;
         break;
 
       case 'stalefish':
-        // Right hand crosses body to grab heel edge between feet
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -1.6, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, -0.4, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.55, L);
+        // Right hand crosses body to grab heel edge
+        this.lerpJoint(this.shoulderR, 'z', -1.4, L);
+        this.lerpJoint(this.shoulderR, 'x', -0.3, L);
+        this.lerpJoint(this.elbowR, 'x', -1.4, L);
         // Left arm out for balance
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 1.0, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0.3, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, L);
-        crouchY = -0.4; // extra deep crouch to reach across
+        this.lerpJoint(this.shoulderL, 'z', 0.9, L);
+        this.lerpJoint(this.shoulderL, 'x', 0.2, L);
+        this.lerpJoint(this.elbowL, 'x', -0.3, L);
+        crouchY = -0.4;
         break;
 
       case 'melon':
-        // Left hand grabs heel edge between feet — arm reaches straight down
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 2.2, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0.2, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.6, L);
+        // Left hand grabs heel edge — arm reaches down
+        this.lerpJoint(this.shoulderL, 'z', 1.8, L);
+        this.lerpJoint(this.shoulderL, 'x', 0.2, L);
+        this.lerpJoint(this.elbowL, 'x', -1.3, L);
         // Right arm relaxed / balanced
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -0.9, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.9, L);
+        this.lerpJoint(this.shoulderR, 'z', -0.8, L);
+        this.lerpJoint(this.shoulderR, 'x', 0, L);
+        this.lerpJoint(this.elbowR, 'x', -0.3, L);
         break;
 
       case 'nosegrab':
         // Right hand reaches forward and down to grab board nose
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -1.8, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 1.0, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.55, L);
+        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'x', 0.8, L);
+        this.lerpJoint(this.elbowR, 'x', -1.2, L);
         // Left arm back for balance
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.7, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, -0.5, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, L);
-        leanX = 0.55; // lean forward to reach the nose
+        this.lerpJoint(this.shoulderL, 'z', 0.6, L);
+        this.lerpJoint(this.shoulderL, 'x', -0.4, L);
+        this.lerpJoint(this.elbowL, 'x', -0.3, L);
+        leanX = 0.55;
         crouchY = -0.3;
         break;
 
       case 'tailgrab':
         // Right hand reaches backward and down to grab board tail
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -1.8, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, -1.0, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.55, L);
+        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'x', -0.8, L);
+        this.lerpJoint(this.elbowR, 'x', -1.2, L);
         // Left arm forward for balance
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0.7, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0.5, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.9, L);
-        leanX = -0.15; // lean back to reach the tail
+        this.lerpJoint(this.shoulderL, 'z', 0.6, L);
+        this.lerpJoint(this.shoulderL, 'x', 0.4, L);
+        this.lerpJoint(this.elbowL, 'x', -0.3, L);
+        leanX = -0.15;
         crouchY = -0.3;
         break;
 
       default:
-        this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 1.8, L);
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, L);
-        this.leftArm.position.y = THREE.MathUtils.lerp(this.leftArm.position.y, 0.6, L);
-        this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, -1.8, L);
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, L);
-        this.rightArm.position.y = THREE.MathUtils.lerp(this.rightArm.position.y, 0.6, L);
+        // Generic grab
+        this.lerpJoint(this.shoulderL, 'z', 1.5, L);
+        this.lerpJoint(this.shoulderL, 'x', 0, L);
+        this.lerpJoint(this.elbowL, 'x', -1.3, L);
+        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'x', 0, L);
+        this.lerpJoint(this.elbowR, 'x', -1.3, L);
     }
 
     // Crouch body down and lean
@@ -898,10 +1139,24 @@ export class Player {
     this.boardslideType = null;
     this.boardslideAngle = 0;
     this.grindTime = 0;
+    this.landingImpact = 0;
+    this.landingImpactVel = 0;
 
     this.boardGroup.rotation.set(0, 0, 0);
     this.riderGroup.position.set(0, 0, 0);
-    this.riderGroup.rotation.set(0, 0, 0);
+    this.riderGroup.rotation.set(0, this.STANCE_YAW, 0);
+
+    // Reset all joints to default riding pose
+    this.shoulderL.rotation.set(0.3, 0, 0.4);
+    this.elbowL.rotation.set(-0.3, 0, 0);
+    this.shoulderR.rotation.set(0.3, 0, -0.4);
+    this.elbowR.rotation.set(-0.3, 0, 0);
+    this.hipL.rotation.set(-0.3, 0, 0);
+    this.kneeL.rotation.set(0.6, 0, 0);
+    this.hipR.rotation.set(-0.3, 0, 0);
+    this.kneeR.rotation.set(0.6, 0, 0);
+    this.headGroup.rotation.set(0, -0.6, 0);
+
     this.group.position.copy(this.position);
     this.group.rotation.set(0, Math.PI, 0);
     this.visualYaw = Math.PI;
