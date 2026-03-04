@@ -114,6 +114,11 @@ export class Game {
     this._spaceConsumed = false;
 
     const handleStart = (e) => {
+      // Request fullscreen on mobile for immersive experience
+      if (isTouchDevice && !document.fullscreenElement) {
+        const el = document.documentElement;
+        (el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen)?.call(el);
+      }
       if (this.state === 'start') {
         e.preventDefault();
         this.startGame();
