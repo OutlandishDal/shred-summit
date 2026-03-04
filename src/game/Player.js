@@ -342,14 +342,15 @@ export class Player {
 
   resetJointsToRiding(speed) {
     const s = speed || 0.1;
-    // Arms: hanging down, angled out
-    this.lerpJoint(this.shoulderL, 'z', 0.4, s);
-    this.lerpJoint(this.shoulderL, 'x', 0.3, s);
-    this.lerpJoint(this.elbowL, 'x', -0.3, s);
+    const isSki = this.equipmentType === 'ski';
+    // Arms: spread outward from body
+    this.lerpJoint(this.shoulderL, 'z', isSki ? 0.8 : 0.7, s);
+    this.lerpJoint(this.shoulderL, 'x', isSki ? 0.15 : 0.1, s);
+    this.lerpJoint(this.elbowL, 'x', -0.2, s);
 
-    this.lerpJoint(this.shoulderR, 'z', -0.4, s);
-    this.lerpJoint(this.shoulderR, 'x', 0.3, s);
-    this.lerpJoint(this.elbowR, 'x', -0.3, s);
+    this.lerpJoint(this.shoulderR, 'z', isSki ? -0.8 : -0.7, s);
+    this.lerpJoint(this.shoulderR, 'x', isSki ? 0.15 : 0.1, s);
+    this.lerpJoint(this.elbowR, 'x', -0.2, s);
 
     // Legs: default riding bend
     this.lerpJoint(this.hipL, 'x', -0.3, s);
@@ -611,11 +612,11 @@ export class Player {
         this.lerpJoint(this.hipR, 'x', -0.7, 0.12);
         this.lerpJoint(this.kneeR, 'x', 1.2, 0.12);
         // Arms fold in for tuck (but still out from body)
-        this.lerpJoint(this.shoulderL, 'z', 0.5, 0.12);
-        this.lerpJoint(this.shoulderL, 'x', 0.3, 0.12);
+        this.lerpJoint(this.shoulderL, 'z', 0.6, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0.15, 0.12);
         this.lerpJoint(this.elbowL, 'x', -1.2, 0.12);
-        this.lerpJoint(this.shoulderR, 'z', -0.5, 0.12);
-        this.lerpJoint(this.shoulderR, 'x', 0.3, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', -0.6, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', 0.15, 0.12);
         this.lerpJoint(this.elbowR, 'x', -1.2, 0.12);
       } else {
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
@@ -630,14 +631,16 @@ export class Player {
         this.lerpJoint(this.hipR, 'x', rearHip, 0.12);
         this.lerpJoint(this.kneeR, 'x', rearKnee, 0.12);
 
-        // Arms: hanging down, sway with turns
-        this.lerpJoint(this.shoulderL, 'z', 0.4 + lean * 0.15, 0.1);
-        this.lerpJoint(this.shoulderL, 'x', 0.3 - lean * 0.2, 0.1);
-        this.lerpJoint(this.elbowL, 'x', -0.3 - lean * 0.25, 0.1);
+        // Arms: spread outward, sway with turns
+        const armZ = this.equipmentType === 'ski' ? 0.8 : 0.7;
+        const armX = this.equipmentType === 'ski' ? 0.15 : 0.1;
+        this.lerpJoint(this.shoulderL, 'z', armZ + lean * 0.15, 0.1);
+        this.lerpJoint(this.shoulderL, 'x', armX - lean * 0.15, 0.1);
+        this.lerpJoint(this.elbowL, 'x', -0.2 - lean * 0.25, 0.1);
 
-        this.lerpJoint(this.shoulderR, 'z', -0.4 + lean * 0.15, 0.1);
-        this.lerpJoint(this.shoulderR, 'x', 0.3 + lean * 0.2, 0.1);
-        this.lerpJoint(this.elbowR, 'x', -0.3 + lean * 0.25, 0.1);
+        this.lerpJoint(this.shoulderR, 'z', -armZ + lean * 0.15, 0.1);
+        this.lerpJoint(this.shoulderR, 'x', armX + lean * 0.15, 0.1);
+        this.lerpJoint(this.elbowR, 'x', -0.2 + lean * 0.25, 0.1);
       }
 
       // Rider body drop from landing impact
