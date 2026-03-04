@@ -1,9 +1,17 @@
 import * as THREE from 'three';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import { Player } from './Player.js';
 import { Terrain } from './Terrain.js';
 import { TrickSystem } from './TrickSystem.js';
 import { InputManager } from './InputManager.js';
-import { SnowParticles } from './Particles.js';
+import { SnowParticles, AmbientSnow } from './Particles.js';
 import { initFirebase, submitScore, fetchWorldwideScores, getWeekId } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
 
@@ -18,11 +26,13 @@ export class Game {
     this.initScene();
     this.initCamera();
     this.initLights();
+    this.initPostProcessing();
 
     this.terrain = new Terrain(this.scene);
     this.player = new Player(this.scene);
     this.tricks = new TrickSystem();
     this.particles = new SnowParticles(this.scene);
+    this.ambientSnow = new AmbientSnow(this.scene);
 
     this.cameraOffset = new THREE.Vector3(0, 6, 10);
     this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
@@ -151,20 +161,58 @@ export class Game {
   }
 
   initRenderer() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false }); // SMAA handles AA
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.0;
     document.body.appendChild(this.renderer.domElement);
   }
 
   initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x8aafc4);
-    this.scene.fog = new THREE.FogExp2(0xbccfe0, 0.003);
+    this.scene.fog = new THREE.FogExp2(0xc9d8e8, 0.002);
+
+    // Procedural sky with Rayleigh scattering
+    this.sky = new Sky();
+    this.sky.scale.setScalar(10000);
+    this.scene.add(this.sky);
+
+    const skyUniforms = this.sky.material.uniforms;
+    skyUniforms['turbidity'].value = 4;
+    skyUniforms['rayleigh'].value = 1.5;
+    skyUniforms['mieCoefficient'].value = 0.005;
+    skyUniforms['mieDirectionalG'].value = 0.8;
+
+    // Low winter sun for dramatic lighting
+    this.sunPosition = new THREE.Vector3();
+    const phi = THREE.MathUtils.degToRad(90 - 25);   // 25deg elevation
+    const theta = THREE.MathUtils.degToRad(210);       // azimuth from side
+    this.sunPosition.setFromSphericalCoords(1, phi, theta);
+    skyUniforms['sunPosition'].value.copy(this.sunPosition);
+
+    // Generate HDR environment map from sky for PBR reflections
+    const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    pmremGenerator.compileEquirectangularShader();
+    const skyScene = new THREE.Scene();
+    const skyCopy = new Sky();
+    skyCopy.scale.setScalar(10000);
+    skyScene.add(skyCopy);
+    const skyCopyUniforms = skyCopy.material.uniforms;
+    skyCopyUniforms['turbidity'].value = 4;
+    skyCopyUniforms['rayleigh'].value = 1.5;
+    skyCopyUniforms['mieCoefficient'].value = 0.005;
+    skyCopyUniforms['mieDirectionalG'].value = 0.8;
+    skyCopyUniforms['sunPosition'].value.copy(this.sunPosition);
+    const renderTarget = pmremGenerator.fromScene(skyScene, 0, 0.1, 1000);
+    this.scene.environment = renderTarget.texture;
+    this.scene.environmentIntensity = 0.3; // subtle reflections, don't over-brighten snow
+    pmremGenerator.dispose();
+    skyScene.remove(skyCopy);
+    skyCopy.geometry.dispose();
+    skyCopy.material.dispose();
   }
 
   initCamera() {
@@ -178,17 +226,20 @@ export class Game {
     const ambient = new THREE.AmbientLight(0x8ec8f0, 0.5);
     this.scene.add(ambient);
 
+    // Sun direction aligned with sky shader sun position
+    this.sunDirection = this.sunPosition.clone().normalize().multiplyScalar(50);
+
     this.sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
-    this.sun.position.set(30, 50, 20);
+    this.sun.position.copy(this.sunDirection);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.width = 2048;
     this.sun.shadow.mapSize.height = 2048;
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 250;
-    this.sun.shadow.camera.left = -60;
-    this.sun.shadow.camera.right = 60;
-    this.sun.shadow.camera.top = 60;
-    this.sun.shadow.camera.bottom = -60;
+    this.sun.shadow.camera.far = 150;
+    this.sun.shadow.camera.left = -35;
+    this.sun.shadow.camera.right = 35;
+    this.sun.shadow.camera.top = 35;
+    this.sun.shadow.camera.bottom = -35;
     this.sun.shadow.bias = -0.001;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
@@ -199,6 +250,42 @@ export class Game {
     const rim = new THREE.DirectionalLight(0xaaccee, 0.3);
     rim.position.set(-20, 20, -10);
     this.scene.add(rim);
+  }
+
+  initPostProcessing() {
+    this.composer = new EffectComposer(this.renderer);
+
+    // 1. Render the scene
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    // 2. Bloom — sun glow, snow glints, emissive checkpoint glow
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.2,    // strength (subtle for snow scenes)
+      0.4,    // radius
+      0.95    // threshold — very bright areas only (snow is already bright)
+    );
+    this.bloomPass = bloomPass;
+    this.composer.addPass(bloomPass);
+
+    // 3. Vignette — subtle cinematic edge darkening
+    const vignettePass = new ShaderPass(VignetteShader);
+    vignettePass.uniforms['offset'].value = 1.2;
+    vignettePass.uniforms['darkness'].value = 0.4;
+    this.composer.addPass(vignettePass);
+
+    // 4. SMAA antialiasing
+    const smaaPass = new SMAAPass(
+      window.innerWidth * this.renderer.getPixelRatio(),
+      window.innerHeight * this.renderer.getPixelRatio()
+    );
+    this.smaaPass = smaaPass;
+    this.composer.addPass(smaaPass);
+
+    // 5. Output pass — handles tone mapping and color space in post-processing
+    const outputPass = new OutputPass();
+    this.composer.addPass(outputPass);
   }
 
   setupLobby() {
@@ -322,7 +409,7 @@ export class Game {
     requestAnimationFrame(() => this.animate());
 
     if (this.state === 'start') {
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
       return;
     }
 
@@ -334,6 +421,9 @@ export class Game {
       const trickState = this.tricks.update(dt, playerState);
       this.terrain.update(this.player.position.z);
       this.particles.update(dt);
+
+      // Ambient snowfall
+      this.ambientSnow.update(dt, this.player.position);
 
       // Carve trail
       this.updateCarveTrail(playerState);
@@ -369,12 +459,8 @@ export class Game {
       // Camera
       this.updateCamera(dt, playerState);
 
-      // Shadow follows player
-      this.sun.position.set(
-        this.player.position.x + 30,
-        this.player.position.y + 50,
-        this.player.position.z + 20
-      );
+      // Shadow follows player — sun direction matches sky
+      this.sun.position.copy(this.player.position).add(this.sunDirection);
       this.sun.target.position.copy(this.player.position);
       this.sun.target.updateMatrixWorld();
 
@@ -384,7 +470,7 @@ export class Game {
       this.particles.update(dt);
     }
 
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   updateCheckpoints() {
@@ -835,5 +921,6 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 }

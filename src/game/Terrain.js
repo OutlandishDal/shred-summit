@@ -14,9 +14,16 @@ export class Terrain {
     this.checkpointInterval = 600;
     this.nextCheckpointZ = -300;
 
-    // Materials — smooth, realistic snow
+    // Procedural snow normal map — wind-blown ripples
+    this.snowNormalMap = this.createSnowNormalMap();
+    this.snowRoughnessMap = this.createSnowRoughnessMap();
+
+    // Materials — smooth, realistic snow with normal + roughness maps
     this.snowMaterial = new THREE.MeshStandardMaterial({
       color: 0xeaf0f6, roughness: 0.75, metalness: 0.02,
+      normalMap: this.snowNormalMap,
+      normalScale: new THREE.Vector2(0.3, 0.3),
+      roughnessMap: this.snowRoughnessMap,
     });
 
     this.treeMaterial = new THREE.MeshStandardMaterial({
@@ -302,6 +309,9 @@ export class Terrain {
       });
       this.nextCheckpointZ -= this.checkpointInterval;
     }
+
+    // Snow sparkles — tiny glints on the surface
+    this.createSnowSparkles(chunk, zOffset);
 
     this.chunks.push(chunk);
     this.chunksGenerated++;
@@ -795,7 +805,7 @@ export class Terrain {
         new THREE.PlaneGeometry(1.5, 0.8),
         new THREE.MeshStandardMaterial({
           color: 0xff6600, side: THREE.DoubleSide,
-          emissive: 0xff4400, emissiveIntensity: 0.2,
+          emissive: 0xff4400, emissiveIntensity: 0.6,
         })
       );
       flag.position.set(side + (side > 0 ? -1 : 1) * 0.75, poleHeight - 0.5, 0);
@@ -805,7 +815,7 @@ export class Terrain {
     const line = new THREE.Mesh(
       new THREE.CylinderGeometry(0.03, 0.03, 24, 4),
       new THREE.MeshStandardMaterial({
-        color: 0x22cc66, emissive: 0x11aa44, emissiveIntensity: 0.5,
+        color: 0x22cc66, emissive: 0x11aa44, emissiveIntensity: 1.0,
       })
     );
     line.rotation.z = Math.PI / 2;
@@ -822,7 +832,7 @@ export class Terrain {
 
     // Finish line material — checkered black and white
     const finishMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3,
+      color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8,
     });
     const finishMatDark = new THREE.MeshStandardMaterial({
       color: 0x111111, emissive: 0x000000, emissiveIntensity: 0,
@@ -841,7 +851,7 @@ export class Terrain {
       // Gold sphere on top
       const sphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.4, 8, 8),
-        new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.1, emissive: 0xffaa00, emissiveIntensity: 0.3 })
+        new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.1, emissive: 0xffaa00, emissiveIntensity: 1.0 })
       );
       sphere.position.set(side, poleHeight + 0.4, 0);
       group.add(sphere);
@@ -886,7 +896,7 @@ export class Terrain {
     for (const side of [-gateWidth / 2 - 3, gateWidth / 2 + 3]) {
       const marker = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.08, 5, 6),
-        new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xcc0000, emissiveIntensity: 0.3 })
+        new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xcc0000, emissiveIntensity: 0.8 })
       );
       marker.position.set(side, 2.5, 0);
       marker.castShadow = true;
@@ -897,7 +907,7 @@ export class Terrain {
         new THREE.PlaneGeometry(2, 1),
         new THREE.MeshStandardMaterial({
           color: 0xff0000, side: THREE.DoubleSide,
-          emissive: 0xff2200, emissiveIntensity: 0.3,
+          emissive: 0xff2200, emissiveIntensity: 0.8,
         })
       );
       flag.position.set(side + (side > 0 ? -1 : 1) * 1, 4.5, 0);
@@ -908,7 +918,7 @@ export class Terrain {
     const groundLine = new THREE.Mesh(
       new THREE.BoxGeometry(gateWidth + 6, 0.05, 1.5),
       new THREE.MeshStandardMaterial({
-        color: 0xff3333, emissive: 0xff2222, emissiveIntensity: 0.4,
+        color: 0xff3333, emissive: 0xff2222, emissiveIntensity: 1.0,
       })
     );
     groundLine.position.y = 0.03;
@@ -931,6 +941,114 @@ export class Terrain {
     const normal = new THREE.Vector3(hL - hR, 2 * eps, hF - hB);
     normal.normalize();
     return normal;
+  }
+
+  createSnowNormalMap() {
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(size, size);
+    const data = imageData.data;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const s = 0.02;
+        const h1 = Math.sin(x * s * 3.7 + y * s * 2.1) * 0.5;
+        const h2 = Math.sin(x * s * 7.3 + y * s * 5.9) * 0.25;
+        const h3 = Math.sin(x * s * 13.1 + y * s * 11.7 + h1 * 2) * 0.125;
+        const h4 = Math.pow(Math.abs(Math.sin(x * 0.31 + y * 0.47)), 8) * 0.3;
+
+        const eps = 1;
+        const hR = Math.sin((x + eps) * s * 3.7 + y * s * 2.1) * 0.5 +
+                   Math.sin((x + eps) * s * 7.3 + y * s * 5.9) * 0.25;
+        const hU = Math.sin(x * s * 3.7 + (y + eps) * s * 2.1) * 0.5 +
+                   Math.sin(x * s * 7.3 + (y + eps) * s * 5.9) * 0.25;
+
+        const dx = (hR - (h1 + h2)) * 4;
+        const dy = (hU - (h1 + h2)) * 4;
+
+        const nx = -dx * 0.5 + 0.5;
+        const ny = -dy * 0.5 + 0.5;
+
+        const idx = (y * size + x) * 4;
+        data[idx] = Math.floor(Math.min(1, Math.max(0, nx)) * 255);
+        data[idx + 1] = Math.floor(Math.min(1, Math.max(0, ny)) * 255);
+        data[idx + 2] = 192; // nz — mostly pointing up
+        data[idx + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(8, 8);
+    return texture;
+  }
+
+  createSnowRoughnessMap() {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(size, size);
+    const data = imageData.data;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const noise = Math.sin(x * 0.05 + y * 0.03) * 0.15 +
+                      Math.sin(x * 0.11 + y * 0.07) * 0.1;
+        const roughness = Math.floor(Math.min(255, Math.max(0, (0.7 + noise) * 255)));
+        const idx = (y * size + x) * 4;
+        data[idx] = roughness;
+        data[idx + 1] = roughness;
+        data[idx + 2] = roughness;
+        data[idx + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(6, 6);
+    return texture;
+  }
+
+  createSnowSparkles(chunk, zOffset) {
+    const sparkleCount = 200;
+    const geo = new THREE.BufferGeometry();
+    const positions = new Float32Array(sparkleCount * 3);
+
+    for (let i = 0; i < sparkleCount; i++) {
+      const x = (Math.random() - 0.5) * this.chunkWidth * 0.8;
+      const z = (Math.random() - 0.5) * this.chunkLength;
+      const globalZ = zOffset + z;
+      const y = this.computeHeight(x, globalZ) + 0.05;
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = globalZ;
+    }
+
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.08,
+      transparent: true,
+      opacity: 0.9,
+      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const sparkles = new THREE.Points(geo, mat);
+    sparkles.frustumCulled = false;
+    this.scene.add(sparkles);
+    chunk.objects.push(sparkles);
   }
 
   update(playerZ) {
