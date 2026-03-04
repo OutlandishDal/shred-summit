@@ -32,8 +32,18 @@ export class Game {
     this.tricks = new TrickSystem();
     this.particles = new SnowParticles(this.scene);
 
-    this.cameraOffset = new THREE.Vector3(0, 6, 10);
-    this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
+    // Mobile: bring camera closer so snowboarder appears bigger on small screens
+    if (isTouchDevice) {
+      this.cameraOffset = new THREE.Vector3(0, 8, 5);
+      this.mobileLookDir = new THREE.Vector3(0, -8, -10); // fixed angle relative to camera
+      this.baseFOV = 50;
+    } else {
+      this.cameraOffset = new THREE.Vector3(0, 6, 10);
+      this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
+      this.baseFOV = 60;
+    }
+    this.camera.fov = this.baseFOV;
+    this.camera.updateProjectionMatrix();
     this.currentCameraPos = new THREE.Vector3(0, 12, 15);
 
     // Carve trail system — ribbon mesh that leaves marks in the snow
@@ -439,20 +449,21 @@ export class Game {
 
   updateCamera(dt, playerState) {
     const speed = playerState.speed;
-    const dynamicFOV = 60 + Math.min(speed * 0.15, 12);
+    const dynamicFOV = this.baseFOV + Math.min(speed * 0.15, 12);
     this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, dynamicFOV, 0.05);
     this.camera.updateProjectionMatrix();
 
-    const speedZoom = Math.min(speed * 0.04, 3);
+    const mobile = isTouchDevice;
+    const speedZoom = Math.min(speed * 0.04, mobile ? 0.8 : 3);
     const offset = this.cameraOffset.clone();
-    offset.y += speedZoom;
-    offset.z += speedZoom * 1.5;
+    if (!mobile) offset.y += speedZoom;
+    offset.z += speedZoom * (mobile ? 0.5 : 1.5);
 
-    // Pull camera back when airborne for epic view
+    // Pull camera back when airborne for epic view (minimal on mobile)
     if (playerState.isAirborne) {
-      const airPull = Math.min(playerState.airTime * 1.5, 5);
-      offset.y += airPull * 0.5;
-      offset.z += airPull;
+      const airPull = Math.min(playerState.airTime * 1.5, mobile ? 1.5 : 5);
+      if (!mobile) offset.y += airPull * 0.5;
+      offset.z += airPull * (mobile ? 0.3 : 1);
     }
 
     if (playerState.crashed) {
@@ -461,11 +472,18 @@ export class Game {
     }
 
     const targetPos = this.player.position.clone().add(offset);
-    this.currentCameraPos.lerp(targetPos, playerState.crashed ? 0.02 : 0.06);
+    const lerpSpeed = mobile ? 0.25 : (playerState.crashed ? 0.02 : 0.06);
+    this.currentCameraPos.lerp(targetPos, lerpSpeed);
     this.camera.position.copy(this.currentCameraPos);
 
-    const lookTarget = this.player.position.clone().add(this.cameraLookAhead);
-    this.camera.lookAt(lookTarget);
+    if (mobile) {
+      // Look direction relative to CAMERA position — angle stays constant regardless of lerp lag
+      const lookTarget = this.camera.position.clone().add(this.mobileLookDir);
+      this.camera.lookAt(lookTarget);
+    } else {
+      const lookTarget = this.player.position.clone().add(this.cameraLookAhead);
+      this.camera.lookAt(lookTarget);
+    }
   }
 
   showDeathScreen() {
