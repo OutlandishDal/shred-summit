@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Player } from './Player.js';
 import { Terrain } from './Terrain.js';
 import { TrickSystem } from './TrickSystem.js';
-import { InputManager } from './InputManager.js';
+import { InputManager, isTouchDevice } from './InputManager.js';
+import { TouchControls } from './TouchControls.js';
 import { SnowParticles } from './Particles.js';
 import { initFirebase, submitScore, fetchWorldwideScores, getWeekId } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
@@ -13,6 +14,13 @@ export class Game {
     this.state = 'start'; // 'start', 'playing', 'dead', 'finished'
     this.clock = new THREE.Clock();
     this.input = new InputManager();
+
+    // Touch controls for mobile
+    this.touchControls = null;
+    if (isTouchDevice) {
+      document.body.classList.add('touch-device');
+      this.touchControls = new TouchControls(this.input);
+    }
 
     this.initRenderer();
     this.initScene();
@@ -129,6 +137,24 @@ export class Game {
       handleStart(e);
     });
 
+    // Mobile "CUSTOMIZE" buttons to replace ESC key
+    if (isTouchDevice) {
+      const deathCustomize = document.getElementById('death-customize-btn');
+      if (deathCustomize) {
+        deathCustomize.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openLobby();
+        });
+      }
+      const finishCustomize = document.getElementById('finish-customize-btn');
+      if (finishCustomize) {
+        finishCustomize.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openLobby();
+        });
+      }
+    }
+
     // Lobby setup
     this.setupLobby();
     this.setupLeaderboardTabs();
@@ -147,6 +173,8 @@ export class Game {
       this.input.keys['Space'] = false;
       this.input.justPressed['Space'] = false;
       this.input._previousKeys['Space'] = true;
+      // Show touch controls on mobile
+      if (this.touchControls) this.touchControls.show();
     });
   }
 
@@ -225,6 +253,7 @@ export class Game {
 
   openLobby() {
     this.state = 'lobby';
+    if (this.touchControls) this.touchControls.hide();
     this.ui.deathScreen.classList.remove('active');
     this.ui.finishScreen.classList.remove('active');
     this.ui.newRecordLabel.classList.remove('show');
@@ -335,6 +364,9 @@ export class Game {
       this.terrain.update(this.player.position.z);
       this.particles.update(dt);
 
+      // Touch controls update (show/hide air buttons)
+      if (this.touchControls) this.touchControls.update(playerState);
+
       // Carve trail
       this.updateCarveTrail(playerState);
 
@@ -438,6 +470,7 @@ export class Game {
 
   showDeathScreen() {
     this.state = 'dead';
+    if (this.touchControls) this.touchControls.hide();
     this.ui.deathScreen.classList.add('active');
     this.ui.deathScore.textContent = this.tricks.totalScore.toLocaleString();
     this.ui.crashCatchphrase.textContent = this.tricks.crashPhrase;
@@ -455,6 +488,9 @@ export class Game {
     this.input.justPressed['Space'] = false;
     this.input._previousKeys['Space'] = true;
 
+    // Show touch controls on mobile
+    if (this.touchControls) this.touchControls.show();
+
     this.player.respawn(this.lastCheckpointPos);
     this.currentCameraPos.copy(
       this.lastCheckpointPos.clone().add(this.cameraOffset)
@@ -463,6 +499,7 @@ export class Game {
 
   showFinishScreen() {
     this.state = 'finished';
+    if (this.touchControls) this.touchControls.hide();
     const finalScore = this.tricks.totalScore;
 
     // Pick a finish catchphrase based on score
@@ -599,6 +636,9 @@ export class Game {
     this.input.keys['Space'] = false;
     this.input.justPressed['Space'] = false;
     this.input._previousKeys['Space'] = true;
+
+    // Show touch controls on mobile
+    if (this.touchControls) this.touchControls.show();
 
     // Reset trick score
     this.tricks.totalScore = 0;

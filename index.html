@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Shred Summit</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;900&display=swap');
@@ -694,13 +694,309 @@
       padding: 0 8px;
     }
     .leaderboard-entry.current .lb-name { color: #4cf; }
+
+    /* ===== Touch controls ===== */
+    .touch-controls {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 30;
+      pointer-events: none;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .touch-device .touch-controls { display: block; }
+
+    .touch-btn {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 14px;
+      color: rgba(255,255,255,0.7);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .touch-btn.active {
+      background: rgba(255,255,255,0.3);
+      border-color: rgba(255,255,255,0.6);
+      color: #fff;
+    }
+
+    /* Ground controls - always visible during play */
+    .touch-ground-controls {
+      pointer-events: none;
+    }
+
+    /* Steer zone */
+    .touch-steer-zone {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      width: 160px;
+      height: 70px;
+      display: flex;
+      border-radius: 14px;
+      overflow: hidden;
+      pointer-events: auto;
+      touch-action: none;
+    }
+    .steer-half {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.25);
+      color: rgba(255,255,255,0.6);
+      font-size: 28px;
+      font-family: 'Bebas Neue', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .steer-left { border-radius: 14px 0 0 14px; border-right: 1px solid rgba(255,255,255,0.15); }
+    .steer-right { border-radius: 0 14px 14px 0; border-left: 1px solid rgba(255,255,255,0.15); }
+
+    /* Brake button */
+    #brake-btn {
+      bottom: 94px;
+      left: 16px;
+      width: 160px;
+      height: 55px;
+      font-size: 16px;
+    }
+
+    /* Jump button */
+    #jump-btn {
+      bottom: 16px;
+      right: 16px;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      font-size: 18px;
+      letter-spacing: 3px;
+      background: rgba(76,255,136,0.15);
+      border-color: rgba(76,255,136,0.35);
+    }
+    #jump-btn.active {
+      background: rgba(76,255,136,0.4);
+      border-color: rgba(76,255,136,0.7);
+    }
+
+    /* Tuck button */
+    #tuck-btn {
+      bottom: 36px;
+      right: 130px;
+      width: 75px;
+      height: 60px;
+      font-size: 14px;
+    }
+
+    /* Air controls - dynamic show/hide */
+    .touch-air-controls {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease-out;
+    }
+    .touch-air-controls.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .air-btn {
+      width: 65px;
+      height: 55px;
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    /* Flip buttons (left side, stacked) */
+    #flip-fwd-btn {
+      bottom: 220px;
+      left: 16px;
+      width: 75px;
+    }
+    #flip-back-btn {
+      bottom: 158px;
+      left: 16px;
+      width: 75px;
+    }
+
+    /* Spin buttons (right side, stacked) */
+    #spin-l-btn {
+      bottom: 190px;
+      right: 90px;
+    }
+    #spin-r-btn {
+      bottom: 126px;
+      right: 90px;
+    }
+
+    /* Grab buttons - arc layout */
+    .touch-grab-arc {
+      position: absolute;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 280px;
+      pointer-events: none;
+    }
+    .grab-btn {
+      position: relative !important;
+      width: 52px !important;
+      height: 48px !important;
+      border-radius: 10px !important;
+      font-size: 10px !important;
+      letter-spacing: 1px !important;
+      pointer-events: auto;
+      background: rgba(255,204,0,0.12) !important;
+      border-color: rgba(255,204,0,0.3) !important;
+    }
+    .grab-btn.active {
+      background: rgba(255,204,0,0.4) !important;
+      border-color: rgba(255,204,0,0.7) !important;
+      color: #fff !important;
+    }
+
+    /* Mobile CUSTOMIZE buttons */
+    .touch-customize-btn {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 32px;
+      font-size: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .touch-device .touch-customize-btn { display: inline-block; }
+
+    /* Hide desktop-only elements on touch */
+    .touch-device #controls-hint { display: none !important; }
+    .touch-device .controls-info { display: none !important; }
+    .touch-device .lobby-hint { display: none !important; }
+    .touch-device .esc-hint { display: none !important; }
+    .touch-device .desktop-text { display: none !important; }
+    .touch-device .mobile-text { display: block !important; }
+
+    /* ===== Responsive - Mobile ===== */
+    @media (max-width: 600px) {
+      #start-screen h1 {
+        font-size: 48px;
+        letter-spacing: 6px;
+      }
+      #start-screen .subtitle {
+        font-size: 12px;
+        letter-spacing: 4px;
+        margin-bottom: 30px;
+      }
+      #start-screen .press-start {
+        font-size: 14px;
+        letter-spacing: 2px;
+      }
+
+      #death-screen h1 {
+        font-size: 56px;
+        letter-spacing: 4px;
+      }
+      #death-screen .crash-catchphrase {
+        font-size: 20px;
+      }
+      #death-screen .run-score {
+        font-size: 18px;
+        margin-bottom: 20px;
+      }
+      #death-screen .press-restart {
+        font-size: 14px;
+      }
+
+      #finish-screen h1 {
+        font-size: 48px;
+        letter-spacing: 5px;
+      }
+      #finish-screen .finish-subtitle {
+        font-size: 18px;
+      }
+      #finish-screen .final-score-big {
+        font-size: 40px;
+      }
+      #finish-screen .press-restart {
+        font-size: 14px;
+      }
+
+      .leaderboard {
+        min-width: unset;
+        width: 90%;
+        padding: 12px 16px;
+      }
+
+      /* Lobby */
+      #lobby-screen h2 {
+        font-size: 36px;
+        letter-spacing: 4px;
+        margin-bottom: 20px;
+      }
+      .lobby-row {
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .lobby-row label {
+        text-align: center;
+        width: auto;
+      }
+
+      /* HUD scale down + move up to avoid touch buttons */
+      #score-display { font-size: 26px; top: 16px; right: 16px; }
+      #score-label { top: 6px; right: 16px; font-size: 9px; }
+      #combo-display { top: 48px; right: 16px; font-size: 14px; }
+      #checkpoint-display { top: 16px; left: 16px; font-size: 12px; }
+
+      #speed-display { bottom: 130px; left: 16px; font-size: 22px; }
+      #speed-label { bottom: 122px; left: 60px; font-size: 11px; }
+      #altitude-display { bottom: 150px; left: 16px; font-size: 11px; }
+
+      #trick-meter { bottom: 130px; right: 16px; width: 120px; }
+      #controls-hint { display: none; }
+
+      #jump-height { font-size: 48px; }
+      #jump-height .unit { font-size: 20px; }
+
+      #trick-name { font-size: 36px; }
+      #trick-points { font-size: 22px; }
+      #catchphrase { font-size: 16px; }
+      #stomped-label { font-size: 16px; }
+
+      /* Nickname modal */
+      .nickname-modal h2 { font-size: 32px; }
+      #nickname-input { width: 220px; font-size: 18px; }
+    }
   </style>
 </head>
 <body>
   <div id="start-screen">
     <h1>SHRED SUMMIT</h1>
     <div class="subtitle">Freestyle Snowboarding</div>
-    <div class="press-start">PRESS SPACE OR CLICK TO DROP IN</div>
+    <div class="press-start desktop-text">PRESS SPACE OR CLICK TO DROP IN</div>
+    <div class="press-start mobile-text" style="display:none">TAP TO DROP IN</div>
     <div class="controls-info">
       A/D — STEER &nbsp;&middot;&nbsp; S — BRAKE &nbsp;&middot;&nbsp; SPACE — JUMP &nbsp;&middot;&nbsp; SHIFT — TUCK<br>
       IN AIR: W/S — FLIP &nbsp;&middot;&nbsp; Q/E — SPIN &nbsp;&middot;&nbsp; FLIP+SPIN — CORK &nbsp;&middot;&nbsp; GRABS: G INDY · R METHOD · F STALEFISH · T MELON · V NOSE · C TAIL
@@ -713,8 +1009,10 @@
     <h1>YOU CRASHED</h1>
     <div class="crash-catchphrase" id="crash-catchphrase">YARD SALE!</div>
     <div class="run-score">Score: <span id="death-score">0</span></div>
-    <div class="press-restart">PRESS SPACE OR CLICK TO RESPAWN</div>
-    <div class="press-restart" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <div class="press-restart desktop-text">PRESS SPACE OR CLICK TO RESPAWN</div>
+    <div class="press-restart mobile-text" style="display:none">TAP TO RESPAWN</div>
+    <div class="press-restart esc-hint" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <button class="touch-customize-btn" id="death-customize-btn">CUSTOMIZE</button>
   </div>
 
   <div id="hud">
@@ -762,8 +1060,10 @@
         <div id="leaderboard-entries"></div>
       </div>
     </div>
-    <div class="press-restart">PRESS SPACE OR CLICK TO RIDE AGAIN</div>
-    <div class="press-restart" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <div class="press-restart desktop-text">PRESS SPACE OR CLICK TO RIDE AGAIN</div>
+    <div class="press-restart mobile-text" style="display:none">TAP TO RIDE AGAIN</div>
+    <div class="press-restart esc-hint" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <button class="touch-customize-btn" id="finish-customize-btn">CUSTOMIZE</button>
   </div>
 
   <div id="lobby-screen">
@@ -825,6 +1125,8 @@
       <button id="nickname-submit">LET'S SHRED</button>
     </div>
   </div>
+
+  <div id="touch-controls" class="touch-controls"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

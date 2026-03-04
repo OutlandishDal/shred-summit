@@ -1,9 +1,12 @@
+export const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 export class InputManager {
   constructor() {
     this.keys = {};
     this.justPressed = {};
     this._previousKeys = {};
     this.disabled = false; // Set true to let text inputs work (nickname prompt)
+    this._virtualJump = false; // one-shot for touch jump
 
     window.addEventListener('keydown', (e) => {
       if (this.disabled) return;
@@ -23,6 +26,24 @@ export class InputManager {
       this.justPressed[key] = this.keys[key] && !this._previousKeys[key];
     }
     this._previousKeys = { ...this.keys };
+
+    // Auto-release virtual jump after one frame (simulates tap → wasPressed)
+    if (this._virtualJump) {
+      this.keys['Space'] = false;
+      this._virtualJump = false;
+    }
+  }
+
+  // Touch input injection — sets same key codes as keyboard
+  setTouchKey(code, value) {
+    if (this.disabled) return;
+    this.keys[code] = value;
+  }
+
+  triggerTouchJump() {
+    if (this.disabled) return;
+    this.keys['Space'] = true;
+    this._virtualJump = true;
   }
 
   isDown(code) {
