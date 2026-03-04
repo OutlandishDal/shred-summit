@@ -34,9 +34,9 @@ export class Game {
 
     // Mobile: bring camera closer so snowboarder appears bigger on small screens
     if (isTouchDevice) {
-      this.cameraOffset = new THREE.Vector3(0, 8, 5);
-      this.mobileLookDir = new THREE.Vector3(0, -8, -10); // fixed angle relative to camera
-      this.baseFOV = 50;
+      this.cameraOffset = new THREE.Vector3(0, 6, 3.5);
+      this.mobileLookDir = new THREE.Vector3(0, -6, -8); // fixed angle relative to camera
+      this.baseFOV = 45;
     } else {
       this.cameraOffset = new THREE.Vector3(0, 6, 10);
       this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
