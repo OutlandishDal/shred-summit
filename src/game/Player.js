@@ -1076,9 +1076,9 @@ export class Player {
             landingH = ramp.landingTopHeight * (1 - slopeT) + ramp.landingBottomHeight * slopeT;
           }
 
-          if (landingH > baseH) {
-            boost = Math.max(boost, landingH - baseH);
-          }
+          // Ensure landing surface always stays above terrain (prevents cutoff)
+          landingH = Math.max(landingH, baseH + 0.3);
+          boost = Math.max(boost, landingH - baseH);
         }
       }
     }

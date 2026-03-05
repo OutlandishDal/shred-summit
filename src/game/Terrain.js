@@ -112,14 +112,14 @@ export class Terrain {
     // --- Phase 1: Jump pairs (left = medium, right = small/big) ---
     // Zone 2 jumps are much bigger (~167 unit footprint for 150ft) —
     // use a single slot per chunk so they don't overlap with landings
-    const jumpSlots = zoneLevel === 2 ? [-150] : [-75, -225];
+    const jumpSlots = [-150]; // one pair per chunk — 300 units apart
     const jumpDefs = zoneLevel === 2
-      ? { medium: { feet: 100, width: 12.5, length: 17.5, size: 'medium', lipHeight: 6.75, lipAngle: 0.55 },
-          small:  { feet: 75,  width: 10,   length: 12.5, size: 'small',  lipHeight: 5.0,  lipAngle: 0.45 },
-          big:    { feet: 150, width: 17.5, length: 27.5, size: 'big',    lipHeight: 10.0, lipAngle: 0.65 } }
-      : { medium: { feet: 40, width: 5, length: 7,  size: 'medium', lipHeight: 2.7, lipAngle: 0.55 },
-          small:  { feet: 30, width: 4, length: 5,  size: 'small',  lipHeight: 2.0, lipAngle: 0.45 },
-          big:    { feet: 60, width: 7, length: 11, size: 'big',    lipHeight: 4.0, lipAngle: 0.65 } };
+      ? { medium: { feet: 100, size: 'medium', lipHeight: 6.75, lipAngle: 0.55 },
+          small:  { feet: 75,  size: 'small',  lipHeight: 5.0,  lipAngle: 0.45 },
+          big:    { feet: 150, size: 'big',    lipHeight: 10.0, lipAngle: 0.65 } }
+      : { medium: { feet: 40, size: 'medium', lipHeight: 2.7, lipAngle: 0.55 },
+          small:  { feet: 30, size: 'small',  lipHeight: 2.0, lipAngle: 0.45 },
+          big:    { feet: 60, size: 'big',    lipHeight: 4.0, lipAngle: 0.65 } };
 
     for (const slotZ of jumpSlots) {
       const featureGlobalZ = zOffset + slotZ;
@@ -133,7 +133,10 @@ export class Terrain {
       for (const { def, x } of pair) {
         const feature = this.createJump(def.feet);
         const type = 'kicker';
-        const { width, length, size, lipHeight, lipAngle } = def;
+        const scale = def.feet / 30;
+        const width = 4.0 * scale;   // match createJump's rampWidth
+        const length = 5.0 * scale;  // match createJump's rampLength
+        const { size, lipHeight, lipAngle } = def;
 
         // Embed in terrain
         const halfW = width / 2;
@@ -162,8 +165,11 @@ export class Terrain {
           // Landing starts after the air gap (space between lip and landing surface)
           rampData.landingZoneStartZ = lipZ - (ld.airGap || 0);
           rampData.landingZoneEndZ = lipZ - (ld.airGap || 0) - ld.gap - ld.length;
-          rampData.landingTopHeight = minY + ld.topLocalY;
-          rampData.landingBottomHeight = minY + ld.endLocalY;
+          // Use actual terrain heights to ensure landing zone stays above ground
+          const terrainAtStart = this.computeHeight(x, rampData.landingZoneStartZ);
+          const terrainAtEnd = this.computeHeight(x, rampData.landingZoneEndZ);
+          rampData.landingTopHeight = Math.max(minY + ld.topLocalY, terrainAtStart + 2.0);
+          rampData.landingBottomHeight = Math.max(minY + ld.endLocalY, terrainAtEnd + 1.0);
           rampData.landingWidth = ld.width;
           rampData.landingGap = ld.gap;
           rampData.landingLength = ld.length;
@@ -399,7 +405,8 @@ export class Terrain {
     const landingTopY = rampHeight * 0.92 - (airGap * this.slopeAngle);
     // Landing end must reach actual terrain level at that Z distance from group center
     const distToLandingEnd = rampLength / 2 + airGap + totalLandingDist;
-    const landingEndY = -(distToLandingEnd * this.slopeAngle);
+    // Extra depth keeps visual landing surface above terrain for full length
+    const landingEndY = -(distToLandingEnd * this.slopeAngle) - 2.0 * scale;
 
     // Landing profile: flat table then straight slope (like real park jumps)
     const landingSegs = 20;
