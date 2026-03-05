@@ -160,7 +160,7 @@ export class Terrain {
           rampData.landingZoneStartZ = lipZ;
           rampData.landingZoneEndZ = lipZ - ld.gap - ld.length;
           rampData.landingTopHeight = minY + ld.topLocalY;
-          rampData.landingBottomHeight = this.computeHeight(x, lipZ - ld.gap - ld.length) - 0.3;
+          rampData.landingBottomHeight = minY + ld.endLocalY;
           rampData.landingWidth = ld.width;
           rampData.landingGap = ld.gap;
           rampData.landingLength = ld.length;
@@ -402,7 +402,7 @@ export class Terrain {
     landingShape.moveTo(0, landingTopY);
     for (let i = 0; i <= landingSegs; i++) {
       const t = i / landingSegs;
-      const x = t * (totalLandingDist + 1.5 * scale);
+      const x = t * totalLandingDist;
       let y;
       if (t <= tableFrac) {
         // Flat table / knuckle section
@@ -414,7 +414,8 @@ export class Terrain {
       }
       landingShape.lineTo(x, y);
     }
-    // Close underneath with generous fill depth
+    // Flat runout past slope bottom + fill underneath
+    landingShape.lineTo(totalLandingDist + 1.5 * scale, landingEndY);
     const fillBottom = landingEndY - 5 * scale;
     landingShape.lineTo(totalLandingDist + 1.5 * scale, fillBottom);
     landingShape.lineTo(0, fillBottom);
