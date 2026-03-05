@@ -521,6 +521,10 @@ export class TrickSystem {
   getMistyName(totalDegrees, flipCount, direction = '') {
     // Misty = frontflip + spin (forward cork)
     const deg = Math.max(totalDegrees, 540); // minimum misty is 540
+    // McTwisty 1260 = single-flip misty 1260
+    if (deg === 1260 && flipCount === 1) {
+      return direction ? `${direction} MCTWISTY 1260` : 'MCTWISTY 1260';
+    }
     const prefix = flipCount >= 3 ? 'TRIPLE MISTY' : flipCount >= 2 ? 'DOUBLE MISTY' : 'MISTY';
     return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
   }
