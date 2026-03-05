@@ -21,6 +21,11 @@ export class TrickSystem {
     this.wasGrinding = false;
     this.lastBoardslideType = null;
     this.grindAccumulatedTime = 0;
+    this.grindFrontswaps = 0;  // frontswap count during current grind
+    this.spinOnName = '';      // e.g. "FRONTSIDE 270 ON" — set when landing on rail with spin
+    this.spinOnPoints = 0;     // score from the spin-on
+    this.rawSpinRadians = 0;   // actual trickRotation.y value for precise degree calculation
+    this.wasOnRailBeforeAir = false; // spin-off detection: jumped off rail → airborne → ground
 
     // Quest tracking events (consumed by QuestSystem)
     this.lastScoredTrick = null;  // set when a trick is scored
@@ -124,11 +129,12 @@ export class TrickSystem {
       }
     }
 
-    if (!playerState.grounded && !playerState.crashed) {
+    if (!playerState.grounded && !playerState.grinding && !playerState.crashed) {
       this.wasAirborne = true;
 
       const yRot = playerState.trickRotation.y;
       this.spinCount = Math.floor(Math.abs(yRot) / Math.PI);
+      this.rawSpinRadians = yRot;
 
       const xRot = playerState.trickRotation.x;
       this.flipCount = Math.floor(Math.abs(xRot) / Math.PI);
@@ -148,10 +154,17 @@ export class TrickSystem {
       }
     }
 
+    // Spin-on detection: air → rail with accumulated spin
+    if (playerState.landedOnRail && this.wasAirborne) {
+      this.scoreSpinOn(playerState);
+      this.wasAirborne = false;
+    }
+
     // Track rail grind state
     if (playerState.grinding) {
       this.wasGrinding = true;
       this.grindAccumulatedTime = playerState.grindTime;
+      this.grindFrontswaps = playerState.frontswapCount || 0;
       if (playerState.boardslideType) {
         this.lastBoardslideType = playerState.boardslideType;
       }
@@ -192,19 +205,30 @@ export class TrickSystem {
 
     // Cork detection: when both spin and flip happened simultaneously
     const hasCork = this.isCork && this.spinCount >= 1 && this.flipCount >= 1;
+    // Spin direction: positive Y = left = frontside, negative Y = right = backside
+    const spinDir = this.rawSpinRadians > 0 ? 'FRONTSIDE' : 'BACKSIDE';
 
     if (hasCork) {
-      // Cork trick — combine spin degrees into cork name
+      // Cork trick — combine spin degrees into cork name with direction
       const degrees = this.spinCount * 180;
-      const corkName = this.getCorkName(degrees, this.flipCount);
-      tricks.push(corkName);
+      const corkName = this.getCorkName(degrees, this.flipCount, spinDir);
+      tricks.push(this.wasOnRailBeforeAir ? corkName + ' OFF' : corkName);
       // Cork scores more than individual spin + flip (it's harder)
       trickScore += this.spinCount * 300 + this.flipCount * 500;
     } else {
-      // Regular spin
-      if (this.spinCount >= 1) {
+      // Spin-off: jumped off a rail and spun before landing
+      if (this.wasOnRailBeforeAir) {
+        const rawDeg = Math.abs(this.rawSpinRadians) * (180 / Math.PI);
+        const degrees = Math.round(rawDeg / 90) * 90;
+        if (degrees >= 180) {
+          const dir = this.rawSpinRadians > 0 ? 'FRONTSIDE' : 'BACKSIDE';
+          tricks.push(`${dir} ${degrees} OFF`);
+          trickScore += Math.ceil(degrees / 90) * 125;
+        }
+      } else if (this.spinCount >= 1) {
+        // Regular air spin with direction (180° increments)
         const degrees = this.spinCount * 180;
-        tricks.push(this.getSpinName(degrees));
+        tricks.push(`${spinDir} ${this.getSpinName(degrees)}`);
         trickScore += this.spinCount * 250;
       }
 
@@ -277,6 +301,82 @@ export class TrickSystem {
     this.grabTypes.clear();
     this.currentGrabType = null;
     this.isCork = false;
+    this.wasOnRailBeforeAir = false;
+    this.rawSpinRadians = 0;
+  }
+
+  // Score the spin/flip portion of an air→rail transition
+  scoreSpinOn(playerState) {
+    const tricks = [];
+    let trickScore = 0;
+
+    // Rail on/off use 90° increments (can land sideways on a rail)
+    const rawDeg = Math.abs(this.rawSpinRadians) * (180 / Math.PI);
+    const degrees = Math.round(rawDeg / 90) * 90;
+    if (degrees >= 180) {
+      const dir = this.rawSpinRadians > 0 ? 'FRONTSIDE' : 'BACKSIDE';
+      tricks.push(`${dir} ${degrees} ON`);
+      trickScore += Math.ceil(degrees / 90) * 125;
+    }
+
+    if (this.flipCount >= 1) {
+      tricks.push(this.getFlipName(this.flipCount, this.flipDirection));
+      trickScore += this.flipCount * 400;
+    }
+
+    if (this.grabTime > 0.3) {
+      for (const grab of this.grabTypes) {
+        tricks.push(this.getGrabDisplayName(grab));
+      }
+      trickScore += Math.floor(this.grabTime * 150);
+    }
+
+    // Store spin-on info for combining with the grind trick name
+    if (tricks.length > 0 && trickScore > 0) {
+      trickScore = Math.floor(trickScore * this.comboMultiplier);
+      trickScore = Math.floor(trickScore * (playerState.flexMultiplier || 1.0));
+      this.spinOnName = tricks.join(' + ');
+      this.spinOnPoints = trickScore;
+
+      // Show the spin-on immediately as a trick
+      this.totalScore += trickScore;
+      this.lastTrickName = this.spinOnName;
+      this.lastTrickPoints = trickScore;
+      this.lastTrickTime = performance.now();
+      this.lastCatchphrase = this.pickCatchphrase(trickScore);
+      this.lastCatchphraseTime = performance.now();
+
+      this.comboMultiplier = Math.min(this.comboMultiplier + 0.5, 5.0);
+      this.comboTimer = this.comboDuration;
+
+      // Quest tracking
+      this.lastScoredTrick = {
+        spinCount: this.spinCount,
+        flipCount: this.flipCount,
+        flipDirection: this.flipDirection,
+        grabTypes: new Set(this.grabTypes),
+        isCork: this.isCork,
+        points: trickScore,
+        comboMultiplier: this.comboMultiplier,
+        landingQuality: null,
+      };
+    } else {
+      this.spinOnName = '';
+      this.spinOnPoints = 0;
+    }
+
+    // Spin-on consumed — not a spin-off
+    this.wasOnRailBeforeAir = false;
+
+    // Reset air trick tracking
+    this.spinCount = 0;
+    this.flipCount = 0;
+    this.flipDirection = 0;
+    this.grabTime = 0;
+    this.grabTypes.clear();
+    this.currentGrabType = null;
+    this.isCork = false;
+    this.rawSpinRadians = 0;
   }
 
   scoreRailTrick(playerState) {
@@ -296,6 +396,15 @@ export class TrickSystem {
         trickScore += 100 + Math.floor(this.grindAccumulatedTime * 75);
       }
 
+      // Frontswap bonus — switching between frontside and backside mid-grind
+      if (this.grindFrontswaps > 0) {
+        const swapLabel = this.grindFrontswaps > 1
+          ? `${this.grindFrontswaps}x FRONTSWAP`
+          : 'FRONTSWAP';
+        tricks.push(swapLabel);
+        trickScore += this.grindFrontswaps * 150;
+      }
+
       // Long grind bonus
       if (this.grindAccumulatedTime > 2.0) {
         trickScore += Math.floor((this.grindAccumulatedTime - 2.0) * 150);
@@ -306,11 +415,18 @@ export class TrickSystem {
       trickScore = Math.floor(trickScore * this.comboMultiplier);
       trickScore = Math.floor(trickScore * (playerState.flexMultiplier || 1.0));
       this.totalScore += trickScore;
-      this.lastTrickName = tricks.join(' + ');
-      this.lastTrickPoints = trickScore;
+
+      // Combine spin-on name with grind name (e.g. "270 ON + FRONTSIDE BOARDSLIDE")
+      let fullName = tricks.join(' + ');
+      if (this.spinOnName) {
+        fullName = this.spinOnName + ' + ' + fullName;
+      }
+
+      this.lastTrickName = fullName;
+      this.lastTrickPoints = trickScore + this.spinOnPoints;
       this.lastTrickTime = performance.now();
 
-      this.lastCatchphrase = this.pickCatchphrase(trickScore);
+      this.lastCatchphrase = this.pickCatchphrase(trickScore + this.spinOnPoints);
       this.lastCatchphraseTime = performance.now();
 
       this.comboMultiplier = Math.min(this.comboMultiplier + 0.5, 5.0);
@@ -323,8 +439,16 @@ export class TrickSystem {
       };
     }
 
+    // If player is airborne after grind, they may spin off
+    if (!playerState.grounded) {
+      this.wasOnRailBeforeAir = true;
+    }
+
+    this.spinOnName = '';
+    this.spinOnPoints = 0;
     this.lastBoardslideType = null;
     this.grindAccumulatedTime = 0;
+    this.grindFrontswaps = 0;
   }
 
   pickCatchphrase(score) {
@@ -350,11 +474,11 @@ export class TrickSystem {
     return '180';
   }
 
-  getCorkName(spinDegrees, flipCount) {
-    // Cork naming: "CORK 540", "DOUBLE CORK 1080", etc.
+  getCorkName(spinDegrees, flipCount, direction = '') {
+    // Cork naming: "FRONTSIDE CORK 540", "BACKSIDE DOUBLE CORK 1080", etc.
     const prefix = flipCount >= 3 ? 'TRIPLE CORK' : flipCount >= 2 ? 'DOUBLE CORK' : 'CORK';
     const deg = Math.max(spinDegrees, 360); // minimum cork is 360
-    return `${prefix} ${deg}`;
+    return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
   }
 
   getFlipName(count, direction = 0) {

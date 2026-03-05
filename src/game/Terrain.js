@@ -10,6 +10,7 @@ export class Terrain {
     this.chunksGenerated = 0;
     this.obstacles = [];
     this.ramps = [];
+    this.exclusionZones = []; // global across all chunks { x, zStart, zEnd, halfWidth }
     this.checkpoints = [];
     this.checkpointInterval = 600;
     this.nextCheckpointZ = -300;
@@ -101,47 +102,7 @@ export class Terrain {
 
     const chunk = { mesh, zOffset, yOffset, objects: [] };
 
-    // Trees
-    const treeCount = 25 + Math.floor(Math.random() * 15);
-    for (let i = 0; i < treeCount; i++) {
-      const side = Math.random() > 0.5 ? 1 : -1;
-      const edgeBias = Math.random() < 0.7;
-      const x = edgeBias
-        ? side * (28 + Math.random() * 25)
-        : (Math.random() - 0.5) * 50;
-      const z = (Math.random() - 0.5) * this.chunkLength;
-      const globalZ = zOffset + z;
-      const y = this.computeHeight(x, globalZ);
-      if (Math.abs(x) < 8) continue;
-
-      const tree = this.createPineTree();
-      tree.position.set(x, y, globalZ);
-      this.scene.add(tree);
-      chunk.objects.push(tree);
-      this.obstacles.push({
-        position: new THREE.Vector3(x, y, globalZ),
-        radius: 1.2, type: 'tree',
-      });
-    }
-
-    // Rocks
-    const rockCount = 3 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < rockCount; i++) {
-      const x = (Math.random() - 0.5) * 50;
-      const z = (Math.random() - 0.5) * this.chunkLength;
-      const globalZ = zOffset + z;
-      const y = this.computeHeight(x, globalZ);
-      if (Math.abs(x) < 6) continue;
-
-      const rock = this.createRock();
-      rock.position.set(x, y, globalZ);
-      this.scene.add(rock);
-      chunk.objects.push(rock);
-      this.obstacles.push({
-        position: new THREE.Vector3(x, y, globalZ),
-        radius: 2.0, type: 'rock',
-      });
-    }
+    // Exclusion zones — global, persists across chunks
 
     // Features: jumps and rails
     // Determine zone level for this chunk
@@ -206,103 +167,120 @@ export class Terrain {
         }
 
         this.ramps.push(rampData);
+
+        // Exclusion zone: ramp body + landing zone + 6 unit buffer (~20ft)
+        const buffer = 6;
+        const zTop = featureGlobalZ + length / 2 + buffer; // uphill of ramp
+        let zBottom = featureGlobalZ - length / 2 - buffer; // downhill of ramp
+        if (rampData.landingZoneEndZ) {
+          zBottom = rampData.landingZoneEndZ - buffer; // extend through landing
+        }
+        this.exclusionZones.push({ x, zStart: zBottom, zEnd: zTop, halfWidth: width / 2 + buffer });
       }
     }
 
-    // --- Phase 2: Rails (randomly placed between jump pairs) ---
+    // --- Phase 2: Flat park rails with entry lips ---
     const railCount = 3 + Math.floor(Math.random() * 3); // 3-5 rails
     for (let i = 0; i < railCount; i++) {
       const x = zoneLevel === 2
         ? (Math.random() - 0.5) * 45
         : (Math.random() - 0.5) * 35;
       const z = -20 - Math.random() * (this.chunkLength - 40);
-      const roll = Math.random();
 
-      let feature, width, length, surfaceHeight;
-
+      // Rail dimensions by zone
+      let railLength, railHeight, lipHeight;
       if (zoneLevel === 2) {
-        const ws = 3;
-        if (roll < 0.14) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createFlatRail(rs, ws);
-          width = 1.5 * ws; length = 8 * rs; surfaceHeight = 1.2;
-        } else if (roll < 0.28) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createDownRail(rs, ws);
-          width = 1.5 * ws; length = 10 * rs; surfaceHeight = 1.5;
-        } else if (roll < 0.42) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createRainbowRail(rs, ws);
-          width = 1.5 * ws; length = 10 * rs; surfaceHeight = 2.0;
-        } else if (roll < 0.56) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createFlatDownFlatRail(rs, ws);
-          width = 1.5 * ws; length = 12 * rs; surfaceHeight = 1.5;
-        } else if (roll < 0.70) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createBox(rs, ws);
-          width = 2 * ws; length = 8 * rs; surfaceHeight = 1.0;
-        } else if (roll < 0.85) {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createCRail(rs, ws);
-          width = 2 * ws; length = 10 * rs; surfaceHeight = 1.3;
-        } else {
-          const rs = 3 + Math.random() * 4;
-          feature = this.createKinkRail(rs, ws);
-          width = 1.5 * ws; length = 10 * rs; surfaceHeight = 1.8;
-        }
+        railLength = 35 + Math.random() * 10; // 35-45 units
+        railHeight = 1.5;
+        lipHeight = 1.2; // tall lips for 450s
       } else {
-        if (roll < 0.17) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createFlatRail(rs);
-          width = 1.5; length = 8 * rs; surfaceHeight = 1.2;
-        } else if (roll < 0.33) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createDownRail(rs);
-          width = 1.5; length = 10 * rs; surfaceHeight = 1.5;
-        } else if (roll < 0.50) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createRainbowRail(rs);
-          width = 1.5; length = 10 * rs; surfaceHeight = 2.0;
-        } else if (roll < 0.63) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createFlatDownFlatRail(rs);
-          width = 1.5; length = 12 * rs; surfaceHeight = 1.5;
-        } else if (roll < 0.76) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createBox(rs);
-          width = 2; length = 8 * rs; surfaceHeight = 1.0;
-        } else if (roll < 0.88) {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createCRail(rs);
-          width = 2; length = 10 * rs; surfaceHeight = 1.3;
-        } else {
-          const rs = 2 + Math.random() * 3;
-          feature = this.createKinkRail(rs);
-          width = 1.5; length = 10 * rs; surfaceHeight = 1.8;
-        }
+        railLength = 30 + Math.random() * 10; // 30-40 units
+        railHeight = 1.2;
+        lipHeight = 0.8; // smaller lips for 270s
       }
 
-      const halfW = width / 2;
-      const halfL = length / 2;
+      const feature = this.createParkRail(railLength, railHeight, 0);
+      const width = 4.0;
+      const length = railLength;
+      const surfaceHeight = railHeight;
+
+      // Compute terrain slope at rail endpoints to tilt rail
       const featureGlobalZ = zOffset + z;
-      let minY = Infinity;
-      for (const sx of [-halfW, 0, halfW]) {
-        for (const sz of [-halfL, -halfL / 2, 0, halfL / 2, halfL]) {
-          const h = this.computeHeight(x + sx, featureGlobalZ + sz);
-          if (h < minY) minY = h;
-        }
-      }
-      minY -= 0.3;
+      const upY = this.computeHeight(x, featureGlobalZ + railLength / 2);
+      const downY = this.computeHeight(x, featureGlobalZ - railLength / 2);
+      const midY = (upY + downY) / 2;
+      const tiltAngle = Math.atan2(upY - downY, railLength);
 
-      feature.position.set(x, minY, featureGlobalZ);
+      feature.position.set(x, midY, featureGlobalZ);
+      feature.rotation.x = -tiltAngle; // match slope angle
       this.scene.add(feature);
       chunk.objects.push(feature);
       this.ramps.push({
         mesh: feature,
-        position: new THREE.Vector3(x, minY, featureGlobalZ),
+        position: new THREE.Vector3(x, midY, featureGlobalZ),
         type: 'rail', width, length, surfaceHeight,
         lipHeight: 0, lipAngle: 0,
+      });
+
+      // Exclusion zone: rail + buffer
+      const totalFootprint = railLength;
+      const buffer = 6;
+      this.exclusionZones.push({
+        x, zStart: featureGlobalZ - totalFootprint / 2 - buffer,
+        zEnd: featureGlobalZ + totalFootprint / 2 + buffer,
+        halfWidth: width / 2 + buffer,
+      });
+    }
+
+    // --- Phase 3: Trees and rocks (placed AFTER features to avoid exclusion zones) ---
+    const isInExclusionZone = (ox, oz) => {
+      for (const zone of this.exclusionZones) {
+        if (oz >= zone.zStart && oz <= zone.zEnd && Math.abs(ox - zone.x) < zone.halfWidth) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const treeCount = 25 + Math.floor(Math.random() * 15);
+    for (let i = 0; i < treeCount; i++) {
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const edgeBias = Math.random() < 0.7;
+      const x = edgeBias
+        ? side * (28 + Math.random() * 25)
+        : (Math.random() - 0.5) * 50;
+      const z = (Math.random() - 0.5) * this.chunkLength;
+      const globalZ = zOffset + z;
+      const y = this.computeHeight(x, globalZ);
+      if (Math.abs(x) < 8) continue;
+      if (isInExclusionZone(x, globalZ)) continue;
+
+      const tree = this.createPineTree();
+      tree.position.set(x, y, globalZ);
+      this.scene.add(tree);
+      chunk.objects.push(tree);
+      this.obstacles.push({
+        position: new THREE.Vector3(x, y, globalZ),
+        radius: 1.2, type: 'tree',
+      });
+    }
+
+    const rockCount = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < rockCount; i++) {
+      const x = (Math.random() - 0.5) * 50;
+      const z = (Math.random() - 0.5) * this.chunkLength;
+      const globalZ = zOffset + z;
+      const y = this.computeHeight(x, globalZ);
+      if (Math.abs(x) < 6) continue;
+      if (isInExclusionZone(x, globalZ)) continue;
+
+      const rock = this.createRock();
+      rock.position.set(x, y, globalZ);
+      this.scene.add(rock);
+      chunk.objects.push(rock);
+      this.obstacles.push({
+        position: new THREE.Vector3(x, y, globalZ),
+        radius: 2.0, type: 'rock',
       });
     }
 
@@ -816,6 +794,72 @@ export class Terrain {
       );
       post.position.set(0, h / 2, z);
       group.add(post);
+    }
+
+    return group;
+  }
+
+  // --- PARK RAIL: flat tube rail with entry lips ---
+  createParkRail(railLength, railHeight, lipHeight) {
+    const group = new THREE.Group();
+    const tubeRadius = 0.1;
+
+    // Main rail tube
+    const rail = new THREE.Mesh(
+      new THREE.CylinderGeometry(tubeRadius, tubeRadius, railLength, 8),
+      this.metalMaterial
+    );
+    rail.rotation.x = Math.PI / 2;
+    rail.position.y = railHeight;
+    rail.castShadow = true;
+    group.add(rail);
+
+    // Support posts
+    const postCount = Math.max(2, Math.round(railLength / 12) + 1);
+    for (let i = 0; i < postCount; i++) {
+      const t = i / (postCount - 1);
+      const z = -railLength / 2 + t * railLength;
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.08, railHeight, 6),
+        this.rockMaterial
+      );
+      post.position.set(0, railHeight / 2, z);
+      post.castShadow = true;
+      group.add(post);
+    }
+
+    // Entry lips on both ends — centered on rail, 2ft (~0.6 unit) gap
+    if (lipHeight > 0) {
+      const lipLen = lipHeight * 3;
+      const lipW = 4.0;
+      const lipGap = 0.6; // 2 feet
+
+      const makeLipShape = () => {
+        const s = new THREE.Shape();
+        s.moveTo(0, 0);
+        s.lineTo(lipLen, 0);
+        s.lineTo(lipLen, lipHeight);
+        s.closePath();
+        return s;
+      };
+
+      // Uphill lip (+z end, rider approaches from uphill)
+      const upGeo = new THREE.ExtrudeGeometry(makeLipShape(), { depth: lipW, bevelEnabled: false });
+      upGeo.rotateY(-Math.PI / 2);
+      upGeo.translate(-lipW / 2, 0, 0);
+      const upLip = new THREE.Mesh(upGeo, this.rampMaterial);
+      upLip.position.z = railLength / 2 + lipGap + lipLen;
+      upLip.castShadow = true;
+      group.add(upLip);
+
+      // Downhill lip (-z end)
+      const downGeo = new THREE.ExtrudeGeometry(makeLipShape(), { depth: lipW, bevelEnabled: false });
+      downGeo.rotateY(Math.PI / 2);
+      downGeo.translate(lipW / 2, 0, 0);
+      const downLip = new THREE.Mesh(downGeo, this.rampMaterial);
+      downLip.position.z = -(railLength / 2 + lipGap + lipLen);
+      downLip.castShadow = true;
+      group.add(downLip);
     }
 
     return group;

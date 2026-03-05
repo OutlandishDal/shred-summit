@@ -8,14 +8,19 @@ export class InputManager {
     this.disabled = false; // Set true to let text inputs work (nickname prompt)
     this._virtualJump = false; // one-shot for touch jump
 
+    const isFormInput = () => {
+      const el = document.activeElement;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    };
+
     window.addEventListener('keydown', (e) => {
-      if (this.disabled) return;
+      if (this.disabled || isFormInput()) return;
       this.keys[e.code] = true;
       e.preventDefault();
     });
 
     window.addEventListener('keyup', (e) => {
-      if (this.disabled) return;
+      if (this.disabled || isFormInput()) return;
       this.keys[e.code] = false;
       e.preventDefault();
     });

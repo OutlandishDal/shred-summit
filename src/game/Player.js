@@ -49,6 +49,8 @@ export class Player {
     this.boardslideAngle = 0;     // visual rotation for boardslide
     this.grindTime = 0;           // how long current grind has lasted
     this.wasGrinding = false;
+    this.landedOnRail = false;     // one-shot flag: air → rail transition
+    this.frontswapCount = 0;       // number of frontside↔backside swaps during grind
 
     // Cork tracking
     this.isCorkingThisJump = false;
@@ -374,6 +376,7 @@ export class Player {
 
     this.wasGrounded = this.grounded;
     this.wasGrinding = this.grinding;
+    this.landedOnRail = false; // one-shot: cleared each frame, set by _initGrindFromAir
     this.isTucking = input.tuck;
 
     const groundOffset = 0.08; // board rests on snow
@@ -715,6 +718,8 @@ export class Player {
           this.grindRail = null;
           this.grounded = false;
           this.peakHeight = 0;
+          // Exit kicker pop — launch ~3-5 feet upward (about character height)
+          this.velocity.y = 7.0;
         }
       }
 
@@ -724,8 +729,9 @@ export class Player {
         this.position.x = THREE.MathUtils.lerp(this.position.x, railX, 0.15);
         this.velocity.x *= 0.8; // dampen lateral drift
 
-        // Lock Y to rail surface height
-        const railTop = this.grindRail.position.y + this.grindRail.surfaceHeight;
+        // Lock Y to rail surface height at player's Z (follows terrain slope)
+        const terrainAtPlayer = terrain.computeHeight(this.position.x, this.position.z);
+        const railTop = terrainAtPlayer + this.grindRail.surfaceHeight;
         this.position.y = railTop + 0.2;
         this.velocity.y = 0;
 
@@ -736,6 +742,7 @@ export class Player {
         this.grindTime += dt;
 
         // A/D for boardslide tricks while grinding
+        const prevBoardslideType = this.boardslideType;
         if (input.steer > 0) {
           // D key = frontside boardslide
           this.boardslideType = 'frontside';
@@ -744,10 +751,21 @@ export class Player {
           // A key = backside boardslide
           this.boardslideType = 'backside';
           this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, -Math.PI / 2, 0.15);
+        } else if (this.boardslideType) {
+          // No A/D but already in a boardslide (from spin-on or previous input) — hold angle
+        } else if (this.equipmentType === 'ski') {
+          // Skis can't 50-50 — default to frontside boardslide
+          this.boardslideType = 'frontside';
+          this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, Math.PI / 2, 0.15);
         } else {
-          // No A/D = regular 50-50 grind
-          this.boardslideType = null;
+          // No A/D and no boardslide = regular 50-50 grind, settle toward 0
           this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, 0, 0.15);
+        }
+
+        // Detect frontswap: switching between frontside ↔ backside
+        if (prevBoardslideType && this.boardslideType &&
+            prevBoardslideType !== this.boardslideType) {
+          this.frontswapCount = (this.frontswapCount || 0) + 1;
         }
 
         // Slight body lean during boardslide
@@ -1118,7 +1136,9 @@ export class Player {
 
       const dx = this.position.x - ramp.position.x;
       const dz = this.position.z - ramp.position.z;
-      const railTop = ramp.position.y + ramp.surfaceHeight;
+      // Use terrain height at player's Z for accurate rail top on tilted rails
+      const terrainH = terrain.computeHeight(this.position.x, this.position.z);
+      const railTop = terrainH + ramp.surfaceHeight;
       const dy = this.position.y - railTop;
 
       // Check if player is within rail XZ footprint
@@ -1134,24 +1154,79 @@ export class Player {
           this.grounded = false;
           this.peakHeight = 0;
           this.grindTime = 0;
-          this.boardslideType = null;
-          this.boardslideAngle = 0;
+          this.frontswapCount = 0;
+          if (this.equipmentType === 'ski') {
+            // Skis can't 50-50 — default to frontside boardslide
+            this.boardslideType = 'frontside';
+            this.boardslideAngle = Math.PI / 2;
+          } else {
+            this.boardslideType = null;
+            this.boardslideAngle = 0;
+          }
           break;
         } else if (!this.grounded && this.velocity.y <= 0 &&
-                   dy > -0.3 && dy < 1.5) {
-          // Airborne descending player — snap onto rail
+                   dy > -1.0 && dy < 3.0) {
+          // Airborne descending player — snap onto rail (generous catch window)
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
           this.grindRail = ramp;
           this.peakHeight = 0;
           this.grindTime = 0;
-          this.boardslideType = null;
-          this.boardslideAngle = 0;
+          this._initGrindFromAir();
+          break;
+        } else if (!this.grounded && this.velocity.y > 0 &&
+                   dy > -0.5 && dy < 1.5) {
+          // Airborne ascending player passing through rail height — catch on the way up too
+          this.position.y = railTop + 0.2;
+          this.velocity.y = 0;
+          this.grinding = true;
+          this.grindRail = ramp;
+          this.peakHeight = 0;
+          this.grindTime = 0;
+          this._initGrindFromAir();
           break;
         }
       }
     }
+  }
+
+  // Convert air spin rotation into initial grind angle when landing on a rail
+  _initGrindFromAir() {
+    // Normalize trickRotation.y into -PI..PI range to get board angle relative to rail
+    let angle = this.trickRotation.y % (Math.PI * 2);
+    if (angle > Math.PI) angle -= Math.PI * 2;
+    if (angle < -Math.PI) angle += Math.PI * 2;
+
+    // Determine boardslide type from the landing angle
+    // Near 0 or full 360 = 50-50, near +/-90 = boardslide
+    const absAngle = Math.abs(angle);
+    if (absAngle > Math.PI * 0.25 && absAngle < Math.PI * 0.75) {
+      // ~45-135 degrees = boardslide
+      this.boardslideType = angle > 0 ? 'backside' : 'frontside';
+      this.boardslideAngle = angle;
+    } else if (absAngle >= Math.PI * 0.75) {
+      // ~135-180 degrees = switch boardslide (treat as boardslide too)
+      this.boardslideType = angle > 0 ? 'backside' : 'frontside';
+      this.boardslideAngle = angle;
+    } else if (this.equipmentType === 'ski') {
+      // Skis can't 50-50 — default to frontside boardslide
+      this.boardslideType = 'frontside';
+      this.boardslideAngle = angle || Math.PI / 2;
+    } else {
+      // Near straight = 50-50
+      this.boardslideType = null;
+      this.boardslideAngle = angle;
+    }
+
+    this.frontswapCount = 0;
+
+    // Signal to TrickSystem that we landed on a rail from air
+    this.landedOnRail = true;
+
+    // Reset trickRotation so Q/E spins during grind accumulate fresh
+    this.trickRotation.set(0, 0, 0);
+    this.angularVelocity.set(0, 0, 0);
   }
 
   applyGrabPose(type) {
@@ -1402,9 +1477,11 @@ export class Player {
       wasGrinding: this.wasGrinding,
       boardslideType: this.boardslideType,
       grindTime: this.grindTime,
+      frontswapCount: this.frontswapCount,
       isCork: this.isCorkingThisJump,
       flexMultiplier: this.flexMultiplier,
       landingQuality: this.landingQuality,
+      landedOnRail: this.landedOnRail,
     };
   }
 }

@@ -179,6 +179,9 @@ export class Game {
     };
 
     window.addEventListener('keydown', (e) => {
+      // Don't intercept keys when typing in form inputs
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       if (e.code === 'Space') handleStart(e);
       if (e.code === 'Escape') {
         if (this.state === 'dead' || this.state === 'finished') {
@@ -241,6 +244,7 @@ export class Game {
     // Hide start screen until auth completes
     this.ui.startScreen.style.display = 'none';
     this.ui.authScreen.classList.add('active');
+    this.input.disabled = true; // Let keyboard input go to auth fields
 
     // Auth buttons
     const doAuth = async (action) => {
@@ -333,11 +337,13 @@ export class Game {
     // Transition to start screen
     this.ui.authScreen.classList.remove('active');
     this.ui.startScreen.style.display = '';
+    this.input.disabled = false;
     this.state = 'start';
   }
 
   onLogout() {
     this.state = 'auth';
+    this.input.disabled = true;
     this.ui.startScreen.style.display = 'none';
     this.ui.lobbyScreen.style.display = 'none';
     this.ui.deathScreen.style.display = 'none';
