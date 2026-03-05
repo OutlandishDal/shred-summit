@@ -1,0 +1,2350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/shred-summit/assets/manifest-D_JT9K7V.json" />
+  <title>Shred Summit</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;900&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body { overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
+
+    canvas { display: block; }
+
+    #hud {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #score-display {
+      position: absolute;
+      top: 24px; right: 32px;
+      color: #fff;
+      font-size: 36px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+    }
+
+    #score-label {
+      position: absolute;
+      top: 12px; right: 32px;
+      color: rgba(255,255,255,0.5);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    #combo-display {
+      position: absolute;
+      top: 68px; right: 32px;
+      color: #ffcc00;
+      font-size: 18px;
+      font-weight: 700;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    /* Landing announcement container */
+
+    #landing-announce {
+      position: absolute;
+      top: 32%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #landing-announce.show {
+      opacity: 1;
+      animation: landPop 0.3s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+    }
+
+    #landing-announce.fade-out {
+      opacity: 0;
+      transition: opacity 0.4s ease-out;
+    }
+
+    @keyframes landPop {
+      0% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+      50% { transform: translate(-50%, -50%) scale(0.95); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    }
+
+    #stomped-label {
+      color: #4cff88;
+      font-size: 20px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 6px;
+      text-shadow: 0 2px 12px rgba(76,255,136,0.5);
+      margin-bottom: 4px;
+    }
+
+    #trick-name {
+      color: #fff;
+      font-size: 52px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      text-shadow: 0 4px 20px rgba(0,0,0,0.7);
+    }
+
+    #trick-points {
+      color: #ffcc00;
+      font-size: 30px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+      margin-top: 2px;
+    }
+
+    #catchphrase {
+      color: #4cf;
+      font-size: 22px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      text-shadow: 0 2px 15px rgba(68,204,255,0.5);
+      margin-top: 6px;
+    }
+
+    /* Jump height display */
+
+    #jump-height {
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-size: 64px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      text-shadow: 0 3px 20px rgba(0,0,0,0.6);
+      opacity: 0;
+      transition: opacity 0.15s;
+      text-align: center;
+    }
+
+    #jump-height .unit {
+      font-size: 28px;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 2px;
+    }
+
+    #speed-display {
+      position: absolute;
+      bottom: 32px; left: 32px;
+      color: #fff;
+      font-size: 32px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+    }
+
+    #speed-label {
+      position: absolute;
+      bottom: 22px; left: 90px;
+      color: rgba(255,255,255,0.4);
+      font-size: 14px;
+      font-weight: 700;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+    }
+
+    #altitude-display {
+      position: absolute;
+      bottom: 60px; left: 32px;
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      font-weight: 600;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+    }
+
+    #checkpoint-display {
+      position: absolute;
+      top: 24px; left: 32px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+
+    #checkpoint-alert {
+      position: absolute;
+      top: 28%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #4cff88;
+      font-size: 30px;
+      font-weight: 900;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      text-shadow: 0 2px 16px rgba(76,255,136,0.4);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    #trick-meter {
+      position: absolute;
+      bottom: 32px; right: 32px;
+      width: 180px;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #trick-meter-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #ff6b35, #ffcc00);
+      border-radius: 3px;
+      transition: width 0.15s;
+    }
+
+    #controls-hint {
+      position: absolute;
+      bottom: 50px; right: 32px;
+      color: rgba(255,255,255,0.25);
+      font-size: 10px;
+      text-align: right;
+      letter-spacing: 1px;
+      max-width: 300px;
+      line-height: 1.6;
+    }
+
+    /* Lobby screen */
+
+    #lobby-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, rgba(10,22,40,0.5) 0%, rgba(26,42,74,0.55) 40%, rgba(42,74,106,0.4) 70%, rgba(74,122,154,0.3) 100%);
+      z-index: 80;
+    }
+
+    #lobby-screen.active { display: flex; }
+
+    /* Corner buttons */
+
+    .lobby-corner-btn {
+      position: absolute;
+      padding: 12px 24px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .lobby-corner-btn:hover {
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.6);
+      color: #fff;
+      transform: scale(1.05);
+    }
+
+    #lobby-shop { top: 30px; left: 30px; }
+
+    #lobby-ridepass { top: 30px; right: 30px; }
+
+    #lobby-quests { bottom: 80px; left: 30px; }
+
+    #lobby-customize { bottom: 80px; right: 30px; }
+
+    #lobby-account { bottom: 24px; left: 50%; transform: translateX(-50%); }
+
+    /* DROP IN stays centered */
+
+    #lobby-drop-in {
+      padding: 14px 50px;
+      font-size: 20px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    #lobby-drop-in:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
+
+    .lobby-hint {
+      margin-top: 16px;
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      letter-spacing: 2px;
+      z-index: 2;
+    }
+
+    /* Quests panel */
+
+    #quests-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97);
+      z-index: 3;
+      padding-top: 40px;
+    }
+
+    #quests-panel.active { display: flex; }
+
+    #quests-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 16px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .quest-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 12px;
+    }
+
+    .quest-tab {
+      padding: 8px 24px;
+      font-size: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.4);
+      background: none;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .quest-tab:first-child { border-radius: 6px 0 0 6px; }
+
+    .quest-tab:last-child { border-radius: 0 6px 6px 0; }
+
+    .quest-tab.active {
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .quest-tab:hover:not(.active) { color: rgba(255,255,255,0.6); }
+
+    .quest-xp-bar {
+      margin-bottom: 16px;
+      font-size: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
+    }
+
+    .quest-list {
+      width: 90%;
+      max-width: 440px;
+      max-height: 55vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .quest-list::-webkit-scrollbar { width: 4px; }
+
+    .quest-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
+
+    .quest-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+    .quest-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      gap: 10px;
+      transition: background 0.2s;
+    }
+
+    .quest-item.completed {
+      background: rgba(76,255,136,0.06);
+      border-color: rgba(76,255,136,0.15);
+    }
+
+    .quest-item-info { flex: 1; min-width: 0; }
+
+    .quest-item-desc {
+      font-size: 13px;
+      color: rgba(255,255,255,0.8);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .quest-item.completed .quest-item-desc {
+      color: rgba(76,255,136,0.8);
+    }
+
+    .quest-progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .quest-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4cf, #4cff88);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    .quest-item.completed .quest-progress-fill {
+      background: #4cff88;
+    }
+
+    .quest-progress-text {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+      margin-top: 2px;
+      letter-spacing: 0.5px;
+    }
+
+    .quest-item.completed .quest-progress-text {
+      color: rgba(76,255,136,0.5);
+    }
+
+    .quest-xp-badge {
+      font-size: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 1px;
+      white-space: nowrap;
+      min-width: 50px;
+      text-align: right;
+    }
+
+    .quest-item.completed .quest-xp-badge {
+      color: rgba(76,255,136,0.6);
+    }
+
+    .quest-check {
+      font-size: 18px;
+      color: #4cff88;
+      display: none;
+    }
+
+    .quest-item.completed .quest-check { display: block; }
+
+    #quests-back {
+      margin-top: 20px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    #quests-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    /* Ride Pass panel */
+
+    #ridepass-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97);
+      z-index: 3;
+      padding-top: 40px;
+    }
+
+    #ridepass-panel.active { display: flex; }
+
+    #ridepass-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 12px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .rp-tokens-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .rp-token {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 2px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .rp-token-s1 { color: #ffcc00; }
+
+    .rp-token-s2 { color: #ff66cc; }
+
+    .rp-token-board { color: #4cf; }
+
+    .rp-token-icon { margin-right: 4px; }
+
+    .rp-level-bar {
+      width: 90%;
+      max-width: 440px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .rp-level-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      color: #ffcc00;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
+    }
+
+    .rp-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+
+    .rp-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ffcc00, #ff9900);
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+
+    .rp-xp-label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 1px;
+    }
+
+    .rp-level-list {
+      width: 90%;
+      max-width: 440px;
+      max-height: 42vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .rp-level-list::-webkit-scrollbar { width: 4px; }
+
+    .rp-level-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
+
+    .rp-level-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+    .rp-level-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      gap: 10px;
+    }
+
+    .rp-level-item.claimed {
+      background: rgba(76,255,136,0.06);
+      border-color: rgba(76,255,136,0.15);
+    }
+
+    .rp-level-item.locked { opacity: 0.35; }
+
+    .rp-level-item.current {
+      border-color: rgba(255,204,0,0.4);
+      background: rgba(255,204,0,0.06);
+    }
+
+    .rp-level-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      color: rgba(255,255,255,0.5);
+      width: 32px;
+      text-align: center;
+      letter-spacing: 1px;
+    }
+
+    .rp-level-item.claimed .rp-level-num { color: rgba(76,255,136,0.7); }
+
+    .rp-level-item.current .rp-level-num { color: #ffcc00; }
+
+    .rp-reward-icon { font-size: 18px; width: 24px; text-align: center; }
+
+    .rp-icon-s1 { color: #ffcc00; }
+
+    .rp-icon-s2 { color: #ff66cc; }
+
+    .rp-icon-s3 { color: #ff3300; }
+
+    .rp-icon-board { color: #4cf; }
+
+    .rp-icon-title { color: #ffd700; }
+
+    .rp-reward-desc {
+      flex: 1;
+      font-size: 13px;
+      color: rgba(255,255,255,0.7);
+      letter-spacing: 0.5px;
+    }
+
+    .rp-level-item.claimed .rp-reward-desc { color: rgba(76,255,136,0.7); }
+
+    .rp-claim-badge {
+      font-size: 16px;
+      color: #4cff88;
+      display: none;
+    }
+
+    .rp-level-item.claimed .rp-claim-badge { display: block; }
+
+    .rp-title-section {
+      margin-top: 10px;
+      text-align: center;
+      width: 90%;
+      max-width: 440px;
+    }
+
+    .rp-title-heading {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 3px;
+      margin-bottom: 8px;
+    }
+
+    .rp-title-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .rp-title-btn {
+      padding: 6px 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .rp-title-btn:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
+
+    .rp-title-btn.selected {
+      color: #ffcc00;
+      border-color: #ffcc00;
+      background: rgba(255,204,0,0.1);
+    }
+
+    #ridepass-back {
+      margin-top: 14px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    #ridepass-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    .lb-title {
+      font-size: 10px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 2px;
+      opacity: 0.7;
+    }
+
+    /* Shop panel */
+
+    #shop-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97);
+      z-index: 3;
+      padding-top: 30px;
+      overflow: hidden;
+    }
+
+    #shop-panel.active { display: flex; }
+
+    #shop-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin: 0 0 12px 0;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .shop-tokens-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .shop-token {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 8px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      letter-spacing: 2px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .shop-token-s1 { color: #ffcc00; }
+
+    .shop-token-s2 { color: #ff66cc; }
+
+    .shop-token-s3 { color: #ffd700; }
+
+    .shop-token-board { color: #4cf; }
+
+    .shop-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+
+    .shop-tab {
+      padding: 8px 20px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .shop-tab:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.8); }
+
+    .shop-tab.active {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      border-color: rgba(255,255,255,0.4);
+    }
+
+    #shop-item-list {
+      flex: 1;
+      width: 90%;
+      max-width: 500px;
+      overflow-y: auto;
+      padding: 4px 0 8px 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.15) transparent;
+    }
+
+    .shop-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      transition: all 0.15s;
+      overflow: hidden;
+    }
+
+    .shop-item.owned {
+      border-color: rgba(76, 255, 136, 0.3);
+      background: rgba(76, 255, 136, 0.06);
+    }
+
+    .shop-item.equipped {
+      border-color: rgba(255, 204, 0, 0.5);
+      background: rgba(255, 204, 0, 0.08);
+    }
+
+    .shop-item.legendary {
+      border-color: rgba(255, 215, 0, 0.4);
+      background: linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,100,0,0.06));
+    }
+
+    .shop-color-swatch {
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      border: 2px solid rgba(255,255,255,0.2);
+      flex-shrink: 0;
+    }
+
+    .shop-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .shop-item-brand {
+      font-size: 9px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+    }
+
+    .shop-item-name {
+      font-size: 15px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+      color: #fff;
+      line-height: 1.1;
+    }
+
+    .shop-item-style {
+      font-size: 9px;
+      font-family: 'Inter', sans-serif;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 1px;
+    }
+
+    .shop-stats {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .shop-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      font-family: 'Inter', sans-serif;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 1px;
+    }
+
+    .shop-stat-bar {
+      width: 40px;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .shop-stat-fill {
+      height: 100%;
+      border-radius: 2px;
+    }
+
+    .shop-stat-fill.speed { background: #4cf; }
+
+    .shop-stat-fill.pop { background: #ff6b6b; }
+
+    .shop-stat-fill.flex { background: #a78bfa; }
+
+    .shop-price {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      letter-spacing: 1px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .shop-price.shop-tier-s1 { color: #ffcc00; }
+
+    .shop-price.shop-tier-s2 { color: #ff66cc; }
+
+    .shop-price.shop-tier-s3 { color: #ffd700; }
+
+    .shop-price.shop-tier-board { color: #4cf; }
+
+    .shop-btn {
+      padding: 4px 10px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      border-radius: 5px;
+      cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .shop-btn-buy {
+      color: #fff;
+      background: rgba(76, 255, 136, 0.15);
+      border-color: rgba(76, 255, 136, 0.4);
+    }
+
+    .shop-btn-buy:hover { background: rgba(76, 255, 136, 0.3); }
+
+    .shop-btn-buy.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .shop-btn-equip {
+      color: #ffcc00;
+      background: rgba(255, 204, 0, 0.1);
+      border-color: rgba(255, 204, 0, 0.3);
+    }
+
+    .shop-btn-equip:hover { background: rgba(255, 204, 0, 0.25); }
+
+    .shop-btn-equipped {
+      color: rgba(255,255,255,0.4);
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.15);
+      cursor: default;
+    }
+
+    #shop-back {
+      margin-top: 10px;
+      margin-bottom: 20px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    #shop-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    /* Customize panel (hidden by default) */
+
+    #customize-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.85);
+      z-index: 3;
+    }
+
+    #customize-panel.active { display: flex; }
+
+    #customize-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 30px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .lobby-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 18px;
+      gap: 12px;
+    }
+
+    .lobby-row label {
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      width: 90px;
+      text-align: right;
+    }
+
+    .color-options { display: flex; gap: 8px; }
+
+    .color-swatch {
+      width: 36px; height: 36px;
+      border-radius: 6px;
+      border: 3px solid transparent;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+
+    .color-swatch:hover { transform: scale(1.15); }
+
+    .color-swatch.selected { border-color: #fff; transform: scale(1.15); }
+
+    .equipment-options { display: flex; gap: 8px; }
+
+    .equipment-btn {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      color: rgba(255,255,255,0.7);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .equipment-btn:hover { background: rgba(255,255,255,0.2); }
+
+    .equipment-btn.selected {
+      background: rgba(255,255,255,0.25);
+      border-color: #fff;
+      color: #fff;
+    }
+
+    #customize-back {
+      margin-top: 24px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    #customize-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    /* Account panel */
+
+    #account-panel {
+      display: none; flex-direction: column; align-items: center;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97); z-index: 3;
+      padding-top: 60px; overflow-y: auto;
+    }
+
+    #account-panel.active { display: flex; }
+
+    #account-panel h2 {
+      font-size: 48px; font-family: 'Bebas Neue', sans-serif;
+      color: #fff; letter-spacing: 6px; margin-bottom: 30px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .account-row {
+      display: flex; flex-direction: column; align-items: center;
+      margin-bottom: 28px; width: 320px;
+    }
+
+    .account-row label {
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+      letter-spacing: 3px; color: rgba(255,255,255,0.4); margin-bottom: 6px;
+    }
+
+    .account-value {
+      font-family: 'Bebas Neue', sans-serif; font-size: 24px;
+      letter-spacing: 2px; color: #fff;
+    }
+
+    .account-edit-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    #account-nickname-input {
+      font-family: 'Bebas Neue', sans-serif; font-size: 22px;
+      letter-spacing: 2px; color: #fff; background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3); border-radius: 6px;
+      padding: 6px 12px; width: 180px; outline: none; text-align: center;
+    }
+
+    #account-nickname-input:focus { border-color: #ffc107; }
+
+    .account-inline-btn {
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+      letter-spacing: 2px; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.2); border-radius: 4px;
+      padding: 6px 14px; cursor: pointer; transition: all 0.15s;
+    }
+
+    .account-inline-btn:hover { color: #fff; border-color: #fff; background: rgba(255,255,255,0.15); }
+
+    #account-nickname-error {
+      font-family: 'Bebas Neue', sans-serif; font-size: 12px;
+      color: #ff5252; letter-spacing: 1px; margin-top: 4px; min-height: 16px;
+    }
+
+    .account-title-section { margin-top: 4px; }
+
+    .account-title-section .rp-title-btn {
+      margin: 3px; font-size: 14px; padding: 6px 14px;
+    }
+
+    #account-logout-btn {
+      margin-top: 30px; padding: 10px 36px;
+      font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 3px;
+      color: #ff5252; background: rgba(255,82,82,0.1);
+      border: 2px solid rgba(255,82,82,0.3); border-radius: 8px;
+      cursor: pointer; transition: all 0.15s;
+    }
+
+    #account-logout-btn:hover { background: rgba(255,82,82,0.25); border-color: #ff5252; color: #fff; }
+
+    #account-back {
+      margin-top: 16px; padding: 10px 36px;
+      font-size: 18px; font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px;
+      color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25); border-radius: 8px;
+      cursor: pointer; transition: all 0.15s;
+    }
+
+    #account-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    /* Crash vignette */
+
+    #crash-vignette {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 15;
+      opacity: 0;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(180,0,0,0.6) 100%);
+      transition: opacity 0.15s;
+    }
+
+    /* Death screen */
+
+    #death-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.0);
+      z-index: 50;
+      transition: background 0.5s;
+      cursor: pointer;
+    }
+
+    #death-screen.active {
+      display: flex;
+      background: rgba(0,0,0,0.75);
+    }
+
+    #death-screen h1 {
+      font-size: 96px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ff3333;
+      letter-spacing: 8px;
+      text-shadow: 0 4px 30px rgba(255,0,0,0.5);
+      margin-bottom: 8px;
+      animation: crashSlam 0.4s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+    }
+
+    #death-screen .crash-catchphrase {
+      font-size: 26px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ff9966;
+      letter-spacing: 3px;
+      margin-bottom: 20px;
+      text-shadow: 0 2px 12px rgba(255,100,0,0.4);
+      animation: crashSlam 0.5s 0.15s cubic-bezier(0.2, 0, 0.2, 1) both;
+    }
+
+    #death-screen .run-score {
+      font-size: 22px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 40px;
+      font-weight: 600;
+    }
+
+    #death-screen .press-restart {
+      font-size: 18px;
+      color: rgba(255,255,255,0.7);
+      animation: pulse 1.5s ease-in-out infinite;
+      letter-spacing: 2px;
+    }
+
+    @keyframes crashSlam {
+      0% { transform: scale(3); opacity: 0; }
+      60% { transform: scale(0.95); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Auth screen */
+
+    #auth-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0a1628 0%, #1a2a4a 40%, #2a4a6a 70%, #4a7a9a 100%);
+      z-index: 200;
+    }
+
+    #auth-screen.active { display: flex; }
+
+    #auth-screen h1 {
+      font-size: 72px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 10px;
+      text-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      margin-bottom: 6px;
+    }
+
+    #auth-screen .auth-subtitle {
+      font-size: 14px;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+    }
+
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: 280px;
+    }
+
+    .auth-form input {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      color: #fff;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .auth-form input::placeholder { color: rgba(255,255,255,0.35); }
+
+    .auth-form input:focus { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.15); }
+
+    .auth-buttons {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .auth-buttons button {
+      flex: 1;
+      padding: 12px 0;
+      font-size: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #auth-login-btn {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+    }
+
+    #auth-login-btn:hover { background: rgba(255,255,255,0.25); }
+
+    #auth-signup-btn {
+      background: #4a90d9;
+      color: #fff;
+    }
+
+    #auth-signup-btn:hover { background: #5aa0e9; }
+
+    .auth-buttons button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #auth-error {
+      color: #ff6b6b;
+      font-size: 12px;
+      min-height: 18px;
+      text-align: center;
+      max-width: 280px;
+    }
+
+    #auth-loading {
+      display: none;
+      color: rgba(255,255,255,0.6);
+      font-size: 14px;
+      letter-spacing: 2px;
+      animation: pulse 1.5s infinite;
+    }
+
+    @media (max-width: 600px) {
+      #auth-screen h1 { font-size: 48px; letter-spacing: 6px; }
+      #auth-screen .auth-subtitle { font-size: 11px; letter-spacing: 4px; }
+      .auth-form { width: 260px; }
+    }
+
+    /* Logout button in lobby */
+
+    #lobby-logout {
+      position: absolute;
+      top: 80px;
+      right: 30px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.4);
+      background: rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #lobby-logout:hover { color: #fff; background: rgba(0,0,0,0.4); }
+
+    /* Start screen */
+
+    #start-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0a1628 0%, #1a2a4a 40%, #2a4a6a 70%, #4a7a9a 100%);
+      z-index: 100;
+    }
+
+    #start-screen h1 {
+      font-size: 88px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 12px;
+      text-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      margin-bottom: 4px;
+    }
+
+    #start-screen .subtitle {
+      font-size: 16px;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      margin-bottom: 60px;
+    }
+
+    #start-screen .press-start {
+      font-size: 18px;
+      color: rgba(255,255,255,0.7);
+      letter-spacing: 3px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    #start-screen .controls-info {
+      position: absolute;
+      bottom: 40px;
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      text-align: center;
+      line-height: 1.8;
+      letter-spacing: 1px;
+    }
+
+    /* Finish / Leaderboard screen */
+
+    #finish-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.0);
+      z-index: 60;
+      transition: background 0.5s;
+      cursor: pointer;
+    }
+
+    #finish-screen.active {
+      display: flex;
+      background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(10,20,40,0.92) 100%);
+    }
+
+    #finish-screen h1 {
+      font-size: 80px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffd700;
+      letter-spacing: 10px;
+      text-shadow: 0 4px 30px rgba(255,215,0,0.5);
+      margin-bottom: 4px;
+      animation: finishPop 0.6s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+    }
+
+    @keyframes finishPop {
+      0% { transform: scale(2.5); opacity: 0; }
+      60% { transform: scale(0.95); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    #finish-screen .finish-subtitle {
+      font-size: 24px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #4cf;
+      letter-spacing: 5px;
+      margin-bottom: 16px;
+      text-shadow: 0 2px 12px rgba(68,204,255,0.4);
+      animation: finishPop 0.6s 0.1s cubic-bezier(0.2, 0, 0.2, 1) both;
+    }
+
+    #finish-screen .final-score-big {
+      font-size: 56px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 3px;
+      margin-bottom: 6px;
+      animation: finishPop 0.6s 0.2s cubic-bezier(0.2, 0, 0.2, 1) both;
+    }
+
+    #finish-screen .new-record {
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffd700;
+      letter-spacing: 4px;
+      margin-bottom: 20px;
+      opacity: 0;
+    }
+
+    #finish-screen .new-record.show {
+      opacity: 1;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .leaderboard {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 16px 28px;
+      margin-bottom: 24px;
+      min-width: 320px;
+      animation: finishPop 0.6s 0.3s cubic-bezier(0.2, 0, 0.2, 1) both;
+    }
+
+    .leaderboard h3 {
+      font-size: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 4px;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .leaderboard-entry {
+      display: flex;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .leaderboard-entry:last-child { border-bottom: none; }
+
+    .leaderboard-entry .lb-rank {
+      font-size: 16px;
+      font-weight: 900;
+      color: rgba(255,255,255,0.35);
+      width: 32px;
+      text-align: center;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 1px;
+    }
+
+    .leaderboard-entry .lb-rank.gold { color: #ffd700; }
+
+    .leaderboard-entry .lb-rank.silver { color: #c0c0c0; }
+
+    .leaderboard-entry .lb-rank.bronze { color: #cd7f32; }
+
+    .leaderboard-entry .lb-score {
+      flex: 1;
+      font-size: 20px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: rgba(255,255,255,0.8);
+      letter-spacing: 1px;
+      text-align: right;
+      padding-right: 12px;
+    }
+
+    .leaderboard-entry.current {
+      background: rgba(255,215,0,0.08);
+      border-radius: 6px;
+      padding: 6px 6px;
+      margin: 2px -6px;
+    }
+
+    .leaderboard-entry.current .lb-score {
+      color: #ffd700;
+    }
+
+    .leaderboard-entry .lb-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.3);
+      letter-spacing: 1px;
+      width: 50px;
+    }
+
+    #finish-screen .press-restart {
+      font-size: 18px;
+      color: rgba(255,255,255,0.7);
+      animation: pulse 1.5s ease-in-out infinite;
+      letter-spacing: 2px;
+    }
+
+    /* ===== Nickname overlay ===== */
+
+    #nickname-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.85);
+      z-index: 200;
+    }
+
+    #nickname-overlay.active { display: flex; }
+
+    .nickname-modal { text-align: center; padding: 40px; }
+
+    .nickname-modal h2 {
+      font-size: 42px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 8px;
+    }
+
+    .nickname-subtitle {
+      color: rgba(255,255,255,0.4);
+      font-size: 12px;
+      letter-spacing: 3px;
+      margin-bottom: 24px;
+    }
+
+    #nickname-input {
+      display: block;
+      margin: 0 auto 12px;
+      width: 280px;
+      padding: 12px 16px;
+      font-size: 20px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      text-align: center;
+      color: #fff;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      outline: none;
+      text-transform: uppercase;
+    }
+
+    #nickname-input:focus { border-color: rgba(255,255,255,0.5); }
+
+    .nickname-error {
+      color: #ff6b6b;
+      font-size: 12px;
+      letter-spacing: 1px;
+      min-height: 18px;
+      margin-bottom: 12px;
+    }
+
+    #nickname-submit {
+      padding: 12px 40px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    #nickname-submit:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: #fff;
+    }
+
+    /* ===== Leaderboard tabs ===== */
+
+    .lb-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 12px;
+    }
+
+    .lb-tab {
+      padding: 8px 20px;
+      font-size: 13px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.4);
+      background: none;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .lb-tab:first-child { border-radius: 6px 0 0 6px; }
+
+    .lb-tab:last-child { border-radius: 0 6px 6px 0; }
+
+    .lb-tab.active {
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .lb-tab:hover:not(.active) { color: rgba(255,255,255,0.6); }
+
+    .lb-tab-content { display: none; }
+
+    .lb-tab-content.active { display: block; }
+
+    .lb-week-indicator {
+      text-align: center;
+      font-size: 11px;
+      color: rgba(255,255,255,0.3);
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+
+    .lb-player-name {
+      text-align: center;
+      font-size: 13px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #4cf;
+      letter-spacing: 3px;
+      margin-bottom: 10px;
+    }
+
+    .lb-loading {
+      text-align: center;
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      letter-spacing: 2px;
+      padding: 16px 0;
+    }
+
+    .lb-error {
+      text-align: center;
+      color: rgba(255,150,100,0.5);
+      font-size: 11px;
+      letter-spacing: 2px;
+      padding: 4px 0;
+    }
+
+    .leaderboard-entry .lb-name {
+      flex: 1;
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+      letter-spacing: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 8px;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .leaderboard-entry .lb-name .lb-title {
+      display: block;
+      margin-top: 1px;
+    }
+
+    .leaderboard-entry.current .lb-name { color: #4cf; }
+
+    /* ===== Touch controls ===== */
+
+    .touch-controls {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 30;
+      pointer-events: none;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .touch-device .touch-controls { display: block; }
+
+    .touch-btn {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 14px;
+      color: rgba(255,255,255,0.7);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .touch-btn.active {
+      background: rgba(255,255,255,0.3);
+      border-color: rgba(255,255,255,0.6);
+      color: #fff;
+    }
+
+    /* Ground controls - always visible during play */
+
+    .touch-ground-controls {
+      pointer-events: none;
+    }
+
+    /* Steer zone */
+
+    .touch-steer-zone {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      width: 160px;
+      height: 70px;
+      display: flex;
+      border-radius: 14px;
+      overflow: hidden;
+      pointer-events: auto;
+      touch-action: none;
+    }
+
+    .steer-half {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.25);
+      color: rgba(255,255,255,0.6);
+      font-size: 28px;
+      font-family: 'Bebas Neue', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .steer-left { border-radius: 14px 0 0 14px; border-right: 1px solid rgba(255,255,255,0.15); }
+
+    .steer-right { border-radius: 0 14px 14px 0; border-left: 1px solid rgba(255,255,255,0.15); }
+
+    /* Brake button */
+
+    #brake-btn {
+      bottom: 94px;
+      left: 16px;
+      width: 160px;
+      height: 55px;
+      font-size: 16px;
+    }
+
+    /* Jump button */
+
+    #jump-btn {
+      bottom: 16px;
+      right: 16px;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      font-size: 18px;
+      letter-spacing: 3px;
+      background: rgba(76,255,136,0.15);
+      border-color: rgba(76,255,136,0.35);
+    }
+
+    #jump-btn.active {
+      background: rgba(76,255,136,0.4);
+      border-color: rgba(76,255,136,0.7);
+    }
+
+    /* Tuck button */
+
+    #tuck-btn {
+      bottom: 36px;
+      right: 130px;
+      width: 75px;
+      height: 60px;
+      font-size: 14px;
+    }
+
+    /* Air controls - dynamic show/hide */
+
+    .touch-air-controls {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease-out;
+    }
+
+    .touch-air-controls.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .air-btn {
+      width: 65px;
+      height: 55px;
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    /* Flip buttons (left side, stacked) */
+
+    #flip-fwd-btn {
+      bottom: 220px;
+      left: 16px;
+      width: 75px;
+    }
+
+    #flip-back-btn {
+      bottom: 158px;
+      left: 16px;
+      width: 75px;
+    }
+
+    /* Spin buttons (right side, stacked) */
+
+    #spin-l-btn {
+      bottom: 190px;
+      right: 90px;
+    }
+
+    #spin-r-btn {
+      bottom: 126px;
+      right: 90px;
+    }
+
+    /* Grab buttons - arc layout */
+
+    .touch-grab-arc {
+      position: absolute;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 280px;
+      pointer-events: none;
+    }
+
+    .grab-btn {
+      position: relative !important;
+      width: 52px !important;
+      height: 48px !important;
+      border-radius: 10px !important;
+      font-size: 10px !important;
+      letter-spacing: 1px !important;
+      pointer-events: auto;
+      background: rgba(255,204,0,0.12) !important;
+      border-color: rgba(255,204,0,0.3) !important;
+    }
+
+    .grab-btn.active {
+      background: rgba(255,204,0,0.4) !important;
+      border-color: rgba(255,204,0,0.7) !important;
+      color: #fff !important;
+    }
+
+    /* Mobile CUSTOMIZE buttons */
+
+    .touch-customize-btn {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 32px;
+      font-size: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .touch-device .touch-customize-btn { display: inline-block; }
+
+    /* Hide desktop-only elements on touch */
+
+    .touch-device #controls-hint { display: none !important; }
+
+    .touch-device .controls-info { display: none !important; }
+
+    .touch-device .lobby-hint { display: none !important; }
+
+    .touch-device .esc-hint { display: none !important; }
+
+    .touch-device .desktop-text { display: none !important; }
+
+    .touch-device .mobile-text { display: block !important; }
+
+    /* ===== Responsive - Mobile ===== */
+
+    @media (max-width: 600px) {
+      #start-screen h1 {
+        font-size: 48px;
+        letter-spacing: 6px;
+      }
+      #start-screen .subtitle {
+        font-size: 12px;
+        letter-spacing: 4px;
+        margin-bottom: 30px;
+      }
+      #start-screen .press-start {
+        font-size: 14px;
+        letter-spacing: 2px;
+      }
+
+      #death-screen h1 {
+        font-size: 56px;
+        letter-spacing: 4px;
+      }
+      #death-screen .crash-catchphrase {
+        font-size: 20px;
+      }
+      #death-screen .run-score {
+        font-size: 18px;
+        margin-bottom: 20px;
+      }
+      #death-screen .press-restart {
+        font-size: 14px;
+      }
+
+      #finish-screen h1 {
+        font-size: 48px;
+        letter-spacing: 5px;
+      }
+      #finish-screen .finish-subtitle {
+        font-size: 18px;
+      }
+      #finish-screen .final-score-big {
+        font-size: 40px;
+      }
+      #finish-screen .press-restart {
+        font-size: 14px;
+      }
+
+      .leaderboard {
+        min-width: unset;
+        width: 90%;
+        padding: 12px 16px;
+      }
+
+      /* Quests panel mobile */
+      #quests-panel h2 { font-size: 36px; }
+      .quest-list { max-height: 45vh; }
+      /* Shop mobile */
+      #shop-panel h2 { font-size: 36px; }
+      #shop-item-list { width: 95%; }
+      .shop-tokens-bar { gap: 8px; }
+      .shop-token { font-size: 14px; padding: 3px 8px; }
+      .shop-tab { padding: 6px 12px; font-size: 13px; }
+      /* Ride pass mobile */
+      #ridepass-panel h2 { font-size: 36px; }
+      .rp-level-list { max-height: 35vh; }
+      .rp-tokens-bar { gap: 8px; }
+      .rp-token { font-size: 14px; padding: 3px 8px; }
+
+      /* Lobby */
+      #lobby-screen h2 {
+        font-size: 36px;
+        letter-spacing: 4px;
+        margin-bottom: 20px;
+      }
+      .lobby-row {
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .lobby-row label {
+        text-align: center;
+        width: auto;
+      }
+
+      /* HUD scale down + move up to avoid touch buttons */
+      #score-display { font-size: 26px; top: 16px; right: 16px; }
+      #score-label { top: 6px; right: 16px; font-size: 9px; }
+      #combo-display { top: 48px; right: 16px; font-size: 14px; }
+      #checkpoint-display { top: 16px; left: 16px; font-size: 12px; }
+
+      #speed-display { bottom: 130px; left: 16px; font-size: 22px; }
+      #speed-label { bottom: 122px; left: 60px; font-size: 11px; }
+      #altitude-display { bottom: 150px; left: 16px; font-size: 11px; }
+
+      #trick-meter { bottom: 130px; right: 16px; width: 120px; }
+      #controls-hint { display: none; }
+
+      #jump-height { font-size: 48px; }
+      #jump-height .unit { font-size: 20px; }
+
+      #trick-name { font-size: 36px; }
+      #trick-points { font-size: 22px; }
+      #catchphrase { font-size: 16px; }
+      #stomped-label { font-size: 16px; }
+
+      /* Nickname modal */
+      .nickname-modal h2 { font-size: 32px; }
+      #nickname-input { width: 220px; font-size: 18px; }
+    }
+  </style>
+  <script type="module" crossorigin src="/shred-summit/assets/index-CRRR3rYA.js"></script>
+</head>
+<body>
+  <div id="auth-screen">
+    <h1>SHRED SUMMIT</h1>
+    <div class="auth-subtitle">Freestyle Snowboarding</div>
+    <div class="auth-form">
+      <input type="email" id="auth-email" placeholder="Email" autocomplete="email" />
+      <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" />
+      <div id="auth-error"></div>
+      <div class="auth-buttons">
+        <button id="auth-login-btn">LOG IN</button>
+        <button id="auth-signup-btn">SIGN UP</button>
+      </div>
+      <div id="auth-loading">SIGNING IN...</div>
+    </div>
+  </div>
+
+  <div id="start-screen">
+    <h1>SHRED SUMMIT</h1>
+    <div class="subtitle">Freestyle Snowboarding</div>
+    <div class="press-start desktop-text">PRESS SPACE OR CLICK TO DROP IN</div>
+    <div class="press-start mobile-text" style="display:none">TAP TO DROP IN</div>
+    <div class="controls-info">
+      A/D — STEER &nbsp;&middot;&nbsp; S — BRAKE &nbsp;&middot;&nbsp; SPACE — JUMP &nbsp;&middot;&nbsp; SHIFT — TUCK<br>
+      IN AIR: W/S — FLIP &nbsp;&middot;&nbsp; Q/E — SPIN &nbsp;&middot;&nbsp; FLIP+SPIN — CORK &nbsp;&middot;&nbsp; GRABS: G INDY · R METHOD · F STALEFISH · T MELON · V NOSE · C TAIL
+    </div>
+  </div>
+
+  <div id="crash-vignette"></div>
+
+  <div id="death-screen">
+    <h1>YOU CRASHED</h1>
+    <div class="crash-catchphrase" id="crash-catchphrase">YARD SALE!</div>
+    <div class="run-score">Score: <span id="death-score">0</span></div>
+    <div class="press-restart desktop-text">PRESS SPACE OR CLICK TO RESPAWN</div>
+    <div class="press-restart mobile-text" style="display:none">TAP TO RESPAWN</div>
+    <div class="press-restart esc-hint" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <button class="touch-customize-btn" id="death-customize-btn">CUSTOMIZE</button>
+  </div>
+
+  <div id="hud">
+    <div id="score-label">SCORE</div>
+    <div id="score-display">0</div>
+    <div id="combo-display"></div>
+    <div id="jump-height"><span id="jump-height-value">0</span> <span class="unit">FT</span></div>
+    <div id="landing-announce">
+      <div id="stomped-label">STOMPED!</div>
+      <div id="trick-name"></div>
+      <div id="trick-points"></div>
+      <div id="catchphrase"></div>
+    </div>
+    <div id="speed-display">0</div>
+    <div id="speed-label">KM/H</div>
+    <div id="altitude-display">ALT 2400m</div>
+    <div id="checkpoint-display">CHECKPOINT 1</div>
+    <div id="checkpoint-alert">CHECKPOINT REACHED</div>
+    <div id="trick-meter"><div id="trick-meter-fill"></div></div>
+    <div id="controls-hint">
+      A/D STEER · S BRAKE · SPACE JUMP<br>
+      SHIFT TUCK · W/S FLIP · Q/E SPIN<br>
+      FLIP+SPIN=CORK · GRFTVB GRABS
+    </div>
+  </div>
+
+  <div id="finish-screen">
+    <h1>RUN COMPLETE</h1>
+    <div class="finish-subtitle" id="finish-catchphrase">LEGENDARY RUN!</div>
+    <div class="final-score-big">SCORE: <span id="finish-score">0</span></div>
+    <div class="new-record" id="new-record-label">NEW HIGH SCORE!</div>
+    <div class="leaderboard">
+      <div id="leaderboard-player-name" class="lb-player-name"></div>
+      <div class="lb-tabs">
+        <button class="lb-tab active" data-tab="worldwide">WORLDWIDE</button>
+        <button class="lb-tab" data-tab="personal">PERSONAL</button>
+      </div>
+      <div id="lb-week-indicator" class="lb-week-indicator"></div>
+      <div id="lb-worldwide" class="lb-tab-content active">
+        <div id="worldwide-entries" class="lb-entries"></div>
+        <div id="worldwide-loading" class="lb-loading">LOADING...</div>
+        <div id="worldwide-error" class="lb-error" style="display:none"></div>
+      </div>
+      <div id="lb-personal" class="lb-tab-content" style="display:none">
+        <div id="leaderboard-entries"></div>
+      </div>
+    </div>
+    <div class="press-restart desktop-text">PRESS SPACE OR CLICK TO RIDE AGAIN</div>
+    <div class="press-restart mobile-text" style="display:none">TAP TO RIDE AGAIN</div>
+    <div class="press-restart esc-hint" style="margin-top:8px; font-size:13px; opacity:0.4">ESC — CUSTOMIZE RIDER</div>
+    <button class="touch-customize-btn" id="finish-customize-btn">CUSTOMIZE</button>
+  </div>
+
+  <div id="lobby-screen">
+    <!-- Corner buttons -->
+    <div class="lobby-corner-btn" id="lobby-shop">SHOP</div>
+    <div class="lobby-corner-btn" id="lobby-ridepass">RIDE PASS</div>
+    <div class="lobby-corner-btn" id="lobby-quests">QUESTS</div>
+    <div class="lobby-corner-btn" id="lobby-customize">CUSTOMIZE</div>
+    <button id="lobby-logout">LOG OUT</button>
+    <div class="lobby-corner-btn" id="lobby-account">ACCOUNT</div>
+
+    <!-- Center: DROP IN -->
+    <button id="lobby-drop-in">DROP IN</button>
+    <div class="lobby-hint">ESC TO RETURN TO LOBBY AFTER CRASHING</div>
+
+    <!-- Shop panel (hidden until SHOP clicked) -->
+    <div id="shop-panel">
+      <h2>SHOP</h2>
+      <div class="shop-tokens-bar">
+        <span class="shop-token shop-token-s1"><span>&#9733;</span> <span id="shop-s1-count">0</span></span>
+        <span class="shop-token shop-token-s2"><span>&#9733;</span> <span id="shop-s2-count">0</span></span>
+        <span class="shop-token shop-token-s3"><span>&#9733;</span> <span id="shop-s3-count">0</span></span>
+        <span class="shop-token shop-token-board"><span>&#9830;</span> <span id="shop-board-count">0</span></span>
+      </div>
+      <div class="shop-tabs">
+        <div class="shop-tab active" data-shop-tab="jacket">JACKETS</div>
+        <div class="shop-tab" data-shop-tab="pants">PANTS</div>
+        <div class="shop-tab" data-shop-tab="helmet">HELMETS</div>
+        <div class="shop-tab" data-shop-tab="board">BOARDS</div>
+      </div>
+      <div id="shop-item-list"></div>
+      <button id="shop-back">BACK</button>
+    </div>
+
+    <!-- Ride Pass panel (hidden until RIDE PASS clicked) -->
+    <div id="ridepass-panel">
+      <h2>RIDE PASS</h2>
+      <div class="rp-tokens-bar">
+        <span class="rp-token rp-token-s1"><span class="rp-token-icon">&#9733;</span> <span id="rp-s1-count">0</span></span>
+        <span class="rp-token rp-token-s2"><span class="rp-token-icon">&#9733;</span> <span id="rp-s2-count">0</span></span>
+        <span class="rp-token rp-token-board"><span class="rp-token-icon">&#9830;</span> <span id="rp-board-count">0</span></span>
+      </div>
+      <div class="rp-level-bar">
+        <span class="rp-level-label" id="rp-level-label">LEVEL 0</span>
+        <div class="rp-progress-track">
+          <div class="rp-progress-fill" id="rp-progress-fill"></div>
+        </div>
+        <span class="rp-xp-label" id="rp-xp-label">0 / 100 XP</span>
+      </div>
+      <div id="rp-level-list" class="rp-level-list"></div>
+      <div id="rp-title-section" class="rp-title-section" style="display:none">
+        <div class="rp-title-heading">EQUIPPED TITLE</div>
+        <div id="rp-title-options" class="rp-title-options"></div>
+      </div>
+      <button id="ridepass-back">BACK</button>
+    </div>
+
+    <!-- Quests panel (hidden until QUESTS clicked) -->
+    <div id="quests-panel">
+      <h2>QUESTS</h2>
+      <div class="quest-tabs">
+        <button class="quest-tab active" data-tab="daily">DAILY</button>
+        <button class="quest-tab" data-tab="season">SEASON</button>
+      </div>
+      <div class="quest-xp-bar">
+        <span id="quest-xp-label">0 XP</span>
+      </div>
+      <div id="quest-list" class="quest-list"></div>
+      <button id="quests-back">BACK</button>
+    </div>
+
+    <!-- Customize panel (hidden until CUSTOMIZE clicked) -->
+    <div id="customize-panel">
+      <h2>CUSTOMIZE RIDER</h2>
+      <div class="lobby-row">
+        <label>Equipment</label>
+        <div class="equipment-options">
+          <button class="equipment-btn selected" data-equipment="snowboard">SNOWBOARD</button>
+          <button class="equipment-btn" data-equipment="ski">SKIS</button>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Jacket</label>
+        <div class="color-options" data-part="jacket">
+          <div class="color-swatch selected" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
+          <div class="color-swatch" style="background:#2e7d32" data-color="0x2e7d32"></div>
+          <div class="color-swatch" style="background:#f57f17" data-color="0xf57f17"></div>
+          <div class="color-swatch" style="background:#6a1b9a" data-color="0x6a1b9a"></div>
+          <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Pants</label>
+        <div class="color-options" data-part="pants">
+          <div class="color-swatch selected" style="background:#263238" data-color="0x263238"></div>
+          <div class="color-swatch" style="background:#1a237e" data-color="0x1a237e"></div>
+          <div class="color-swatch" style="background:#3e2723" data-color="0x3e2723"></div>
+          <div class="color-swatch" style="background:#b71c1c" data-color="0xb71c1c"></div>
+          <div class="color-swatch" style="background:#e0e0e0" data-color="0xe0e0e0"></div>
+          <div class="color-swatch" style="background:#004d40" data-color="0x004d40"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Board</label>
+        <div class="color-options" data-part="board">
+          <div class="color-swatch selected" style="background:#1565c0" data-color="0x1565c0"></div>
+          <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#00bcd4" data-color="0x00bcd4"></div>
+          <div class="color-swatch" style="background:#ff6f00" data-color="0xff6f00"></div>
+          <div class="color-swatch" style="background:#4caf50" data-color="0x4caf50"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Helmet</label>
+        <div class="color-options" data-part="helmet">
+          <div class="color-swatch selected" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
+          <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#ff9800" data-color="0xff9800"></div>
+          <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
+        </div>
+      </div>
+      <button id="customize-back">BACK</button>
+    </div>
+
+    <!-- Account panel -->
+    <div id="account-panel">
+      <h2>ACCOUNT</h2>
+      <div class="account-row">
+        <label>EMAIL</label>
+        <span class="account-value" id="account-email">&mdash;</span>
+      </div>
+      <div class="account-row">
+        <label>USERNAME</label>
+        <div class="account-edit-row">
+          <span class="account-value" id="account-nickname">&mdash;</span>
+          <button class="account-inline-btn" id="account-nickname-edit">EDIT</button>
+        </div>
+        <div class="account-edit-row" id="account-nickname-edit-row" style="display:none">
+          <input id="account-nickname-input" maxlength="12" placeholder="username">
+          <button class="account-inline-btn" id="account-nickname-save">SAVE</button>
+          <button class="account-inline-btn" id="account-nickname-cancel">CANCEL</button>
+        </div>
+        <span id="account-nickname-error"></span>
+      </div>
+      <div class="account-row">
+        <label>TITLE</label>
+        <div class="account-title-section" id="account-title-options"></div>
+      </div>
+      <button id="account-logout-btn">LOG OUT</button>
+      <button id="account-back">BACK</button>
+    </div>
+  </div>
+
+  <div id="nickname-overlay">
+    <div class="nickname-modal">
+      <h2>ENTER YOUR NAME</h2>
+      <p class="nickname-subtitle">FOR THE WORLDWIDE LEADERBOARD</p>
+      <input type="text" id="nickname-input" maxlength="12" placeholder="3-12 CHARACTERS" autocomplete="off" spellcheck="false" />
+      <div id="nickname-error" class="nickname-error"></div>
+      <button id="nickname-submit">LET'S SHRED</button>
+    </div>
+  </div>
+
+  <div id="touch-controls" class="touch-controls"></div>
+
+</body>
+</html>

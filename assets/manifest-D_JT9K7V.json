@@ -1,0 +1,9 @@
+{
+  "name": "Shred Summit",
+  "short_name": "Shred Summit",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1a2a3a",
+  "theme_color": "#1a2a3a"
+}
