@@ -7,6 +7,8 @@ import { TouchControls } from './TouchControls.js';
 import { SnowParticles } from './Particles.js';
 import { initFirebase, submitScore, fetchWorldwideScores, getWeekId } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
+import { QuestSystem } from './QuestSystem.js';
+import { RidePass } from './RidePass.js';
 
 export class Game {
   constructor() {
@@ -31,6 +33,8 @@ export class Game {
     this.selectedEquipment = 'snowboard';
     this.player = new Player(this.scene, this.selectedEquipment);
     this.tricks = new TrickSystem();
+    this.quests = new QuestSystem();
+    this.ridePass = new RidePass();
     this.particles = new SnowParticles(this.scene);
 
     // Mobile: bring camera closer so snowboarder appears bigger on small screens
@@ -83,6 +87,26 @@ export class Game {
       checkpointAlert: document.getElementById('checkpoint-alert'),
       lobbyScreen: document.getElementById('lobby-screen'),
       lobbyDropIn: document.getElementById('lobby-drop-in'),
+      customizePanel: document.getElementById('customize-panel'),
+      customizeBack: document.getElementById('customize-back'),
+      lobbyCustomize: document.getElementById('lobby-customize'),
+      lobbyQuests: document.getElementById('lobby-quests'),
+      questsPanel: document.getElementById('quests-panel'),
+      questList: document.getElementById('quest-list'),
+      questsBack: document.getElementById('quests-back'),
+      questXpLabel: document.getElementById('quest-xp-label'),
+      ridepassPanel: document.getElementById('ridepass-panel'),
+      ridepassBack: document.getElementById('ridepass-back'),
+      lobbyRidepass: document.getElementById('lobby-ridepass'),
+      rpLevelList: document.getElementById('rp-level-list'),
+      rpLevelLabel: document.getElementById('rp-level-label'),
+      rpProgressFill: document.getElementById('rp-progress-fill'),
+      rpXpLabel: document.getElementById('rp-xp-label'),
+      rpS1Count: document.getElementById('rp-s1-count'),
+      rpS2Count: document.getElementById('rp-s2-count'),
+      rpBoardCount: document.getElementById('rp-board-count'),
+      rpTitleSection: document.getElementById('rp-title-section'),
+      rpTitleOptions: document.getElementById('rp-title-options'),
       finishScreen: document.getElementById('finish-screen'),
       finishScore: document.getElementById('finish-score'),
       finishCatchphrase: document.getElementById('finish-catchphrase'),
@@ -297,6 +321,58 @@ export class Game {
     this.ui.lobbyDropIn.addEventListener('click', () => {
       this.closeLobby();
     });
+
+    // Customize button → open customize panel
+    this.ui.lobbyCustomize.addEventListener('click', () => {
+      this.ui.customizePanel.classList.add('active');
+    });
+
+    // Back button → close customize panel
+    this.ui.customizeBack.addEventListener('click', () => {
+      this.ui.customizePanel.classList.remove('active');
+    });
+
+    // Quests button → open quests panel
+    this.ui.lobbyQuests.addEventListener('click', () => {
+      this.activeQuestTab = 'daily';
+      document.querySelectorAll('.quest-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.tab === 'daily')
+      );
+      this.renderQuestList('daily');
+      this.ui.questsPanel.classList.add('active');
+    });
+
+    // Quests back button
+    this.ui.questsBack.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ui.questsPanel.classList.remove('active');
+    });
+
+    // Ride Pass button → open ridepass panel
+    this.ui.lobbyRidepass.addEventListener('click', () => {
+      this.openRidePassPanel();
+    });
+
+    // Ride Pass panel — block clicks from reaching lobby buttons underneath
+    this.ui.ridepassPanel.addEventListener('click', (e) => e.stopPropagation());
+    this.ui.questsPanel.addEventListener('click', (e) => e.stopPropagation());
+
+    // Ride Pass back button
+    this.ui.ridepassBack.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ui.ridepassPanel.classList.remove('active');
+    });
+
+    // Quest tab switching
+    document.querySelectorAll('.quest-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        this.activeQuestTab = tab.dataset.tab;
+        document.querySelectorAll('.quest-tab').forEach(t =>
+          t.classList.toggle('active', t.dataset.tab === this.activeQuestTab)
+        );
+        this.renderQuestList(this.activeQuestTab);
+      });
+    });
   }
 
   openLobby() {
@@ -306,10 +382,15 @@ export class Game {
     this.ui.finishScreen.classList.remove('active');
     this.ui.newRecordLabel.classList.remove('show');
     this.ui.crashVignette.style.opacity = '0';
+    this.ui.customizePanel.classList.remove('active');
+    this.ui.questsPanel.classList.remove('active');
+    this.ui.ridepassPanel.classList.remove('active');
     this.ui.lobbyScreen.classList.add('active');
+    this.setupLobbyScene();
   }
 
   closeLobby() {
+    this.teardownLobbyScene();
     this.ui.lobbyScreen.classList.remove('active');
     this.fullReset();
   }
@@ -424,6 +505,16 @@ export class Game {
         this.particles.emit(this.player.position, this.player.velocity, sprayCount);
       }
 
+      // Quest tracking — consume scored tricks/grinds
+      if (this.tricks.lastScoredTrick) {
+        this.quests.onTrickLanded(this.tricks.lastScoredTrick);
+        this.tricks.lastScoredTrick = null;
+      }
+      if (this.tricks.lastScoredGrind) {
+        this.quests.onGrind(this.tricks.lastScoredGrind.type, this.tricks.lastScoredGrind.duration);
+        this.tricks.lastScoredGrind = null;
+      }
+
       // Checkpoints
       this.updateCheckpoints();
 
@@ -462,6 +553,8 @@ export class Game {
       this.updateUI(trickState, playerState);
     } else if (this.state === 'dead' || this.state === 'finished') {
       this.particles.update(dt);
+    } else if (this.state === 'lobby') {
+      this.updateLobby(dt);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -566,6 +659,9 @@ export class Game {
     else if (finalScore >= 2000) phrase = 'SOLID RIDING!';
     else phrase = 'YOU MADE IT!';
 
+    // Track quest: run complete
+    this.quests.onRunComplete(finalScore);
+
     // Save to personal leaderboard and check if new record
     const isNewRecord = this.addToLeaderboard(finalScore);
 
@@ -607,8 +703,9 @@ export class Game {
     this.ui.worldwideError.style.display = 'none';
     this.ui.worldwideEntries.innerHTML = '';
 
-    // Submit score to Firebase
-    await submitScore(db, nickname, finalScore);
+    // Submit score to Firebase (include ride pass title)
+    const title = this.ridePass.getSelectedTitle();
+    await submitScore(db, nickname, finalScore, title);
 
     // Fetch worldwide leaderboard
     const scores = await fetchWorldwideScores(db, 20);
@@ -649,9 +746,17 @@ export class Game {
       else if (i === 2) rankSpan.classList.add('bronze');
       rankSpan.textContent = `#${i + 1}`;
 
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'lb-name';
-      nameSpan.textContent = entry.nickname || 'ANON';
+      const nameWrap = document.createElement('span');
+      nameWrap.className = 'lb-name';
+      const nameText = document.createElement('span');
+      nameText.textContent = entry.nickname || 'ANON';
+      nameWrap.appendChild(nameText);
+      if (entry.title) {
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'lb-title';
+        titleSpan.textContent = entry.title;
+        nameWrap.appendChild(titleSpan);
+      }
 
       const scoreSpan = document.createElement('span');
       scoreSpan.className = 'lb-score';
@@ -662,7 +767,7 @@ export class Game {
       labelSpan.textContent = 'PTS';
 
       div.appendChild(rankSpan);
-      div.appendChild(nameSpan);
+      div.appendChild(nameWrap);
       div.appendChild(scoreSpan);
       div.appendChild(labelSpan);
       container.appendChild(div);
@@ -696,8 +801,9 @@ export class Game {
     // Show touch controls on mobile
     if (this.touchControls) this.touchControls.show();
 
-    // Reset trick score
+    // Reset trick score and quest run tracking
     this.tricks.totalScore = 0;
+    this.quests.onRunStart();
     this.tricks.comboMultiplier = 1;
     this.tricks.comboTimer = 0;
 
@@ -718,6 +824,361 @@ export class Game {
     this.lastTrailPos = null;
     this.trailIndices = [];
     this.trailMesh.geometry.setIndex([]);
+  }
+
+  // ---- 3D LOBBY SCENE ----
+
+  setupLobbyScene() {
+    this.lobbyGroup = new THREE.Group();
+    this.lobbyTime = 0;
+
+    // Position the lobby scene at the player's current location
+    const px = this.player.position.x;
+    const pz = this.player.position.z;
+    const terrainY = this.terrain.getHeightAt(px, pz);
+    const groundY = terrainY + 0.05;
+
+    // Place campfire in front of the player (in -Z direction which is downhill)
+    const fireX = px;
+    const fireZ = pz - 1.8;
+    const fireY = this.terrain.getHeightAt(fireX, fireZ) + 0.05;
+
+    // === CAMPFIRE ===
+    const firePit = new THREE.Group();
+    firePit.position.set(fireX, fireY, fireZ);
+    this.lobbyGroup.add(firePit);
+
+    // Stone ring
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.9 });
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const stone = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 4, 3),
+        stoneMat
+      );
+      stone.position.set(Math.cos(angle) * 0.35, 0, Math.sin(angle) * 0.35);
+      stone.scale.set(1, 0.6, 1);
+      firePit.add(stone);
+    }
+
+    // Logs in teepee arrangement
+    const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.9 });
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2;
+      const log = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.035, 0.6, 5),
+        logMat
+      );
+      log.position.set(Math.cos(angle) * 0.08, 0.25, Math.sin(angle) * 0.08);
+      log.rotation.z = 0.3;
+      log.rotation.y = angle;
+      firePit.add(log);
+    }
+
+    // Flame cones (animated)
+    this.lobbyFlames = [];
+    const flameMat1 = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+    const flameMat2 = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    const flameMat3 = new THREE.MeshBasicMaterial({ color: 0xffdd33 });
+
+    const flameMats = [flameMat1, flameMat2, flameMat3];
+    const flameHeights = [0.4, 0.3, 0.25];
+    const flameRadii = [0.12, 0.08, 0.06];
+
+    for (let i = 0; i < 3; i++) {
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(flameRadii[i], flameHeights[i], 5),
+        flameMats[i]
+      );
+      flame.position.set(
+        (Math.random() - 0.5) * 0.08,
+        0.15 + i * 0.05,
+        (Math.random() - 0.5) * 0.08
+      );
+      firePit.add(flame);
+      this.lobbyFlames.push(flame);
+    }
+
+    // Embers glow on the ground
+    const emberMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+    const ember = new THREE.Mesh(
+      new THREE.CircleGeometry(0.2, 8),
+      emberMat
+    );
+    ember.rotation.x = -Math.PI / 2;
+    ember.position.y = 0.02;
+    firePit.add(ember);
+
+    // Fire point light
+    this.lobbyFireLight = new THREE.PointLight(0xff8833, 2.5, 10);
+    this.lobbyFireLight.position.set(fireX, fireY + 0.5, fireZ);
+    this.lobbyGroup.add(this.lobbyFireLight);
+
+    // Dim ambient for cozy feel
+    this.lobbyAmbient = new THREE.AmbientLight(0x334455, 0.3);
+    this.lobbyGroup.add(this.lobbyAmbient);
+
+    // === SITTING LOG ===
+    const sittingLog = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.18, 1.4, 8),
+      logMat
+    );
+    sittingLog.rotation.z = Math.PI / 2;
+    sittingLog.position.set(px, groundY + 0.15, pz);
+    this.lobbyGroup.add(sittingLog);
+
+    // === PROP BOARD (leaning against a rock) ===
+    const boardPropMat = this.player.boardMat;
+    if (this.selectedEquipment === 'ski') {
+      // Two skis leaning
+      for (const dx of [-0.08, 0.08]) {
+        const ski = new THREE.Mesh(
+          new THREE.BoxGeometry(0.10, 0.035, 1.2),
+          boardPropMat
+        );
+        ski.position.set(px + 1.0 + dx, groundY + 0.6, pz - 0.5);
+        ski.rotation.x = -0.3;
+        ski.rotation.z = 0.15;
+        this.lobbyGroup.add(ski);
+      }
+    } else {
+      const boardProp = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.05, 1.5),
+        boardPropMat
+      );
+      boardProp.position.set(px + 1.0, groundY + 0.6, pz - 0.3);
+      boardProp.rotation.x = -0.3;
+      boardProp.rotation.z = 0.25;
+      this.lobbyGroup.add(boardProp);
+    }
+
+    // === A couple rocks for scenery ===
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.95 });
+    const rock1 = new THREE.Mesh(new THREE.SphereGeometry(0.25, 5, 4), rockMat);
+    rock1.scale.set(1, 0.6, 0.8);
+    rock1.position.set(px + 0.9, groundY + 0.1, pz - 0.4);
+    this.lobbyGroup.add(rock1);
+
+    const rock2 = new THREE.Mesh(new THREE.SphereGeometry(0.18, 5, 3), rockMat);
+    rock2.scale.set(1, 0.5, 1.2);
+    rock2.position.set(fireX - 0.6, fireY + 0.05, fireZ + 0.3);
+    this.lobbyGroup.add(rock2);
+
+    this.scene.add(this.lobbyGroup);
+
+    // === POSE THE PLAYER ===
+    // Position player so hips land on the sitting log top
+    // Log top ≈ groundY + 0.30; hip joint is at riderGroup.y + 0.55 in local space
+    this.player.group.position.set(px, groundY - 0.25, pz);
+    this.player.group.rotation.set(0, Math.PI + 0.4, 0); // Face toward fire
+    this.player.setSittingPose();
+    this.player.setBoardVisible(false);
+
+    // === CAMERA ===
+    // Store the lobby focus point (midpoint between player and fire)
+    this.lobbyCenterX = (px + fireX) / 2;
+    this.lobbyCenterY = groundY + 0.8;
+    this.lobbyCenterZ = (pz + fireZ) / 2;
+    this.lobbyCamDist = 3.5;
+    this.lobbyCamHeight = 1.8;
+    this.lobbyCamAngle = 0.5; // Starting angle
+
+    // Save original scene settings to restore later
+    this._origBg = this.scene.background.clone();
+    this._origFog = this.scene.fog ? { color: this.scene.fog.color.clone(), density: this.scene.fog.density } : null;
+
+    // Darken scene for evening/campfire mood
+    this.scene.background = new THREE.Color(0x0a1628);
+    if (this.scene.fog) {
+      this.scene.fog.color.set(0x0a1628);
+      this.scene.fog.density = 0.008;
+    }
+  }
+
+  teardownLobbyScene() {
+    if (!this.lobbyGroup) return;
+
+    // Remove lobby objects
+    this.lobbyGroup.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (child.material.dispose) child.material.dispose();
+      }
+    });
+    this.scene.remove(this.lobbyGroup);
+    this.lobbyGroup = null;
+    this.lobbyFlames = null;
+    this.lobbyFireLight = null;
+    this.lobbyAmbient = null;
+
+    // Restore scene settings
+    if (this._origBg) this.scene.background.copy(this._origBg);
+    if (this._origFog && this.scene.fog) {
+      this.scene.fog.color.copy(this._origFog.color);
+      this.scene.fog.density = this._origFog.density;
+    }
+
+    // Restore player board
+    this.player.setBoardVisible(true);
+  }
+
+  updateLobby(dt) {
+    this.lobbyTime += dt;
+
+    // Animate flames
+    if (this.lobbyFlames) {
+      for (let i = 0; i < this.lobbyFlames.length; i++) {
+        const flame = this.lobbyFlames[i];
+        const t = this.lobbyTime * 3 + i * 2.1;
+        flame.scale.x = 0.8 + Math.sin(t) * 0.3;
+        flame.scale.y = 0.7 + Math.sin(t * 1.3 + 0.5) * 0.4;
+        flame.scale.z = 0.8 + Math.cos(t * 0.9) * 0.3;
+        flame.position.y = 0.15 + i * 0.05 + Math.sin(t * 1.5) * 0.03;
+      }
+    }
+
+    // Flicker fire light
+    if (this.lobbyFireLight) {
+      this.lobbyFireLight.intensity = 2.5 + Math.sin(this.lobbyTime * 5) * 0.5
+        + Math.sin(this.lobbyTime * 7.3) * 0.3;
+    }
+
+    // Gentle camera orbit
+    this.lobbyCamAngle += dt * 0.08;
+    const camX = this.lobbyCenterX + Math.sin(this.lobbyCamAngle) * this.lobbyCamDist;
+    const camZ = this.lobbyCenterZ + Math.cos(this.lobbyCamAngle) * this.lobbyCamDist;
+    const camY = this.lobbyCenterY + this.lobbyCamHeight + Math.sin(this.lobbyTime * 0.3) * 0.1;
+
+    this.camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.03);
+    this.camera.lookAt(this.lobbyCenterX, this.lobbyCenterY, this.lobbyCenterZ);
+    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 50, 0.05);
+    this.camera.updateProjectionMatrix();
+
+    // Keep rendering shadows near the scene
+    this.sun.position.set(
+      this.lobbyCenterX + 5,
+      this.lobbyCenterY + 15,
+      this.lobbyCenterZ + 5
+    );
+    this.sun.target.position.set(this.lobbyCenterX, this.lobbyCenterY, this.lobbyCenterZ);
+    this.sun.target.updateMatrixWorld();
+  }
+
+  // ---- QUEST RENDERING ----
+
+  renderQuestList(tab) {
+    this.quests.checkDailyReset();
+    const quests = tab === 'daily' ? this.quests.getDailyQuests() : this.quests.getSeasonQuests();
+    this.ui.questXpLabel.textContent = `${this.quests.getTotalXP()} XP`;
+
+    this.ui.questList.innerHTML = quests.map(q => {
+      const pct = Math.min((q.current / q.target) * 100, 100);
+      const cls = q.completed ? 'quest-item completed' : 'quest-item';
+      const progressText = q.completed ? 'COMPLETE' : `${Math.floor(q.current)} / ${q.target}`;
+      return `<div class="${cls}">
+        <div class="quest-item-info">
+          <div class="quest-item-desc">${q.desc}</div>
+          <div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${pct}%"></div></div>
+          <div class="quest-progress-text">${progressText}</div>
+        </div>
+        <div class="quest-xp-badge">${q.completed ? '' : q.xp + ' XP'}</div>
+        <div class="quest-check">&check;</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---- RIDE PASS ----
+
+  openRidePassPanel() {
+    const totalXP = this.quests.getTotalXP();
+    this.ridePass.claimAvailable(totalXP);
+
+    const level = this.ridePass.getLevel(totalXP);
+    const progress = this.ridePass.getLevelProgress(totalXP);
+    const xpPerLevel = this.ridePass.getXPPerLevel();
+    const tokens = this.ridePass.getTokens();
+
+    // Header
+    this.ui.rpLevelLabel.textContent = level >= 60 ? 'LEVEL 60 — MAX' : `LEVEL ${level}`;
+    const pct = level >= 60 ? 100 : (progress / xpPerLevel) * 100;
+    this.ui.rpProgressFill.style.width = `${pct}%`;
+    this.ui.rpXpLabel.textContent = level >= 60 ? `${xpPerLevel} / ${xpPerLevel} XP` : `${progress} / ${xpPerLevel} XP`;
+
+    // Tokens
+    this.ui.rpS1Count.textContent = tokens.steezeL1;
+    this.ui.rpS2Count.textContent = tokens.steezeL2;
+    this.ui.rpBoardCount.textContent = tokens.board;
+
+    this.renderRidePassLevels(level);
+    this.renderRidePassTitles();
+    this.ui.ridepassPanel.classList.add('active');
+  }
+
+  renderRidePassLevels(currentLevel) {
+    const rewards = this.ridePass.getAllRewards();
+    const rewardLabel = (r) => {
+      if (r.type === 'steezeL1') return { icon: '&#9733;', desc: `Steeze L1 x${r.qty}`, cls: 'rp-icon-s1' };
+      if (r.type === 'steezeL2') return { icon: '&#9733;', desc: `Steeze L2 x${r.qty}`, cls: 'rp-icon-s2' };
+      if (r.type === 'steezeL3') return { icon: '&#11088;', desc: `Steeze L3${r.title ? ' + "' + r.title + '"' : ''}`, cls: 'rp-icon-s3' };
+      if (r.type === 'board') return { icon: '&#9830;', desc: `Board Token x${r.qty}`, cls: 'rp-icon-board' };
+      if (r.type === 'title') return { icon: '&#127942;', desc: `Title: "${r.title}"`, cls: 'rp-icon-title' };
+      return { icon: '?', desc: '???', cls: '' };
+    };
+
+    this.ui.rpLevelList.innerHTML = rewards.map((r, i) => {
+      const lvl = i + 1;
+      const claimed = this.ridePass.isLevelClaimed(lvl);
+      const isCurrent = lvl === currentLevel + 1;
+      const locked = lvl > currentLevel && !claimed;
+      const info = rewardLabel(r);
+
+      let cls = 'rp-level-item';
+      if (claimed) cls += ' claimed';
+      else if (isCurrent) cls += ' current';
+      else if (locked) cls += ' locked';
+
+      return `<div class="${cls}">
+        <div class="rp-level-num">${lvl}</div>
+        <div class="rp-reward-icon ${info.cls}">${info.icon}</div>
+        <div class="rp-reward-desc">${info.desc}</div>
+        <div class="rp-claim-badge">&#10003;</div>
+      </div>`;
+    }).join('');
+
+    // Auto-scroll to current level area
+    const target = this.ui.rpLevelList.querySelector('.rp-level-item.current') ||
+                   this.ui.rpLevelList.querySelector('.rp-level-item.claimed:last-child');
+    if (target) {
+      setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
+    }
+  }
+
+  renderRidePassTitles() {
+    const titles = this.ridePass.getUnlockedTitles();
+    const selected = this.ridePass.getSelectedTitle();
+
+    if (titles.length === 0) {
+      this.ui.rpTitleSection.style.display = 'none';
+      return;
+    }
+
+    this.ui.rpTitleSection.style.display = 'block';
+    const noneSelected = selected === null;
+    let html = `<button class="rp-title-btn${noneSelected ? ' selected' : ''}" data-title="">NONE</button>`;
+    html += titles.map(t =>
+      `<button class="rp-title-btn${t === selected ? ' selected' : ''}" data-title="${t}">${t}</button>`
+    ).join('');
+
+    this.ui.rpTitleOptions.innerHTML = html;
+
+    this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const title = btn.dataset.title || null;
+        this.ridePass.selectTitle(title);
+        this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
   }
 
   // ---- LEADERBOARD ----

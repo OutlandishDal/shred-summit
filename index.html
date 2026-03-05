@@ -235,11 +235,413 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(180deg, #0a1628 0%, #1a2a4a 40%, #2a4a6a 70%, #4a7a9a 100%);
+      background: linear-gradient(180deg, rgba(10,22,40,0.5) 0%, rgba(26,42,74,0.55) 40%, rgba(42,74,106,0.4) 70%, rgba(74,122,154,0.3) 100%);
       z-index: 80;
     }
     #lobby-screen.active { display: flex; }
-    #lobby-screen h2 {
+
+    /* Corner buttons */
+    .lobby-corner-btn {
+      position: absolute;
+      padding: 12px 24px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      pointer-events: auto;
+      z-index: 2;
+    }
+    .lobby-corner-btn:hover {
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.6);
+      color: #fff;
+      transform: scale(1.05);
+    }
+    #lobby-shop { top: 30px; left: 30px; }
+    #lobby-ridepass { top: 30px; right: 30px; }
+    #lobby-quests { bottom: 80px; left: 30px; }
+    #lobby-customize { bottom: 80px; right: 30px; }
+
+    /* DROP IN stays centered */
+    #lobby-drop-in {
+      padding: 14px 50px;
+      font-size: 20px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 4px;
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      pointer-events: auto;
+      z-index: 2;
+    }
+    #lobby-drop-in:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
+    .lobby-hint {
+      margin-top: 16px;
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      letter-spacing: 2px;
+      z-index: 2;
+    }
+
+    /* Quests panel */
+    #quests-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97);
+      z-index: 3;
+      padding-top: 40px;
+    }
+    #quests-panel.active { display: flex; }
+    #quests-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 16px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    .quest-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 12px;
+    }
+    .quest-tab {
+      padding: 8px 24px;
+      font-size: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.4);
+      background: none;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .quest-tab:first-child { border-radius: 6px 0 0 6px; }
+    .quest-tab:last-child { border-radius: 0 6px 6px 0; }
+    .quest-tab.active {
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.3);
+    }
+    .quest-tab:hover:not(.active) { color: rgba(255,255,255,0.6); }
+    .quest-xp-bar {
+      margin-bottom: 16px;
+      font-size: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
+    }
+    .quest-list {
+      width: 90%;
+      max-width: 440px;
+      max-height: 55vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .quest-list::-webkit-scrollbar { width: 4px; }
+    .quest-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
+    .quest-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .quest-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      gap: 10px;
+      transition: background 0.2s;
+    }
+    .quest-item.completed {
+      background: rgba(76,255,136,0.06);
+      border-color: rgba(76,255,136,0.15);
+    }
+    .quest-item-info { flex: 1; min-width: 0; }
+    .quest-item-desc {
+      font-size: 13px;
+      color: rgba(255,255,255,0.8);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .quest-item.completed .quest-item-desc {
+      color: rgba(76,255,136,0.8);
+    }
+    .quest-progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .quest-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4cf, #4cff88);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+    .quest-item.completed .quest-progress-fill {
+      background: #4cff88;
+    }
+    .quest-progress-text {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+      margin-top: 2px;
+      letter-spacing: 0.5px;
+    }
+    .quest-item.completed .quest-progress-text {
+      color: rgba(76,255,136,0.5);
+    }
+    .quest-xp-badge {
+      font-size: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 1px;
+      white-space: nowrap;
+      min-width: 50px;
+      text-align: right;
+    }
+    .quest-item.completed .quest-xp-badge {
+      color: rgba(76,255,136,0.6);
+    }
+    .quest-check {
+      font-size: 18px;
+      color: #4cff88;
+      display: none;
+    }
+    .quest-item.completed .quest-check { display: block; }
+    #quests-back {
+      margin-top: 20px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    #quests-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
+    /* Ride Pass panel */
+    #ridepass-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97);
+      z-index: 3;
+      padding-top: 40px;
+    }
+    #ridepass-panel.active { display: flex; }
+    #ridepass-panel h2 {
+      font-size: 48px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #fff;
+      letter-spacing: 6px;
+      margin-bottom: 12px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    .rp-tokens-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .rp-token {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 2px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .rp-token-s1 { color: #ffcc00; }
+    .rp-token-s2 { color: #ff66cc; }
+    .rp-token-board { color: #4cf; }
+    .rp-token-icon { margin-right: 4px; }
+    .rp-level-bar {
+      width: 90%;
+      max-width: 440px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .rp-level-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      color: #ffcc00;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
+    }
+    .rp-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+    .rp-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ffcc00, #ff9900);
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .rp-xp-label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 1px;
+    }
+    .rp-level-list {
+      width: 90%;
+      max-width: 440px;
+      max-height: 42vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .rp-level-list::-webkit-scrollbar { width: 4px; }
+    .rp-level-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
+    .rp-level-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .rp-level-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      gap: 10px;
+    }
+    .rp-level-item.claimed {
+      background: rgba(76,255,136,0.06);
+      border-color: rgba(76,255,136,0.15);
+    }
+    .rp-level-item.locked { opacity: 0.35; }
+    .rp-level-item.current {
+      border-color: rgba(255,204,0,0.4);
+      background: rgba(255,204,0,0.06);
+    }
+    .rp-level-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      color: rgba(255,255,255,0.5);
+      width: 32px;
+      text-align: center;
+      letter-spacing: 1px;
+    }
+    .rp-level-item.claimed .rp-level-num { color: rgba(76,255,136,0.7); }
+    .rp-level-item.current .rp-level-num { color: #ffcc00; }
+    .rp-reward-icon { font-size: 18px; width: 24px; text-align: center; }
+    .rp-icon-s1 { color: #ffcc00; }
+    .rp-icon-s2 { color: #ff66cc; }
+    .rp-icon-s3 { color: #ff3300; }
+    .rp-icon-board { color: #4cf; }
+    .rp-icon-title { color: #ffd700; }
+    .rp-reward-desc {
+      flex: 1;
+      font-size: 13px;
+      color: rgba(255,255,255,0.7);
+      letter-spacing: 0.5px;
+    }
+    .rp-level-item.claimed .rp-reward-desc { color: rgba(76,255,136,0.7); }
+    .rp-claim-badge {
+      font-size: 16px;
+      color: #4cff88;
+      display: none;
+    }
+    .rp-level-item.claimed .rp-claim-badge { display: block; }
+    .rp-title-section {
+      margin-top: 10px;
+      text-align: center;
+      width: 90%;
+      max-width: 440px;
+    }
+    .rp-title-heading {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 3px;
+      margin-bottom: 8px;
+    }
+    .rp-title-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+    }
+    .rp-title-btn {
+      padding: 6px 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .rp-title-btn:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
+    .rp-title-btn.selected {
+      color: #ffcc00;
+      border-color: #ffcc00;
+      background: rgba(255,204,0,0.1);
+    }
+    #ridepass-back {
+      margin-top: 14px;
+      padding: 10px 36px;
+      font-size: 18px;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    #ridepass-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+    .lb-title {
+      font-size: 10px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: #ffcc00;
+      letter-spacing: 2px;
+      opacity: 0.7;
+    }
+
+    /* Customize panel (hidden by default) */
+    #customize-panel {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(10,18,30,0.85);
+      z-index: 3;
+    }
+    #customize-panel.active { display: flex; }
+    #customize-panel h2 {
       font-size: 48px;
       font-family: 'Bebas Neue', sans-serif;
       color: #fff;
@@ -291,27 +693,20 @@
       border-color: #fff;
       color: #fff;
     }
-    #lobby-drop-in {
-      margin-top: 30px;
-      padding: 14px 50px;
-      font-size: 20px;
+    #customize-back {
+      margin-top: 24px;
+      padding: 10px 36px;
+      font-size: 18px;
       font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 4px;
-      color: #fff;
-      background: rgba(255,255,255,0.1);
-      border: 2px solid rgba(255,255,255,0.3);
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25);
       border-radius: 8px;
       cursor: pointer;
-      transition: background 0.2s, border-color 0.2s;
-      pointer-events: auto;
+      transition: all 0.15s;
     }
-    #lobby-drop-in:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
-    .lobby-hint {
-      margin-top: 16px;
-      color: rgba(255,255,255,0.3);
-      font-size: 12px;
-      letter-spacing: 2px;
-    }
+    #customize-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
 
     /* Crash vignette */
     #crash-vignette {
@@ -713,8 +1108,14 @@
       letter-spacing: 1px;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
       padding: 0 8px;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+    .leaderboard-entry .lb-name .lb-title {
+      display: block;
+      margin-top: 1px;
     }
     .leaderboard-entry.current .lb-name { color: #4cf; }
 
@@ -971,6 +1372,15 @@
         padding: 12px 16px;
       }
 
+      /* Quests panel mobile */
+      #quests-panel h2 { font-size: 36px; }
+      .quest-list { max-height: 45vh; }
+      /* Ride pass mobile */
+      #ridepass-panel h2 { font-size: 36px; }
+      .rp-level-list { max-height: 35vh; }
+      .rp-tokens-bar { gap: 8px; }
+      .rp-token { font-size: 14px; padding: 3px 8px; }
+
       /* Lobby */
       #lobby-screen h2 {
         font-size: 36px;
@@ -1090,60 +1500,109 @@
   </div>
 
   <div id="lobby-screen">
-    <h2>CUSTOMIZE RIDER</h2>
-    <div class="lobby-row">
-      <label>Equipment</label>
-      <div class="equipment-options">
-        <button class="equipment-btn selected" data-equipment="snowboard">SNOWBOARD</button>
-        <button class="equipment-btn" data-equipment="ski">SKIS</button>
-      </div>
-    </div>
-    <div class="lobby-row">
-      <label>Jacket</label>
-      <div class="color-options" data-part="jacket">
-        <div class="color-swatch selected" style="background:#d32f2f" data-color="0xd32f2f"></div>
-        <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
-        <div class="color-swatch" style="background:#2e7d32" data-color="0x2e7d32"></div>
-        <div class="color-swatch" style="background:#f57f17" data-color="0xf57f17"></div>
-        <div class="color-swatch" style="background:#6a1b9a" data-color="0x6a1b9a"></div>
-        <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
-        <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
-      </div>
-    </div>
-    <div class="lobby-row">
-      <label>Pants</label>
-      <div class="color-options" data-part="pants">
-        <div class="color-swatch selected" style="background:#263238" data-color="0x263238"></div>
-        <div class="color-swatch" style="background:#1a237e" data-color="0x1a237e"></div>
-        <div class="color-swatch" style="background:#3e2723" data-color="0x3e2723"></div>
-        <div class="color-swatch" style="background:#b71c1c" data-color="0xb71c1c"></div>
-        <div class="color-swatch" style="background:#e0e0e0" data-color="0xe0e0e0"></div>
-        <div class="color-swatch" style="background:#004d40" data-color="0x004d40"></div>
-      </div>
-    </div>
-    <div class="lobby-row">
-      <label>Board</label>
-      <div class="color-options" data-part="board">
-        <div class="color-swatch selected" style="background:#1565c0" data-color="0x1565c0"></div>
-        <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
-        <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
-        <div class="color-swatch" style="background:#00bcd4" data-color="0x00bcd4"></div>
-        <div class="color-swatch" style="background:#ff6f00" data-color="0xff6f00"></div>
-        <div class="color-swatch" style="background:#4caf50" data-color="0x4caf50"></div>
-      </div>
-    </div>
-    <div class="lobby-row">
-      <label>Helmet</label>
-      <div class="color-options" data-part="helmet">
-        <div class="color-swatch selected" style="background:#212121" data-color="0x212121"></div>
-        <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
-        <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
-        <div class="color-swatch" style="background:#ff9800" data-color="0xff9800"></div>
-        <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
-      </div>
-    </div>
+    <!-- Corner buttons -->
+    <div class="lobby-corner-btn" id="lobby-shop">SHOP</div>
+    <div class="lobby-corner-btn" id="lobby-ridepass">RIDE PASS</div>
+    <div class="lobby-corner-btn" id="lobby-quests">QUESTS</div>
+    <div class="lobby-corner-btn" id="lobby-customize">CUSTOMIZE</div>
+
+    <!-- Center: DROP IN -->
     <button id="lobby-drop-in">DROP IN</button>
     <div class="lobby-hint">ESC TO RETURN TO LOBBY AFTER CRASHING</div>
+
+    <!-- Ride Pass panel (hidden until RIDE PASS clicked) -->
+    <div id="ridepass-panel">
+      <h2>RIDE PASS</h2>
+      <div class="rp-tokens-bar">
+        <span class="rp-token rp-token-s1"><span class="rp-token-icon">&#9733;</span> <span id="rp-s1-count">0</span></span>
+        <span class="rp-token rp-token-s2"><span class="rp-token-icon">&#9733;</span> <span id="rp-s2-count">0</span></span>
+        <span class="rp-token rp-token-board"><span class="rp-token-icon">&#9830;</span> <span id="rp-board-count">0</span></span>
+      </div>
+      <div class="rp-level-bar">
+        <span class="rp-level-label" id="rp-level-label">LEVEL 0</span>
+        <div class="rp-progress-track">
+          <div class="rp-progress-fill" id="rp-progress-fill"></div>
+        </div>
+        <span class="rp-xp-label" id="rp-xp-label">0 / 100 XP</span>
+      </div>
+      <div id="rp-level-list" class="rp-level-list"></div>
+      <div id="rp-title-section" class="rp-title-section" style="display:none">
+        <div class="rp-title-heading">EQUIPPED TITLE</div>
+        <div id="rp-title-options" class="rp-title-options"></div>
+      </div>
+      <button id="ridepass-back">BACK</button>
+    </div>
+
+    <!-- Quests panel (hidden until QUESTS clicked) -->
+    <div id="quests-panel">
+      <h2>QUESTS</h2>
+      <div class="quest-tabs">
+        <button class="quest-tab active" data-tab="daily">DAILY</button>
+        <button class="quest-tab" data-tab="season">SEASON</button>
+      </div>
+      <div class="quest-xp-bar">
+        <span id="quest-xp-label">0 XP</span>
+      </div>
+      <div id="quest-list" class="quest-list"></div>
+      <button id="quests-back">BACK</button>
+    </div>
+
+    <!-- Customize panel (hidden until CUSTOMIZE clicked) -->
+    <div id="customize-panel">
+      <h2>CUSTOMIZE RIDER</h2>
+      <div class="lobby-row">
+        <label>Equipment</label>
+        <div class="equipment-options">
+          <button class="equipment-btn selected" data-equipment="snowboard">SNOWBOARD</button>
+          <button class="equipment-btn" data-equipment="ski">SKIS</button>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Jacket</label>
+        <div class="color-options" data-part="jacket">
+          <div class="color-swatch selected" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
+          <div class="color-swatch" style="background:#2e7d32" data-color="0x2e7d32"></div>
+          <div class="color-swatch" style="background:#f57f17" data-color="0xf57f17"></div>
+          <div class="color-swatch" style="background:#6a1b9a" data-color="0x6a1b9a"></div>
+          <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Pants</label>
+        <div class="color-options" data-part="pants">
+          <div class="color-swatch selected" style="background:#263238" data-color="0x263238"></div>
+          <div class="color-swatch" style="background:#1a237e" data-color="0x1a237e"></div>
+          <div class="color-swatch" style="background:#3e2723" data-color="0x3e2723"></div>
+          <div class="color-swatch" style="background:#b71c1c" data-color="0xb71c1c"></div>
+          <div class="color-swatch" style="background:#e0e0e0" data-color="0xe0e0e0"></div>
+          <div class="color-swatch" style="background:#004d40" data-color="0x004d40"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Board</label>
+        <div class="color-options" data-part="board">
+          <div class="color-swatch selected" style="background:#1565c0" data-color="0x1565c0"></div>
+          <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#00bcd4" data-color="0x00bcd4"></div>
+          <div class="color-swatch" style="background:#ff6f00" data-color="0xff6f00"></div>
+          <div class="color-swatch" style="background:#4caf50" data-color="0x4caf50"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Helmet</label>
+        <div class="color-options" data-part="helmet">
+          <div class="color-swatch selected" style="background:#212121" data-color="0x212121"></div>
+          <div class="color-swatch" style="background:#ffffff" data-color="0xffffff"></div>
+          <div class="color-swatch" style="background:#d32f2f" data-color="0xd32f2f"></div>
+          <div class="color-swatch" style="background:#ff9800" data-color="0xff9800"></div>
+          <div class="color-swatch" style="background:#1565c0" data-color="0x1565c0"></div>
+        </div>
+      </div>
+      <button id="customize-back">BACK</button>
+    </div>
   </div>
 
   <div id="nickname-overlay">

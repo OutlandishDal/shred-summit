@@ -50,16 +50,18 @@ export function getWeekId(date = new Date()) {
  * Submit a score to the worldwide leaderboard.
  * Returns the document ID on success, null on failure.
  */
-export async function submitScore(db, nickname, score) {
+export async function submitScore(db, nickname, score, title = null) {
   if (!db) return null;
   try {
     const weekId = getWeekId();
-    const docRef = await addDoc(collection(db, 'scores'), {
+    const doc = {
       nickname: nickname,
       score: score,
       weekId: weekId,
       createdAt: serverTimestamp(),
-    });
+    };
+    if (title) doc.title = title;
+    const docRef = await addDoc(collection(db, 'scores'), doc);
     return docRef.id;
   } catch (e) {
     console.warn('Failed to submit score to Firebase:', e);

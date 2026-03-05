@@ -22,6 +22,10 @@ export class TrickSystem {
     this.lastBoardslideType = null;
     this.grindAccumulatedTime = 0;
 
+    // Quest tracking events (consumed by QuestSystem)
+    this.lastScoredTrick = null;  // set when a trick is scored
+    this.lastScoredGrind = null;  // set when a grind is scored
+
     // Catchphrase system
     this.lastCatchphrase = '';
     this.lastCatchphraseTime = 0;
@@ -246,6 +250,17 @@ export class TrickSystem {
 
       this.comboMultiplier = Math.min(this.comboMultiplier + 0.5, 5.0);
       this.comboTimer = this.comboDuration;
+
+      // Store for quest tracking
+      this.lastScoredTrick = {
+        spinCount: this.spinCount,
+        flipCount: this.flipCount,
+        flipDirection: this.flipDirection,
+        grabTypes: new Set(this.grabTypes),
+        isCork: hasCork,
+        points: trickScore,
+        comboMultiplier: this.comboMultiplier,
+      };
     }
 
     this.spinCount = 0;
@@ -292,6 +307,12 @@ export class TrickSystem {
 
       this.comboMultiplier = Math.min(this.comboMultiplier + 0.5, 5.0);
       this.comboTimer = this.comboDuration;
+
+      // Store for quest tracking
+      this.lastScoredGrind = {
+        type: this.lastBoardslideType,
+        duration: this.grindAccumulatedTime,
+      };
     }
 
     this.lastBoardslideType = null;

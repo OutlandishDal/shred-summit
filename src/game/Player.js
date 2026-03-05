@@ -140,63 +140,63 @@ export class Player {
     // === SEGMENTED ARMS ===
     // Left arm: shoulderL → upperArmL → elbowL → forearmL → gloveL
     this.shoulderL = new THREE.Group();
-    this.shoulderL.position.set(-0.3, 1.05, 0);
+    this.shoulderL.position.set(-0.28, 1.05, 0);
     this.riderGroup.add(this.shoulderL);
 
-    const upperArmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 6), jacketMat);
-    upperArmL.position.set(0, -0.18, 0); upperArmL.castShadow = true;
+    const upperArmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.16, 4, 6), jacketMat);
+    upperArmL.position.set(0, -0.12, 0); upperArmL.castShadow = true;
     this.shoulderL.add(upperArmL);
 
     this.elbowL = new THREE.Group();
-    this.elbowL.position.set(0, -0.36, 0);
+    this.elbowL.position.set(0, -0.24, 0);
     this.shoulderL.add(this.elbowL);
 
-    const forearmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.22, 4, 6), jacketMat);
-    forearmL.position.set(0, -0.165, 0); forearmL.castShadow = true;
+    const forearmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.14, 4, 6), jacketMat);
+    forearmL.position.set(0, -0.11, 0); forearmL.castShadow = true;
     this.elbowL.add(forearmL);
 
-    const gloveL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 4), this.gloveMat);
-    gloveL.position.set(0, -0.33, 0);
+    const gloveL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), this.gloveMat);
+    gloveL.position.set(0, -0.22, 0);
     this.elbowL.add(gloveL);
 
     // Right arm: shoulderR → upperArmR → elbowR → forearmR → gloveR
     this.shoulderR = new THREE.Group();
-    this.shoulderR.position.set(0.3, 1.05, 0);
+    this.shoulderR.position.set(0.28, 1.05, 0);
     this.riderGroup.add(this.shoulderR);
 
-    const upperArmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 6), jacketMat);
-    upperArmR.position.set(0, -0.18, 0); upperArmR.castShadow = true;
+    const upperArmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.16, 4, 6), jacketMat);
+    upperArmR.position.set(0, -0.12, 0); upperArmR.castShadow = true;
     this.shoulderR.add(upperArmR);
 
     this.elbowR = new THREE.Group();
-    this.elbowR.position.set(0, -0.36, 0);
+    this.elbowR.position.set(0, -0.24, 0);
     this.shoulderR.add(this.elbowR);
 
-    const forearmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.22, 4, 6), jacketMat);
-    forearmR.position.set(0, -0.165, 0); forearmR.castShadow = true;
+    const forearmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.14, 4, 6), jacketMat);
+    forearmR.position.set(0, -0.11, 0); forearmR.castShadow = true;
     this.elbowR.add(forearmR);
 
-    const gloveR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 4), this.gloveMat);
-    gloveR.position.set(0, -0.33, 0);
+    const gloveR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), this.gloveMat);
+    gloveR.position.set(0, -0.22, 0);
     this.elbowR.add(gloveR);
 
     // Default arm pose — arms spread OUTWARD from body
     if (this.equipmentType === 'ski') {
-      // Ski: wide spread for holding poles, slight forward lean
-      this.shoulderL.rotation.z = 0.8;
-      this.shoulderL.rotation.x = 0.15;
-      this.elbowL.rotation.x = -0.2;
-      this.shoulderR.rotation.z = -0.8;
-      this.shoulderR.rotation.x = 0.15;
-      this.elbowR.rotation.x = -0.2;
+      // Ski: moderate spread for holding poles, slight forward lean
+      this.shoulderL.rotation.z = -0.75;
+      this.shoulderL.rotation.x = 0.2;
+      this.elbowL.rotation.x = -0.3;
+      this.shoulderR.rotation.z = 0.75;
+      this.shoulderR.rotation.x = 0.2;
+      this.elbowR.rotation.x = -0.3;
     } else {
-      // Snowboard: arms spread out to the sides for balance
-      this.shoulderL.rotation.z = 0.7;
-      this.shoulderL.rotation.x = 0.1;
-      this.elbowL.rotation.x = -0.2;
-      this.shoulderR.rotation.z = -0.7;
-      this.shoulderR.rotation.x = 0.1;
-      this.elbowR.rotation.x = -0.2;
+      // Snowboard: arms angled out and down for balance
+      this.shoulderL.rotation.z = -0.7;
+      this.shoulderL.rotation.x = 0.15;
+      this.elbowL.rotation.x = -0.3;
+      this.shoulderR.rotation.z = 0.7;
+      this.shoulderR.rotation.x = 0.15;
+      this.elbowR.rotation.x = -0.3;
     }
 
     // Ski poles (attached to forearms)
@@ -318,8 +318,8 @@ export class Player {
 
     for (const elbow of [this.elbowL, this.elbowR]) {
       const poleGroup = new THREE.Group();
-      poleGroup.position.set(0, -0.25, 0);
-      poleGroup.rotation.x = 0.3; // slight forward tilt
+      poleGroup.position.set(0, -0.15, 0.05);
+      poleGroup.rotation.x = 0.2; // slight forward tilt
 
       // Shaft
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.01, 0.9, 6), poleMat);
@@ -343,14 +343,14 @@ export class Player {
   resetJointsToRiding(speed) {
     const s = speed || 0.1;
     const isSki = this.equipmentType === 'ski';
-    // Arms: spread outward from body
-    this.lerpJoint(this.shoulderL, 'z', isSki ? 0.8 : 0.7, s);
-    this.lerpJoint(this.shoulderL, 'x', isSki ? 0.15 : 0.1, s);
-    this.lerpJoint(this.elbowL, 'x', -0.2, s);
+    // Arms: spread outward from body (negative Z = outward for left, positive Z = outward for right)
+    this.lerpJoint(this.shoulderL, 'z', isSki ? -0.75 : -0.7, s);
+    this.lerpJoint(this.shoulderL, 'x', isSki ? 0.2 : 0.15, s);
+    this.lerpJoint(this.elbowL, 'x', -0.3, s);
 
-    this.lerpJoint(this.shoulderR, 'z', isSki ? -0.8 : -0.7, s);
-    this.lerpJoint(this.shoulderR, 'x', isSki ? 0.15 : 0.1, s);
-    this.lerpJoint(this.elbowR, 'x', -0.2, s);
+    this.lerpJoint(this.shoulderR, 'z', isSki ? 0.75 : 0.7, s);
+    this.lerpJoint(this.shoulderR, 'x', isSki ? 0.2 : 0.15, s);
+    this.lerpJoint(this.elbowR, 'x', -0.3, s);
 
     // Legs: default riding bend
     this.lerpJoint(this.hipL, 'x', -0.3, s);
@@ -612,12 +612,12 @@ export class Player {
         this.lerpJoint(this.hipR, 'x', -0.7, 0.12);
         this.lerpJoint(this.kneeR, 'x', 1.2, 0.12);
         // Arms fold in for tuck (but still out from body)
-        this.lerpJoint(this.shoulderL, 'z', 0.6, 0.12);
-        this.lerpJoint(this.shoulderL, 'x', 0.15, 0.12);
-        this.lerpJoint(this.elbowL, 'x', -1.2, 0.12);
-        this.lerpJoint(this.shoulderR, 'z', -0.6, 0.12);
-        this.lerpJoint(this.shoulderR, 'x', 0.15, 0.12);
-        this.lerpJoint(this.elbowR, 'x', -1.2, 0.12);
+        this.lerpJoint(this.shoulderL, 'z', -0.5, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0.3, 0.12);
+        this.lerpJoint(this.elbowL, 'x', -0.9, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', 0.5, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', 0.3, 0.12);
+        this.lerpJoint(this.elbowR, 'x', -0.9, 0.12);
       } else {
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
         // Legs: carving + landing impact
@@ -632,15 +632,15 @@ export class Player {
         this.lerpJoint(this.kneeR, 'x', rearKnee, 0.12);
 
         // Arms: spread outward, sway with turns
-        const armZ = this.equipmentType === 'ski' ? 0.8 : 0.7;
-        const armX = this.equipmentType === 'ski' ? 0.15 : 0.1;
-        this.lerpJoint(this.shoulderL, 'z', armZ + lean * 0.15, 0.1);
+        const armZ = this.equipmentType === 'ski' ? 0.75 : 0.7;
+        const armX = this.equipmentType === 'ski' ? 0.2 : 0.15;
+        this.lerpJoint(this.shoulderL, 'z', -armZ - lean * 0.15, 0.1);
         this.lerpJoint(this.shoulderL, 'x', armX - lean * 0.15, 0.1);
-        this.lerpJoint(this.elbowL, 'x', -0.2 - lean * 0.25, 0.1);
+        this.lerpJoint(this.elbowL, 'x', -0.3 - lean * 0.2, 0.1);
 
-        this.lerpJoint(this.shoulderR, 'z', -armZ + lean * 0.15, 0.1);
+        this.lerpJoint(this.shoulderR, 'z', armZ - lean * 0.15, 0.1);
         this.lerpJoint(this.shoulderR, 'x', armX + lean * 0.15, 0.1);
-        this.lerpJoint(this.elbowR, 'x', -0.2 + lean * 0.25, 0.1);
+        this.lerpJoint(this.elbowR, 'x', -0.3 + lean * 0.2, 0.1);
       }
 
       // Rider body drop from landing impact
@@ -723,10 +723,10 @@ export class Player {
         this.boardGroup.rotation.y = this.trickRotation.y + this.boardslideAngle;
 
         // Grind rider animations: arms spread wide for balance
-        this.lerpJoint(this.shoulderL, 'z', 1.3, 0.12);
+        this.lerpJoint(this.shoulderL, 'z', -0.9, 0.12);
         this.lerpJoint(this.shoulderL, 'x', 0, 0.12);
         this.lerpJoint(this.elbowL, 'x', -0.15, 0.12);
-        this.lerpJoint(this.shoulderR, 'z', -1.3, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', 0.9, 0.12);
         this.lerpJoint(this.shoulderR, 'x', 0, 0.12);
         this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
 
@@ -906,13 +906,13 @@ export class Player {
       // Air tuck — crouched tight for faster rotation
       this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.2, 0.15);
       this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.4, 0.15);
-      // Arms fold in tight
-      this.lerpJoint(this.shoulderL, 'z', 1.2, 0.15);
-      this.lerpJoint(this.shoulderL, 'x', 0.3, 0.15);
-      this.lerpJoint(this.elbowL, 'x', -1.5, 0.15);
-      this.lerpJoint(this.shoulderR, 'z', -1.2, 0.15);
-      this.lerpJoint(this.shoulderR, 'x', 0.3, 0.15);
-      this.lerpJoint(this.elbowR, 'x', -1.5, 0.15);
+      // Arms fold in tight (but clear of body)
+      this.lerpJoint(this.shoulderL, 'z', -0.6, 0.15);
+      this.lerpJoint(this.shoulderL, 'x', 0.4, 0.15);
+      this.lerpJoint(this.elbowL, 'x', -1.1, 0.15);
+      this.lerpJoint(this.shoulderR, 'z', 0.6, 0.15);
+      this.lerpJoint(this.shoulderR, 'x', 0.4, 0.15);
+      this.lerpJoint(this.elbowR, 'x', -1.1, 0.15);
       // Legs tuck up
       this.lerpJoint(this.hipL, 'x', -0.8, 0.15);
       this.lerpJoint(this.kneeL, 'x', 1.4, 0.15);
@@ -923,12 +923,12 @@ export class Player {
       this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
       this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.1, 0.1);
       // Arms spread wide out to sides — one slightly higher for style
-      this.lerpJoint(this.shoulderL, 'z', 1.4, 0.12);
+      this.lerpJoint(this.shoulderL, 'z', -1.05, 0.12);
       this.lerpJoint(this.shoulderL, 'x', 0.1, 0.12);
-      this.lerpJoint(this.elbowL, 'x', -0.15, 0.12);
-      this.lerpJoint(this.shoulderR, 'z', -1.2, 0.12);
+      this.lerpJoint(this.elbowL, 'x', -0.2, 0.12);
+      this.lerpJoint(this.shoulderR, 'z', 0.95, 0.12);
       this.lerpJoint(this.shoulderR, 'x', -0.1, 0.12);
-      this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
+      this.lerpJoint(this.elbowR, 'x', -0.2, 0.12);
       // Legs slightly tucked
       this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
       this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
@@ -1105,23 +1105,23 @@ export class Player {
 
     switch (type) {
       case 'indy':
-        // Right hand grabs toe edge between feet — arm reaches down
-        this.lerpJoint(this.shoulderR, 'z', -1.8, L);
+        // Right hand grabs toe edge between feet — arm reaches down/inward
+        this.lerpJoint(this.shoulderR, 'z', 1.2, L);
         this.lerpJoint(this.shoulderR, 'x', 0.2, L);
         this.lerpJoint(this.elbowR, 'x', -1.3, L);
-        // Left arm relaxed / balanced
-        this.lerpJoint(this.shoulderL, 'z', 0.8, L);
+        // Left arm relaxed / balanced outward
+        this.lerpJoint(this.shoulderL, 'z', -0.75, L);
         this.lerpJoint(this.shoulderL, 'x', 0, L);
         this.lerpJoint(this.elbowL, 'x', -0.3, L);
         break;
 
       case 'method':
         // Left hand reaches behind and up to heel edge — classic tweaked method
-        this.lerpJoint(this.shoulderL, 'z', 1.6, L);
+        this.lerpJoint(this.shoulderL, 'z', -1.1, L);
         this.lerpJoint(this.shoulderL, 'x', -0.8, L);
         this.lerpJoint(this.elbowL, 'x', -1.4, L);
         // Right arm forward for balance
-        this.lerpJoint(this.shoulderR, 'z', -0.5, L);
+        this.lerpJoint(this.shoulderR, 'z', 0.6, L);
         this.lerpJoint(this.shoulderR, 'x', 0.4, L);
         this.lerpJoint(this.elbowR, 'x', -0.3, L);
         leanX = 0.45;
@@ -1129,34 +1129,34 @@ export class Player {
 
       case 'stalefish':
         // Right hand crosses body to grab heel edge
-        this.lerpJoint(this.shoulderR, 'z', -1.4, L);
+        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
         this.lerpJoint(this.shoulderR, 'x', -0.3, L);
         this.lerpJoint(this.elbowR, 'x', -1.4, L);
         // Left arm out for balance
-        this.lerpJoint(this.shoulderL, 'z', 0.9, L);
+        this.lerpJoint(this.shoulderL, 'z', -0.85, L);
         this.lerpJoint(this.shoulderL, 'x', 0.2, L);
         this.lerpJoint(this.elbowL, 'x', -0.3, L);
         crouchY = -0.4;
         break;
 
       case 'melon':
-        // Left hand grabs heel edge — arm reaches down
-        this.lerpJoint(this.shoulderL, 'z', 1.8, L);
+        // Left hand grabs heel edge — arm reaches down/inward
+        this.lerpJoint(this.shoulderL, 'z', -1.2, L);
         this.lerpJoint(this.shoulderL, 'x', 0.2, L);
         this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        // Right arm relaxed / balanced
-        this.lerpJoint(this.shoulderR, 'z', -0.8, L);
+        // Right arm relaxed / balanced outward
+        this.lerpJoint(this.shoulderR, 'z', 0.75, L);
         this.lerpJoint(this.shoulderR, 'x', 0, L);
         this.lerpJoint(this.elbowR, 'x', -0.3, L);
         break;
 
       case 'nosegrab':
         // Right hand reaches forward and down to grab board nose
-        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
         this.lerpJoint(this.shoulderR, 'x', 0.8, L);
         this.lerpJoint(this.elbowR, 'x', -1.2, L);
         // Left arm back for balance
-        this.lerpJoint(this.shoulderL, 'z', 0.6, L);
+        this.lerpJoint(this.shoulderL, 'z', -0.7, L);
         this.lerpJoint(this.shoulderL, 'x', -0.4, L);
         this.lerpJoint(this.elbowL, 'x', -0.3, L);
         leanX = 0.55;
@@ -1165,11 +1165,11 @@ export class Player {
 
       case 'tailgrab':
         // Right hand reaches backward and down to grab board tail
-        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
         this.lerpJoint(this.shoulderR, 'x', -0.8, L);
         this.lerpJoint(this.elbowR, 'x', -1.2, L);
         // Left arm forward for balance
-        this.lerpJoint(this.shoulderL, 'z', 0.6, L);
+        this.lerpJoint(this.shoulderL, 'z', -0.7, L);
         this.lerpJoint(this.shoulderL, 'x', 0.4, L);
         this.lerpJoint(this.elbowL, 'x', -0.3, L);
         leanX = -0.15;
@@ -1178,10 +1178,10 @@ export class Player {
 
       default:
         // Generic grab
-        this.lerpJoint(this.shoulderL, 'z', 1.5, L);
+        this.lerpJoint(this.shoulderL, 'z', -1.05, L);
         this.lerpJoint(this.shoulderL, 'x', 0, L);
         this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        this.lerpJoint(this.shoulderR, 'z', -1.5, L);
+        this.lerpJoint(this.shoulderR, 'z', 1.05, L);
         this.lerpJoint(this.shoulderR, 'x', 0, L);
         this.lerpJoint(this.elbowR, 'x', -1.3, L);
     }
@@ -1268,6 +1268,44 @@ export class Player {
     this.group.position.copy(this.position);
     this.group.rotation.set(0, Math.PI, 0);
     this.visualYaw = Math.PI;
+  }
+
+  setSittingPose() {
+    // Reset crash state visuals
+    this.boardGroup.rotation.set(0, 0, 0);
+    this.riderGroup.rotation.set(0, this.STANCE_YAW, 0);
+
+    // Lower riderGroup so hips (y=0.55) sit on the log surface
+    this.riderGroup.position.set(0, 0, 0);
+    // Lean torso forward for natural sitting posture
+    this.riderGroup.rotation.x = 0.3;
+
+    // Legs: bent forward at hips, knees bent so feet touch ground
+    this.hipL.rotation.set(-1.5, 0.1, 0);
+    this.kneeL.rotation.set(1.6, 0, 0);
+    this.hipR.rotation.set(-1.5, -0.1, 0);
+    this.kneeR.rotation.set(1.6, 0, 0);
+
+    // Arms: resting on knees, elbows out slightly
+    this.shoulderL.rotation.set(0.5, 0.2, -0.2);
+    this.elbowL.rotation.set(-0.9, 0, 0);
+    this.shoulderR.rotation.set(0.5, -0.2, 0.2);
+    this.elbowR.rotation.set(-0.9, 0, 0);
+
+    // Head: looking slightly toward fire (forward and down)
+    this.headGroup.rotation.set(0, 0, 0);
+    this.neckGroup.rotation.set(-0.2, 0, 0);
+  }
+
+  setBoardVisible(visible) {
+    // Hide/show only the board/ski meshes — skip riderGroup and all its descendants
+    for (const child of this.boardGroup.children) {
+      if (child === this.riderGroup) continue;
+      child.visible = visible;
+      if (child.traverse) {
+        child.traverse(c => { if (c.isMesh) c.visible = visible; });
+      }
+    }
   }
 
   getState(terrain) {
