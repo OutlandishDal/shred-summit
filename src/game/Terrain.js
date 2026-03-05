@@ -188,6 +188,65 @@ export class Terrain {
       }
     }
 
+    // --- FINAL BOOTER: massive 200ft jump before finish line ---
+    const booterGlobalZ = -4100;
+    if (booterGlobalZ >= zOffset - this.chunkLength && booterGlobalZ < zOffset) {
+      const booterFeet = 200;
+      const feature = this.createJump(booterFeet);
+      const bScale = booterFeet / 30;
+      const bWidth = 4.0 * bScale;
+      const bLength = 5.0 * bScale;
+      const bx = 0; // centered on the run
+
+      // Embed in terrain
+      const bHalfW = bWidth / 2;
+      const bHalfL = bLength / 2;
+      let bMinY = Infinity;
+      for (const sx of [-bHalfW, 0, bHalfW]) {
+        for (const sz of [-bHalfL, -bHalfL / 2, 0, bHalfL / 2, bHalfL]) {
+          const h = this.computeHeight(bx + sx, booterGlobalZ + sz);
+          if (h < bMinY) bMinY = h;
+        }
+      }
+      bMinY -= 0.3;
+
+      feature.position.set(bx, bMinY, booterGlobalZ);
+      this.scene.add(feature);
+      chunk.objects.push(feature);
+
+      const booterData = {
+        mesh: feature,
+        position: new THREE.Vector3(bx, bMinY, booterGlobalZ),
+        type: 'kicker', width: bWidth, length: bLength, size: 'massive',
+        lipHeight: 2.0 * bScale, lipAngle: 0.65, surfaceHeight: 0,
+      };
+
+      if (feature.userData.landing) {
+        const ld = feature.userData.landing;
+        const lipZ = booterGlobalZ - bLength / 2;
+        booterData.landingZoneStartZ = lipZ - (ld.airGap || 0);
+        booterData.landingZoneEndZ = lipZ - (ld.airGap || 0) - ld.gap - ld.length;
+        const terrainAtStart = this.computeHeight(bx, booterData.landingZoneStartZ);
+        const terrainAtEnd = this.computeHeight(bx, booterData.landingZoneEndZ);
+        booterData.landingTopHeight = Math.max(bMinY + ld.topLocalY, terrainAtStart + 2.0);
+        booterData.landingBottomHeight = Math.max(bMinY + ld.endLocalY, terrainAtEnd + 1.0);
+        booterData.landingWidth = ld.width;
+        booterData.landingGap = ld.gap;
+        booterData.landingLength = ld.length;
+      }
+
+      this.ramps.push(booterData);
+
+      // Big exclusion zone around the entire booter
+      const bBuffer = 12;
+      const bZTop = booterGlobalZ + bLength / 2 + bBuffer;
+      let bZBottom = booterGlobalZ - bLength / 2 - bBuffer;
+      if (booterData.landingZoneEndZ) {
+        bZBottom = booterData.landingZoneEndZ - bBuffer;
+      }
+      this.exclusionZones.push({ x: bx, zStart: bZBottom, zEnd: bZTop, halfWidth: bWidth / 2 + bBuffer });
+    }
+
     // --- Phase 2: Flat park rails with entry lips ---
     const railCount = 3 + Math.floor(Math.random() * 3); // 3-5 rails
     for (let i = 0; i < railCount; i++) {
