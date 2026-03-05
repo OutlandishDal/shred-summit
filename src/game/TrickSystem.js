@@ -17,6 +17,8 @@ export class TrickSystem {
     this.grabTypes = new Set();
     this.wasAirborne = false;
     this.isCork = false; // did this jump include a cork?
+    this.corkFlipDirection = 0;  // -1 = frontflip, +1 = backflip
+    this.corkSpinDirection = 0;  // +1 = frontside, -1 = backside
 
     // Rail grind tracking
     this.wasGrinding = false;
@@ -149,6 +151,8 @@ export class TrickSystem {
       // Track cork (flip + spin simultaneously)
       if (playerState.isCork) {
         this.isCork = true;
+        if (playerState.corkFlipDirection !== 0) this.corkFlipDirection = playerState.corkFlipDirection;
+        if (playerState.corkSpinDirection !== 0) this.corkSpinDirection = playerState.corkSpinDirection;
       }
 
       if (playerState.isGrabbing) {
@@ -215,12 +219,21 @@ export class TrickSystem {
     const spinDir = this.rawSpinRadians > 0 ? 'FRONTSIDE' : 'BACKSIDE';
 
     if (hasCork) {
-      // Cork trick — combine spin degrees into cork name with direction
-      const degrees = this.spinCount * 180;
-      const corkName = this.getCorkName(degrees, this.flipCount, spinDir);
-      tricks.push(this.wasOnRailBeforeAir ? corkName + ' OFF' : corkName);
-      // Cork scores more than individual spin + flip (it's harder)
-      trickScore += this.spinCount * 300 + this.flipCount * 500;
+      // Classify off-axis trick: rodeo, misty, or cork
+      const isRodeo = this.corkFlipDirection > 0 && this.corkSpinDirection < 0; // backflip + backside
+      const isMisty = this.corkFlipDirection < 0; // frontflip + any spin
+      const totalDeg = this.flipCount * 360 + this.spinCount * 180;
+      let offAxisName;
+      if (isRodeo) {
+        offAxisName = this.getRodeoName(totalDeg, this.flipCount);
+      } else if (isMisty) {
+        offAxisName = this.getMistyName(totalDeg, this.flipCount, spinDir);
+      } else {
+        offAxisName = this.getCorkName(this.spinCount * 180, this.flipCount, spinDir);
+      }
+      tricks.push(this.wasOnRailBeforeAir ? offAxisName + ' OFF' : offAxisName);
+      // 2x points for all off-axis tricks (cork, rodeo, misty)
+      trickScore += (this.spinCount * 300 + this.flipCount * 500) * 2;
     } else {
       // Spin-off: jumped off a rail and spun before landing
       if (this.wasOnRailBeforeAir) {
@@ -288,12 +301,16 @@ export class TrickSystem {
       this.comboTimer = this.comboDuration;
 
       // Store for quest tracking
+      const isRodeo = hasCork && this.corkFlipDirection > 0 && this.corkSpinDirection < 0;
+      const isMisty = hasCork && this.corkFlipDirection < 0;
       this.lastScoredTrick = {
         spinCount: this.spinCount,
         flipCount: this.flipCount,
         flipDirection: this.flipDirection,
         grabTypes: new Set(this.grabTypes),
         isCork: hasCork,
+        isRodeo,
+        isMisty,
         points: trickScore,
         comboMultiplier: this.comboMultiplier,
         landingQuality: playerState.landingQuality,
@@ -308,6 +325,8 @@ export class TrickSystem {
     this.grabTypes.clear();
     this.currentGrabType = null;
     this.isCork = false;
+    this.corkFlipDirection = 0;
+    this.corkSpinDirection = 0;
     this.wasOnRailBeforeAir = false;
     this.rawSpinRadians = 0;
   }
@@ -384,6 +403,8 @@ export class TrickSystem {
     this.grabTypes.clear();
     this.currentGrabType = null;
     this.isCork = false;
+    this.corkFlipDirection = 0;
+    this.corkSpinDirection = 0;
     this.rawSpinRadians = 0;
   }
 
@@ -486,6 +507,20 @@ export class TrickSystem {
     // Cork naming: "FRONTSIDE CORK 540", "BACKSIDE DOUBLE CORK 1080", etc.
     const prefix = flipCount >= 3 ? 'TRIPLE CORK' : flipCount >= 2 ? 'DOUBLE CORK' : 'CORK';
     const deg = Math.max(spinDegrees, 360); // minimum cork is 360
+    return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
+  }
+
+  getRodeoName(totalDegrees, flipCount) {
+    // Rodeo = backside spin + backflip. Always backside, no direction prefix needed.
+    const deg = Math.max(totalDegrees, 540); // minimum rodeo is 540
+    const prefix = flipCount >= 3 ? 'TRIPLE RODEO' : flipCount >= 2 ? 'DOUBLE RODEO' : 'RODEO';
+    return `${prefix} ${deg}`;
+  }
+
+  getMistyName(totalDegrees, flipCount, direction = '') {
+    // Misty = frontflip + spin (forward cork)
+    const deg = Math.max(totalDegrees, 540); // minimum misty is 540
+    const prefix = flipCount >= 3 ? 'TRIPLE MISTY' : flipCount >= 2 ? 'DOUBLE MISTY' : 'MISTY';
     return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
   }
 

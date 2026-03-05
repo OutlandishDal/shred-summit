@@ -54,6 +54,8 @@ export class Player {
 
     // Cork tracking
     this.isCorkingThisJump = false;
+    this.corkFlipDirection = 0;  // -1 = frontflip (W), +1 = backflip (S)
+    this.corkSpinDirection = 0;  // +1 = frontside (Q), -1 = backside (E)
 
     // Kicker launch cooldown — prevents re-launch when landing back on same kicker
     this.kickerCooldown = 0;
@@ -632,6 +634,8 @@ export class Player {
       this.trickRotation.set(0, 0, 0);
       this.angularVelocity.multiplyScalar(0.7);
       this.isCorkingThisJump = false;
+      this.corkFlipDirection = 0;
+      this.corkSpinDirection = 0;
 
       // ---- VISUAL: smooth edge lean & board tilt ----
       this.edgeLean = this.turnRate / this.turnRateMax; // -1 to 1
@@ -839,6 +843,10 @@ export class Player {
       // Cork = flip + spin pressed simultaneously. Off-axis diagonal rotation.
       const isCork = flipping && spinning;
       this.isCorkingThisJump = this.isCorkingThisJump || isCork;
+      if (isCork && this.corkFlipDirection === 0) {
+        this.corkFlipDirection = input.flipForward ? -1 : 1;
+        this.corkSpinDirection = input.spinLeft ? 1 : -1;
+      }
 
       // Helper: ramp toward target, or brake to zero on release
       const rampOrBrake = (current, target, hasInput) => {
@@ -1473,6 +1481,8 @@ export class Player {
     this.edgeLean = 0;
     this.edgeLeanSmooth = 0;
     this.isCorkingThisJump = false;
+    this.corkFlipDirection = 0;
+    this.corkSpinDirection = 0;
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
     this.grounded = false;
@@ -1580,6 +1590,8 @@ export class Player {
       grindTime: this.grindTime,
       frontswapCount: this.frontswapCount,
       isCork: this.isCorkingThisJump,
+      corkFlipDirection: this.corkFlipDirection,
+      corkSpinDirection: this.corkSpinDirection,
       flexMultiplier: this.flexMultiplier,
       landingQuality: this.landingQuality,
       landedOnRail: this.landedOnRail,
