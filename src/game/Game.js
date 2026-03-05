@@ -585,6 +585,8 @@ export class Game {
     this.ui.ridepassPanel.classList.remove('active');
     this.ui.shopPanel.classList.remove('active');
     this.ui.lobbyScreen.classList.add('active');
+    this.player.cleanupDebris();
+    this.player.boardGroup.visible = true;
     this.applyEquippedItems();
     this.setupLobbyScene();
   }
@@ -759,6 +761,8 @@ export class Game {
         if (!this.crashPhraseSet) {
           this.tricks.pickCrashPhrase();
           this.crashPhraseSet = true;
+          // Snow burst at crash point
+          this.particles.emit(this.player.position, { x: 0, y: 5, z: 0 }, 80);
         }
 
         if (this.deathTimer >= this.deathDelay) {

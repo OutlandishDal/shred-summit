@@ -66,6 +66,7 @@ export class Player {
     // Crash
     this.crashed = false;
     this.crashTimer = 0;
+    this.crashDebris = [];
     this.landingTolerance = Math.PI * (45 / 180); // 45 degrees — forgiving landings
     this.rollLandingTolerance = Math.PI * (90 / 180); // 90 degrees — roll is hard to control
 
@@ -372,7 +373,10 @@ export class Player {
   }
 
   update(dt, input, terrain) {
-    if (this.crashed) return this.getState(terrain);
+    if (this.crashed) {
+      this.updateDebris(dt);
+      return this.getState(terrain);
+    }
 
     this.wasGrounded = this.grounded;
     this.wasGrinding = this.grinding;
@@ -1354,11 +1358,97 @@ export class Player {
     this.onKicker = null;
     this.grinding = false;
     this.grindRail = null;
-    this.boardGroup.rotation.x = Math.PI * 0.7;
-    this.boardGroup.rotation.z = Math.random() * Math.PI - Math.PI / 2;
+    this.explodeRider();
+  }
+
+  explodeRider() {
+    this.group.updateMatrixWorld(true);
+
+    const meshes = [];
+    this.riderGroup.traverse((child) => {
+      if (child.isMesh) meshes.push(child);
+    });
+    // Board/ski meshes (skip riderGroup which is already handled)
+    for (const child of this.boardGroup.children) {
+      if (child === this.riderGroup) continue;
+      if (child.isMesh) meshes.push(child);
+      child.traverse((c) => { if (c.isMesh && c !== child) meshes.push(c); });
+    }
+
+    const worldPos = new THREE.Vector3();
+    const worldQuat = new THREE.Quaternion();
+    const worldScale = new THREE.Vector3();
+    const crashCenter = this.position.clone();
+
+    for (const mesh of meshes) {
+      mesh.getWorldPosition(worldPos);
+      mesh.getWorldQuaternion(worldQuat);
+      mesh.getWorldScale(worldScale);
+
+      const clone = mesh.clone();
+      // Strip children — traverse already handles nested meshes individually
+      while (clone.children.length > 0) clone.remove(clone.children[0]);
+      clone.position.copy(worldPos);
+      clone.quaternion.copy(worldQuat);
+      clone.scale.copy(worldScale);
+      this.scene.add(clone);
+
+      const dir = worldPos.clone().sub(crashCenter);
+      if (dir.lengthSq() < 0.001) dir.set(Math.random() - 0.5, 1, Math.random() - 0.5);
+      dir.normalize();
+
+      const speed = 3 + Math.random() * 5;
+      const velocity = new THREE.Vector3(
+        dir.x * speed + (Math.random() - 0.5) * 2,
+        Math.abs(dir.y) * speed + 2 + Math.random() * 3,
+        dir.z * speed + (Math.random() - 0.5) * 2
+      );
+      const angularVel = new THREE.Vector3(
+        (Math.random() - 0.5) * 10,
+        (Math.random() - 0.5) * 10,
+        (Math.random() - 0.5) * 10
+      );
+
+      this.crashDebris.push({ mesh: clone, velocity, angularVel });
+    }
+
+    this.boardGroup.visible = false;
+  }
+
+  updateDebris(dt) {
+    for (const piece of this.crashDebris) {
+      piece.mesh.position.x += piece.velocity.x * dt;
+      piece.mesh.position.y += piece.velocity.y * dt;
+      piece.mesh.position.z += piece.velocity.z * dt;
+
+      piece.velocity.y += this.gravity * dt;
+
+      // Simple ground bounce
+      if (piece.mesh.position.y < this.position.y - 1) {
+        piece.mesh.position.y = this.position.y - 1;
+        piece.velocity.y *= -0.3;
+        piece.velocity.x *= 0.8;
+        piece.velocity.z *= 0.8;
+      }
+
+      piece.mesh.rotation.x += piece.angularVel.x * dt;
+      piece.mesh.rotation.y += piece.angularVel.y * dt;
+      piece.mesh.rotation.z += piece.angularVel.z * dt;
+      piece.angularVel.multiplyScalar(0.98);
+    }
+  }
+
+  cleanupDebris() {
+    for (const piece of this.crashDebris) {
+      this.scene.remove(piece.mesh);
+      if (piece.mesh.geometry) piece.mesh.geometry.dispose();
+    }
+    this.crashDebris = [];
   }
 
   respawn(checkpointPos) {
+    this.cleanupDebris();
+    this.boardGroup.visible = true;
     this.crashed = false;
     this.crashTimer = 0;
     this.position.copy(checkpointPos);
