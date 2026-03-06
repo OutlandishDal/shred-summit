@@ -771,6 +771,7 @@ export class Player {
           this.grounded = false;
           this.peakHeight = 0;
           this.velocity.y = 2.0; // small hop off
+          this.velocity.x += (Math.random() < 0.5 ? -1 : 1) * 3.0; // push to random side
           this.grindExitTimer = 4.0; // long cooldown so player doesn't re-lock
         }
 
