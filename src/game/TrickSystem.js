@@ -19,6 +19,8 @@ export class TrickSystem {
     this.isCork = false; // did this jump include a cork?
     this.corkFlipDirection = 0;  // -1 = frontflip, +1 = backflip
     this.corkSpinDirection = 0;  // +1 = frontside, -1 = backside
+    this.tookOffSwitch = false;  // was rider switch at takeoff?
+    this.grindStartedSwitch = false; // was rider switch when grind started?
 
     // Rail grind tracking
     this.wasGrinding = false;
@@ -133,6 +135,10 @@ export class TrickSystem {
     }
 
     if (!playerState.grounded && !playerState.grinding && !playerState.crashed) {
+      if (!this.wasAirborne) {
+        // Just left the ground — capture switch state at takeoff
+        this.tookOffSwitch = playerState.isSwitch;
+      }
       this.wasAirborne = true;
 
       const yRot = playerState.trickRotation.y;
@@ -172,6 +178,10 @@ export class TrickSystem {
 
     // Track rail grind state
     if (playerState.grinding) {
+      if (!this.wasGrinding) {
+        // Just started grinding — capture switch state
+        this.grindStartedSwitch = playerState.isSwitch;
+      }
       this.wasGrinding = true;
       this.grindAccumulatedTime = playerState.grindTime;
       this.grindFrontswaps = playerState.frontswapCount || 0;
@@ -287,6 +297,11 @@ export class TrickSystem {
       // Sweet spot landing bonus: 1.25x for landing in the middle of a landing zone
       if (playerState.landingQuality === 'perfect') {
         trickScore = Math.floor(trickScore * 1.25);
+      }
+      // Switch bonus: 1.5x applied last, stacks with all other multipliers
+      if (this.tookOffSwitch) {
+        trickScore = Math.floor(trickScore * 1.5);
+        tricks.unshift('SWITCH');
       }
       this.totalScore += trickScore;
       this.lastTrickName = tricks.join(' + ');
@@ -444,6 +459,11 @@ export class TrickSystem {
     if (tricks.length > 0 && trickScore > 0) {
       trickScore = Math.floor(trickScore * this.comboMultiplier);
       trickScore = Math.floor(trickScore * (playerState.flexMultiplier || 1.0));
+      // Switch grind bonus: 1.5x applied last
+      if (this.grindStartedSwitch) {
+        trickScore = Math.floor(trickScore * 1.5);
+        tricks.unshift('SWITCH');
+      }
       this.totalScore += trickScore;
 
       // Combine spin-on name with grind name (e.g. "270 ON + FRONTSIDE BOARDSLIDE")

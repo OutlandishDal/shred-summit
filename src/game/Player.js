@@ -53,6 +53,10 @@ export class Player {
     this.frontswapCount = 0;       // number of frontside↔backside swaps during grind
     this.grindExitTimer = 0;       // cooldown after jumping off rail
 
+    // Stance & switch
+    this.stance = 'regular';     // 'regular' or 'goofy' — set from Game.js
+    this.isSwitch = false;       // toggled by odd spins on landing
+
     // Cork tracking
     this.isCorkingThisJump = false;
     this.corkFlipDirection = 0;  // -1 = frontflip (W), +1 = backflip (S)
@@ -77,9 +81,11 @@ export class Player {
     this.capsuleRadius = 0.4;
     this.capsuleHalfH = 0.8;
 
-    // Stance depends on equipment
-    this.STANCE_YAW = this.equipmentType === 'ski' ? 0 : 1.3;
-    this.HEAD_YAW = this.equipmentType === 'ski' ? 0 : -0.6;
+    // Stance depends on equipment — base values (overridden by stance/switch)
+    this.BASE_STANCE_YAW = this.equipmentType === 'ski' ? 0 : 1.3;
+    this.BASE_HEAD_YAW = this.equipmentType === 'ski' ? 0 : -0.6;
+    this.STANCE_YAW = this.BASE_STANCE_YAW;
+    this.HEAD_YAW = this.BASE_HEAD_YAW;
 
     // Landing impact spring system
     this.landingImpact = 0;
@@ -498,6 +504,13 @@ export class Player {
       }
 
       if (!this.grounded) {
+        // Detect switch landing: odd spin count (180, 540, 900...) toggles switch
+        const spins = Math.floor(Math.abs(this.trickRotation.y) / Math.PI);
+        if (spins % 2 === 1) {
+          this.isSwitch = !this.isSwitch;
+          this.updateStanceYaw();
+        }
+
         // Just landed — snap board rotation clean and sync heading
         this.trickRotation.set(0, 0, 0);
         this.angularVelocity.set(0, 0, 0);
@@ -748,6 +761,17 @@ export class Player {
         // Maintain forward speed, slight friction
         this.velocity.multiplyScalar(0.998);
 
+        // Minimum speed check: fall off rail below 30 km/h (8.33 m/s)
+        const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        if (grindSpeed < 8.33) {
+          this.grinding = false;
+          this.grindRail = null;
+          this.grounded = false;
+          this.peakHeight = 0;
+          this.velocity.y = 2.0; // small pop off
+          this.grindExitTimer = 0.5;
+        }
+
         // Track grind duration
         this.grindTime += dt;
 
@@ -821,7 +845,7 @@ export class Player {
           this.grindRail = null;
           this.grounded = false;
           this.peakHeight = 0;
-          this.grindExitTimer = 0.3; // prevent re-snap to same rail
+          this.grindExitTimer = 4.0; // prevent re-snap after jumping off
         }
       }
 
@@ -1373,6 +1397,19 @@ export class Player {
     this.flexMultiplier = 0.85 + flex * 0.03;
   }
 
+  updateStanceYaw() {
+    if (this.equipmentType === 'ski') {
+      // Skiers: face forward normally, face backward when switch
+      this.STANCE_YAW = this.isSwitch ? Math.PI : 0;
+      this.HEAD_YAW = 0;
+    } else {
+      // Snowboard: regular = 1.3, goofy = -1.3; switch negates it
+      const baseYaw = this.stance === 'goofy' ? -1.3 : 1.3;
+      this.STANCE_YAW = this.isSwitch ? -baseYaw : baseYaw;
+      this.HEAD_YAW = this.isSwitch ? -this.BASE_HEAD_YAW : this.BASE_HEAD_YAW;
+    }
+  }
+
   triggerCrash() {
     this.crashed = true;
     this.crashTimer = 0;
@@ -1486,6 +1523,8 @@ export class Player {
     this.isCorkingThisJump = false;
     this.corkFlipDirection = 0;
     this.corkSpinDirection = 0;
+    this.isSwitch = false;
+    this.updateStanceYaw();
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
     this.grounded = false;
@@ -1598,6 +1637,7 @@ export class Player {
       flexMultiplier: this.flexMultiplier,
       landingQuality: this.landingQuality,
       landedOnRail: this.landedOnRail,
+      isSwitch: this.isSwitch,
     };
   }
 }
