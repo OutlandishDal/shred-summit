@@ -762,9 +762,9 @@ export class Player {
         // Maintain forward speed, slight friction
         this.velocity.multiplyScalar(0.998);
 
-        // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
+        // Minimum speed check: hop off rail below 35 km/h (9.722 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-        if (grindSpeed < 5.556) {
+        if (grindSpeed < 9.722) {
           this.grinding = false;
           this.grindAborted = true; // signal TrickSystem to skip scoring
           this.grindRail = null;
