@@ -5,7 +5,7 @@ import { TrickSystem } from './TrickSystem.js';
 import { InputManager, isTouchDevice } from './InputManager.js';
 import { TouchControls } from './TouchControls.js';
 import { SnowParticles } from './Particles.js';
-import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, getWeekId, getFirebaseAuth, createAccount, loginAccount, logoutAccount, onAuthChange, cloudSaveProgress, cloudLoadProgress } from './firebase.js';
+import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, getWeekId, getFirebaseAuth, createAccount, loginAccount, logoutAccount, resetPassword, onAuthChange, cloudSaveProgress, cloudLoadProgress } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
 import { QuestSystem } from './QuestSystem.js';
 import { ShopSystem } from './ShopSystem.js';
@@ -33,7 +33,10 @@ export class Game {
 
     this.terrain = new Terrain(this.scene);
     this.selectedEquipment = 'snowboard';
+    this.selectedStance = 'regular';
     this.player = new Player(this.scene, this.selectedEquipment);
+    this.player.stance = this.selectedStance;
+    this.player.updateStanceYaw();
     this.tricks = new TrickSystem();
     this.quests = new QuestSystem();
     this.ridePass = new RidePass();
@@ -163,6 +166,7 @@ export class Game {
       authSignupBtn: document.getElementById('auth-signup-btn'),
       authError: document.getElementById('auth-error'),
       authLoading: document.getElementById('auth-loading'),
+      authForgot: document.getElementById('auth-forgot'),
       lobbyLogout: document.getElementById('lobby-logout'),
     };
 
@@ -305,6 +309,30 @@ export class Game {
     this.ui.authSignupBtn.addEventListener('click', () => doAuth('signup'));
     this.ui.authPassword.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') doAuth('login');
+    });
+
+    // Forgot password
+    this.ui.authForgot.addEventListener('click', async () => {
+      const email = this.ui.authEmail.value.trim();
+      this.ui.authError.textContent = '';
+      if (!email) {
+        this.ui.authError.textContent = 'ENTER YOUR EMAIL FIRST';
+        return;
+      }
+      try {
+        await resetPassword(email);
+        this.ui.authError.style.color = '#5cb85c';
+        this.ui.authError.textContent = 'RESET EMAIL SENT! CHECK YOUR INBOX';
+        setTimeout(() => { this.ui.authError.style.color = ''; }, 4000);
+      } catch (e) {
+        const msg = e.code || e.message || 'RESET FAILED';
+        const friendly = {
+          'auth/user-not-found': 'NO ACCOUNT WITH THAT EMAIL',
+          'auth/invalid-email': 'INVALID EMAIL',
+          'auth/too-many-requests': 'TOO MANY ATTEMPTS, TRY LATER',
+        };
+        this.ui.authError.textContent = friendly[msg] || msg.toUpperCase();
+      }
     });
 
     // Logout button
@@ -480,9 +508,9 @@ export class Game {
     });
 
     // Equipment toggle (snowboard / skis)
-    document.querySelectorAll('.equipment-btn').forEach(btn => {
+    document.querySelectorAll('[data-equipment]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.equipment-btn').forEach(b => b.classList.remove('selected'));
+        document.querySelectorAll('[data-equipment]').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         const newType = btn.dataset.equipment;
         if (newType !== this.selectedEquipment) {
@@ -497,6 +525,8 @@ export class Game {
           // Rebuild player with new equipment
           this.scene.remove(this.player.group);
           this.player = new Player(this.scene, this.selectedEquipment);
+          this.player.stance = this.selectedStance;
+          this.player.updateStanceYaw();
           // Re-apply saved colors then shop items
           for (const [part, color] of Object.entries(savedColors)) {
             this.player.setColor(part, color);
@@ -508,7 +538,23 @@ export class Game {
             boardRow.closest('.lobby-row').querySelector('label').textContent =
               this.selectedEquipment === 'ski' ? 'Skis' : 'Board';
           }
+          // Show/hide stance row (snowboard only)
+          const stanceRow = document.getElementById('stance-row');
+          if (stanceRow) {
+            stanceRow.style.display = this.selectedEquipment === 'ski' ? 'none' : '';
+          }
         }
+      });
+    });
+
+    // Stance toggle (regular / goofy) — snowboard only
+    document.querySelectorAll('[data-stance]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-stance]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        this.selectedStance = btn.dataset.stance;
+        this.player.stance = this.selectedStance;
+        this.player.updateStanceYaw();
       });
     });
 

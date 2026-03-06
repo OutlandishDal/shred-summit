@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, where, limit, getDocs, serverTimestamp, doc, setDoc, getDoc } from 'firebase/firestore';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } from 'firebase/auth';
 
 // ==========================================
 // FIREBASE SETUP — Replace this config with
@@ -60,6 +60,11 @@ export async function loginAccount(email, password) {
   if (!auth) throw new Error('Firebase not initialized');
   const cred = await signInWithEmailAndPassword(auth, email, password);
   return cred.user;
+}
+
+export async function resetPassword(email) {
+  if (!auth) throw new Error('Firebase not initialized');
+  await sendPasswordResetEmail(auth, email);
 }
 
 export async function logoutAccount() {
