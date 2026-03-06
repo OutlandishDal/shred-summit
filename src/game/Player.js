@@ -52,6 +52,7 @@ export class Player {
     this.landedOnRail = false;     // one-shot flag: air → rail transition
     this.frontswapCount = 0;       // number of frontside↔backside swaps during grind
     this.grindExitTimer = 0;       // cooldown after jumping off rail
+    this.grindAborted = false;     // true when fell off rail due to low speed (no points)
 
     // Stance & switch
     this.stance = 'regular';     // 'regular' or 'goofy' — set from Game.js
@@ -761,14 +762,15 @@ export class Player {
         // Maintain forward speed, slight friction
         this.velocity.multiplyScalar(0.998);
 
-        // Minimum speed check: fall off rail below 30 km/h (8.33 m/s)
+        // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-        if (grindSpeed < 8.33) {
+        if (grindSpeed < 5.556) {
           this.grinding = false;
+          this.grindAborted = true; // signal TrickSystem to skip scoring
           this.grindRail = null;
           this.grounded = false;
           this.peakHeight = 0;
-          this.velocity.y = 2.0; // small pop off
+          this.velocity.y = 2.0; // small hop off
           this.grindExitTimer = 0.5;
         }
 
@@ -1189,6 +1191,7 @@ export class Player {
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
+          this.grindAborted = false;
           this.grindRail = ramp;
           this.grounded = false;
           this.peakHeight = 0;
@@ -1209,6 +1212,7 @@ export class Player {
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
+          this.grindAborted = false;
           this.grindRail = ramp;
           this.peakHeight = 0;
           this.grindTime = 0;
@@ -1220,6 +1224,7 @@ export class Player {
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
+          this.grindAborted = false;
           this.grindRail = ramp;
           this.peakHeight = 0;
           this.grindTime = 0;
@@ -1535,6 +1540,7 @@ export class Player {
     this.currentHeightAboveGround = 0;
     this.onKicker = null;
     this.grinding = false;
+    this.grindAborted = false;
     this.grindRail = null;
     this.boardslideType = null;
     this.boardslideAngle = 0;
@@ -1638,6 +1644,7 @@ export class Player {
       landingQuality: this.landingQuality,
       landedOnRail: this.landedOnRail,
       isSwitch: this.isSwitch,
+      grindAborted: this.grindAborted,
     };
   }
 }

@@ -190,9 +190,11 @@ export class TrickSystem {
       }
     }
 
-    // Score rail trick when grind ends
+    // Score rail trick when grind ends (skip if aborted due to low speed)
     if (!playerState.grinding && this.wasGrinding && !playerState.crashed) {
-      this.scoreRailTrick(playerState);
+      if (!playerState.grindAborted) {
+        this.scoreRailTrick(playerState);
+      }
       this.wasGrinding = false;
     }
 
