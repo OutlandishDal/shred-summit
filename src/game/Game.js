@@ -263,9 +263,8 @@ export class Game {
       return;
     }
 
-    // Hide start screen until auth completes
+    // Hide both screens until Firebase resolves auth state
     this.ui.startScreen.style.display = 'none';
-    this.ui.authScreen.classList.add('active');
     this.input.disabled = true; // Let keyboard input go to auth fields
 
     // Auth buttons
