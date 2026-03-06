@@ -1210,6 +1210,12 @@ export class Player {
         } else if (!this.grounded && this.velocity.y <= 0 &&
                    dy > -1.0 && dy < 3.0) {
           // Airborne descending player — snap onto rail (generous catch window)
+          // Must be within 20° of level (no headslides)
+          const flipAbs = Math.abs(this.trickRotation.x % (Math.PI * 2));
+          const rollAbs = Math.abs(this.trickRotation.z % (Math.PI * 2));
+          const flipDev = Math.min(flipAbs, Math.PI * 2 - flipAbs);
+          const rollDev = Math.min(rollAbs, Math.PI * 2 - rollAbs);
+          if (flipDev > 0.349 || rollDev > 0.349) break; // too tilted — skip lock-on
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
@@ -1222,6 +1228,12 @@ export class Player {
         } else if (!this.grounded && this.velocity.y > 0 &&
                    dy > -0.5 && dy < 1.5) {
           // Airborne ascending player passing through rail height — catch on the way up too
+          // Must be within 20° of level (no headslides)
+          const flipAbs2 = Math.abs(this.trickRotation.x % (Math.PI * 2));
+          const rollAbs2 = Math.abs(this.trickRotation.z % (Math.PI * 2));
+          const flipDev2 = Math.min(flipAbs2, Math.PI * 2 - flipAbs2);
+          const rollDev2 = Math.min(rollAbs2, Math.PI * 2 - rollAbs2);
+          if (flipDev2 > 0.349 || rollDev2 > 0.349) break; // too tilted — skip lock-on
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
