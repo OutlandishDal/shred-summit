@@ -771,7 +771,7 @@ export class Player {
           this.grounded = false;
           this.peakHeight = 0;
           this.velocity.y = 2.0; // small hop off
-          this.grindExitTimer = 0.5;
+          this.grindExitTimer = 4.0; // long cooldown so player doesn't re-lock
         }
 
         // Track grind duration
