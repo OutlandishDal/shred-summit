@@ -263,8 +263,8 @@ export class Game {
       return;
     }
 
-    // Hide both screens until Firebase resolves auth state
-    this.ui.startScreen.style.display = 'none';
+    // Keep start screen visible as splash while Firebase resolves auth state
+    // (clicks won't work yet because state is still 'auth', not 'start')
     this.input.disabled = true; // Let keyboard input go to auth fields
 
     // Auth buttons
