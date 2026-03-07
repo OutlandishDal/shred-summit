@@ -465,7 +465,7 @@ export class Terrain {
     // Real park jump: ramp → lip → air gap → knuckle → linear landing slope → runout
     const airGap = 3.0 * scale;           // air space between lip and landing start
     const landingGap = 2.0 * scale;       // flat table after air gap (knuckle)
-    const landingLen = 22.0 * scale;       // long downhill landing slope
+    const landingLen = 8.0 + 22.0 * scale;  // long downhill landing slope (base + scaled)
     const landingWidth = rampWidth * 1.4;  // wider than ramp
     const landingHalfW = landingWidth / 2;
     const totalLandingDist = landingGap + landingLen;

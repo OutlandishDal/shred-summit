@@ -1148,8 +1148,10 @@ export class Player {
       const launchSpeed = speed * 0.92;
       this.velocity.y = Math.sin(lipAngle) * launchSpeed;
       const horizFactor = Math.cos(lipAngle);
-      // Preserve horizontal speed but reduce it
-      const hScale = horizFactor * Math.min(1, 32 / Math.max(rawSpeed, 1));
+      // Dampen horizontal speed — smaller jumps (lower lipAngle) get more reduction
+      // so the rider lands on the landing zone instead of overshooting
+      const horizDamp = 0.3 + lipAngle * 0.8; // small(0.45)→0.66, big(0.65)→0.82
+      const hScale = horizFactor * horizDamp * Math.min(1, 32 / Math.max(rawSpeed, 1));
       this.velocity.x *= hScale;
       this.velocity.z *= hScale;
 
