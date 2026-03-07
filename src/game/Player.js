@@ -141,7 +141,7 @@ export class Player {
       polygonOffset: true, polygonOffsetFactor: -1,
     });
     this.jacketLogoPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.22, 0.15), this.jacketLogoMat
+      new THREE.PlaneGeometry(0.32, 0.22), this.jacketLogoMat
     );
     this.jacketLogoPlane.position.set(0, 0.85, 0.126);
     this.jacketLogoPlane.visible = false;
