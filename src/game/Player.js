@@ -2035,13 +2035,37 @@ export class Player {
     const t = 1.0 - (dz + halfL) / ramp.length;
 
     // Player has passed the lip — launch!
-    if (t >= 0.95) {
+    if (t >= 0.95 && ramp.railLip) {
+      this._popOntoRail(ramp, terrain);
+      this.kickerCooldown = 1.0;
+    } else if (t >= 0.95) {
       this._launchOffLip(ramp.lipAngle || 0.55);
       this.kickerCooldown = 1.5; // ignore kicker surfaces for 1.5s after launch
     }
   }
 
   // Launch off a lip (kicker, kinked rail end, up rail end) at the given angle
+  // Gap-on lip in front of a rail: a small pop that just clears onto the rail at any speed
+  _popOntoRail(ramp, terrain) {
+    this.boostAirSpeed(); // rails keep takeoff speed
+    // Follow the slope (otherwise the hill drops away under you at speed), then pop just enough to clear the rail
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z) || 1;
+    const dirX = this.velocity.x / hSpeed, dirZ = this.velocity.z / hSpeed;
+    const slopeDrop = terrain.getHeightAt(this.position.x + dirX, this.position.z + dirZ)
+      - terrain.getHeightAt(this.position.x, this.position.z);
+    const rise = Math.max(0.3, (ramp.railClear || 0.5) + 0.5);
+    this.velocity.y = slopeDrop * hSpeed + Math.sqrt(2 * -this.gravity * rise);
+    // Pressing jump on the lip adds a little, not a full ollie
+    if (this.kickerPopBoost > 0) {
+      this.velocity.y += 1.5;
+      this.kickerPopBoost = 0;
+    }
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+  }
+
   // keepSpeed: rail kicks keep their horizontal speed instead of the kicker's landing-zone damping
   _launchOffLip(lipAngle, keepSpeed = false) {
     // Launch as if riding at the original (faster) ground speed so air is unchanged

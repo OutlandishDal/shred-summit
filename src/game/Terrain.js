@@ -500,6 +500,7 @@ export class Terrain {
           length: lip.length,
           lipHeight: lip.height,
           lipAngle: 0.35,
+          railLip: true, railClear: lip.railHeight - lip.height,
           surfaceHeight: 0, chunkId,
         });
       }
@@ -510,7 +511,8 @@ export class Terrain {
       this.exclusionZones.push({
         x, zStart: featureGlobalZ - railLength / 2 - buffer,
         zEnd: featureGlobalZ + railLength / 2 + lipExtra + buffer,
-        halfWidth: width / 2 + buffer,
+        // Wide sideways so rails are staggered down the run instead of side by side
+        halfWidth: width / 2 + 16,
       });
       placedRails++;
     }
@@ -820,6 +822,7 @@ export class Terrain {
       width: lipW,
       length: lipLen,
       height: lipHeight,
+      railHeight: entryHeight,
     };
   }
 
@@ -1794,6 +1797,7 @@ export class Terrain {
     this.ramps.push({
       mesh: group, position: new THREE.Vector3(x, this.getHeightAt(x, lipZ), lipZ),
       type: 'kicker', width: lipW, length: lipLen, lipHeight, lipAngle: 0.35,
+      railLip: true, railClear: entryClear - lipHeight,
       surfaceHeight: 0, chunkId: chunk.chunkId,
     });
     return { group, ramp };
