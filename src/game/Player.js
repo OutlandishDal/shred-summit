@@ -64,6 +64,11 @@ export class Player {
     this.wasGrinding = false;
     this.landedOnRail = false;     // one-shot flag: air → rail transition
     this.frontswapCount = 0;       // number of frontside↔backside swaps during grind
+    this.isLayingOut = false;      // holding jump during a backflip (straight body)
+    this.lastJumpLayout = false;
+    this._backflipTime = 0;
+    this._layoutTime = 0;
+    this._ignoreHeldJump = false;
     this.grindExitTimer = 0;       // cooldown after jumping off rail
     this._grindedRails = new Set(); // rails already grinded this run — no re-snap
     this.grindAborted = false;     // true when fell off rail due to low speed (no points)
@@ -1283,6 +1288,8 @@ export class Player {
         }
       }
 
+      if (wasInAir) this._latchLayout();
+
       // Crash check on landing — must land within 35° of clean rotation
       if (wasInAir && this.airTime > 0.4) {
         const rawFlip = this.trickRotation.x;
@@ -1467,6 +1474,7 @@ export class Player {
       // Ollie / Pop: hold jump to load (rider crouches), release to pop. Longer hold = bigger pop.
       // Riding at a rail lip, the meter fills by itself instead: tap jump when it's in the gold.
       const jumpHeld = input.jumpHeld ?? input.jump;
+      if (!jumpHeld) this._ignoreHeldJump = false; // space held from the air must be released first
       this._updateRailOnTiming(terrain);
       if (this.railTiming) {
         this.ollieCharge = 0;
@@ -1475,7 +1483,7 @@ export class Player {
           this._pendingPerfectOn = this.lastPopPerfect;
           this._railOnLocked = true;
         }
-      } else if (jumpHeld) {
+      } else if (jumpHeld && !this._ignoreHeldJump) {
         this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
       } else if (this.ollieCharge > 0) {
         if (this.onKicker) {
@@ -1510,6 +1518,9 @@ export class Player {
       this.isCorkingThisJump = false;
       this.corkFlipDirection = 0;
       this.corkSpinDirection = 0;
+      this.isLayingOut = false;
+      this._backflipTime = 0;
+      this._layoutTime = 0;
 
       // ---- VISUAL: smooth edge lean & board tilt ----
       this.edgeLean = this.turnRate / this.turnRateMax; // -1 to 1
@@ -1623,7 +1634,7 @@ export class Player {
             this.kickerCooldown = 0.5;
           } else {
             // Exit kicker pop — launch ~3-5 feet upward (about character height)
-            this.velocity.y = 7.0;
+            this.velocity.y = 4.5;
           }
         }
       }
@@ -1744,15 +1755,15 @@ export class Player {
 
         // Jump off rail: tapping in the gold near the end is a perfect pop off
         if (input.jump) {
-          let pop = 0.7;
+          let pop = 0.55;
           if (this.railTiming) {
             const strength = this._popStrength(this.railTiming.meter);
             this.railPerfectOff = this.lastPopPerfect;
-            pop = 0.6 + 0.6 * strength; // perfect = 1.2, well above the automatic end pop
+            pop = 0.55 + 0.4 * strength; // perfect = 0.95: enough air for a backflip off the end
             if (this.grindRail.kickAngle && this.railTiming.meter > 0.6) {
               // Popping off a kinked / up rail end adds to its kick
               this._launchOffLip(this.grindRail.kickAngle, true);
-              pop = 0.35 * strength;
+              pop = 0.2 * strength;
             } else {
               this.velocity.y = 0;
             }
@@ -1780,11 +1791,21 @@ export class Player {
       // Player must time their inputs to land clean rotations.
       // Shift = tuck in air → 1.5x faster spins/flips/corks
       // Flat ground ollie → 1.5x slower rotation (no flip-worthy air without a kicker)
+      // Holding jump in the air opens you up: rotation slows down, and a backflip is laid out
+      const openUp = !!(input.jumpHeld ?? false);
+      this._ignoreHeldJump = this._ignoreHeldJump || openUp; // don't load an ollie on landing until released
       const tuckMul = (input.tuck || input.grab) ? 1.5 : 1.0;
       const flatMul = this.launchedFromKicker ? 1.0 : 0.83;
-      const flipTarget = 6.0 * tuckMul * flatMul;     // target flip angular vel
-      const spinTarget = 6.5 * tuckMul * flatMul;     // target spin angular vel
-      const rampUp = 14.0 * tuckMul * flatMul;        // how fast rotation builds (rad/s²)
+      // Open up: spins slow right down; a backflip stays the same speed but is laid out
+      const spinOpenMul = openUp ? 0.6 : tuckMul;
+      const flipOpenMul = openUp ? 1.0 : tuckMul; // a layout flips as fast as a normal backflip
+      const flipTarget = 6.0 * flipOpenMul * flatMul; // target flip angular vel
+      const spinTarget = 4.8 * spinOpenMul * flatMul; // target spin angular vel (was 6.5: too fast)
+      const rampUp = 20.0 * flipOpenMul * flatMul; // how fast rotation builds (rad/s²)
+      // Layout backflip: backflip (S) with jump held for most of the flip
+      this.isLayingOut = openUp && input.flipBackward && !(input.spinLeft || input.spinRight);
+      if (input.flipBackward) this._backflipTime += dt;
+      if (this.isLayingOut) this._layoutTime += dt;
       const stopSpeed = 18.0;     // how fast rotation stops on release (rad/s²)
 
       const flipping = input.flipForward || input.flipBackward;
@@ -1979,6 +2000,20 @@ export class Player {
       this.applyGrabPose(this.grabType, true);
     } else if (this.isGrabbing && !this.grounded) {
       this.applyGrabPose(this.grabType, false);
+    } else if (this.isLayingOut && !this.grounded && !this.grinding) {
+      // Layout: body straight and long, arms out wide
+      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0.1, 0.12);
+      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, -0.15, 0.12);
+      this.lerpJoint(this.shoulderL, 'z', -1.4, 0.12);
+      this.lerpJoint(this.shoulderL, 'x', -0.2, 0.12);
+      this.lerpJoint(this.elbowL, 'x', -0.05, 0.12);
+      this.lerpJoint(this.shoulderR, 'z', 1.4, 0.12);
+      this.lerpJoint(this.shoulderR, 'x', -0.2, 0.12);
+      this.lerpJoint(this.elbowR, 'x', -0.05, 0.12);
+      this.lerpJoint(this.hipL, 'x', -0.05, 0.12);
+      this.lerpJoint(this.kneeL, 'x', 0.1, 0.12);
+      this.lerpJoint(this.hipR, 'x', -0.05, 0.12);
+      this.lerpJoint(this.kneeR, 'x', 0.1, 0.12);
     } else if (this.isTucking && !this.grounded && !this.grinding) {
       // Air tuck — crouched tight for faster rotation
       this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.2, 0.15);
@@ -2173,6 +2208,14 @@ export class Player {
     this.peakHeight = 0;
     this.launchedFromKicker = true;
     this.lastJumpPopped = popped;
+  }
+
+  // Was the backflip on this jump laid out (jump held for most of it)?
+  _latchLayout() {
+    this.lastJumpLayout = this._backflipTime > 0.2 && this._layoutTime > this._backflipTime * 0.5;
+    this._backflipTime = 0;
+    this._layoutTime = 0;
+    this.isLayingOut = false;
   }
 
   // Rail lip ahead: show the pop meter filling so it hits the middle of the gold at the lip
@@ -2411,6 +2454,8 @@ export class Player {
     this._pendingPerfectOn = false;
     this.railPerfectOff = false;
     this.railTiming = null;
+
+    this._latchLayout();
 
     // Signal to TrickSystem that we landed on a rail from air
     this.landedOnRail = true;
@@ -3064,6 +3109,7 @@ export class Player {
       boardslideType: this.boardslideType,
       grindTime: this.grindTime,
       frontswapCount: this.frontswapCount,
+      isLayout: this.lastJumpLayout,
       railPerfectOn: this.railPerfectOn,
       railPerfectOff: this.railPerfectOff,
       isCork: this.isCorkingThisJump,

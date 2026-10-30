@@ -1268,7 +1268,7 @@ export class Terrain {
     group.userData.surfaceHeight = railHeight;
     // Height along the rail: t=0 at the entry (+Z), t=1 at the exit (-Z)
     group.userData.profile = [[0, railHeight], [flatLen / railLength, railHeight], [1, railHeight + kinkRise]];
-    group.userData.kickAngle = kickAngle;
+    group.userData.kickAngle = 0.32; // launch angle off the end (gentler than the kink looks)
     return group;
   }
 
@@ -1625,7 +1625,7 @@ export class Terrain {
 
     const up = this.buildWorldRail(r.x + laneX * r.upRailSide,
       [r.zTop + 6, deckStart - 0.5], [0.5, 0.9], chunk);
-    up.ramp.kickAngle = 0.55; // pops you onto the deck like a small kicker
+    up.ramp.kickAngle = 0.32; // pops you onto the deck like a small kicker
 
     const down = this.buildWorldRail(r.x - laneX * r.upRailSide,
       [deckStart - 3, deckEnd, deckEnd - r.downLen - 3], [0.8, 0.8, 0.6], chunk);

@@ -266,8 +266,8 @@ export class TrickSystem {
 
       // Regular flip
       if (this.flipCount >= 1) {
-        tricks.push(this.getFlipName(this.flipCount, this.flipDirection));
-        trickScore += this.flipCount * 400;
+        tricks.push(this.getFlipName(this.flipCount, this.flipDirection, playerState.isLayout));
+        trickScore += this.flipCount * (playerState.isLayout ? 500 : 400);
       }
     }
 
@@ -562,10 +562,10 @@ export class TrickSystem {
     return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
   }
 
-  getFlipName(count, direction = 0) {
+  getFlipName(count, direction = 0, layout = false) {
     // Negative X rotation = frontflip (W key), Positive X = backflip (S key)
     const isFront = direction < 0;
-    const type = isFront ? 'FRONTFLIP' : 'BACKFLIP';
+    const type = isFront ? 'FRONTFLIP' : (layout ? 'LAYOUT BACKFLIP' : 'BACKFLIP');
     if (count === 1) return type;
     if (count === 2) return `DOUBLE ${type}`;
     if (count === 3) return `TRIPLE ${type}`;
