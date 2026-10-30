@@ -15,7 +15,7 @@ const PARK_CONFIGS = {
     name: 'BIG WHITE TELUS PARK',
     checkpointCount: 8, checkpointInterval: 600,
     railWidthScale: 1,
-    railTypes: ['parkRail'],
+    railTypes: ['parkRail', 'parkRail', 'endKink'],
     zones: {
       1: {
         medium: { feet: 40, lipHeight: 2.7, lipAngle: 0.55 },
@@ -31,12 +31,13 @@ const PARK_CONFIGS = {
     zoneThreshold: -2400,
     booterFeet: 200, booterPositions: [-3950, -4200],
     railsPerChunk: [6, 10],
+    rollersPerChunk: 1,
   },
   'xgames': {
     name: 'X-GAMES PARK',
     checkpointCount: 6, checkpointInterval: 600,
     railWidthScale: 1,
-    railTypes: ['kinkRail', 'downFlatDown', 'down', 'donkeyDick', 'waterfall'],
+    railTypes: ['kinkRail', 'downFlatDown', 'down', 'donkeyDick', 'waterfall', 'endKink'],
     zones: {
       1: {
         medium: { feet: 150, lipHeight: 10.0, lipAngle: 0.60 },
@@ -52,12 +53,13 @@ const PARK_CONFIGS = {
     zoneThreshold: -1800,
     booterFeet: 200, booterPositions: [-3000, -3250],
     railsPerChunk: [8, 12],
+    rollersPerChunk: 1,
   },
   'slopestyle': {
     name: 'SLOPESTYLE COURSE',
     checkpointCount: 6, checkpointInterval: 600,
     railWidthScale: 1,
-    railTypes: ['kinkRail', 'downFlatDown', 'flatDownFlat', 'waterfall', 'donkeyDick'],
+    railTypes: ['kinkRail', 'downFlatDown', 'flatDownFlat', 'waterfall', 'donkeyDick', 'endKink'],
     zones: {
       1: {
         medium: { feet: 60,  lipHeight: 4.0,  lipAngle: 0.55 },
@@ -79,6 +81,7 @@ const PARK_CONFIGS = {
     zone3Threshold: -2400,
     booterFeet: 250, booterPositions: [-3200, -3500],
     railsPerChunk: [4, 6],
+    rollersPerChunk: 2,
     fixedLayout: true,
   },
 };
@@ -99,6 +102,7 @@ export class Terrain {
     this.obstacles = [];
     this.ramps = [];
     this.exclusionZones = []; // global across all chunks { x, zStart, zEnd, halfWidth }
+    this.rollers = [];        // big snow rollers, part of the ground height (see getHeightAt)
     this.checkpoints = [];
     this.checkpointCount = this.config.checkpointCount;
     this.checkpointInterval = this.config.checkpointInterval;
@@ -374,6 +378,41 @@ export class Terrain {
       this.exclusionZones.push({ x: bx, zStart: bZBottom, zEnd: bZTop, halfWidth: bWidth / 2 + bBuffer });
     }
 
+    // --- Phase 1.5: Big rollers with an up rail onto the deck and a down rail off it ---
+    const skipRollers = isFixedLayout && fixedSection === 'jumps';
+    const rollerTarget = skipRollers ? 0 : (this.config.rollersPerChunk || 0);
+    let placedRollers = 0;
+    for (let attempt = 0; attempt < rollerTarget * 6 && placedRollers < rollerTarget; attempt++) {
+      const roller = this.createRollerData(chunkId);
+      const cx = (this.rand() - 0.5) * 24;
+      const zTop = zOffset - 30 - this.rand() * (this.chunkLength - 60 - roller.footprint);
+      roller.x = cx;
+      roller.zTop = zTop;
+      const extentTop = zTop + roller.approach;
+      const extentBottom = zTop - roller.len - roller.runout;
+      const halfW = roller.width / 2 + roller.side + 2;
+      let blocked = false;
+      for (const zone of this.exclusionZones) {
+        if (extentBottom <= zone.zEnd && extentTop >= zone.zStart &&
+            Math.abs(cx - zone.x) < zone.halfWidth + halfW) { blocked = true; break; }
+      }
+      if (blocked) continue;
+      this.rollers.push(roller);
+      this.exclusionZones.push({ x: cx, zStart: extentBottom - 6, zEnd: extentTop + 6, halfWidth: halfW + 4 });
+      this.addRollerRails(roller, chunk);
+      placedRollers++;
+    }
+    if (placedRollers > 0) {
+      // Raise the snow mesh over the new rollers
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const globalZ = zOffset + positions.getZ(i);
+        positions.setY(i, this.getHeightAt(x, globalZ) - yOffset);
+      }
+      positions.needsUpdate = true;
+      geometry.computeVertexNormals();
+    }
+
     // --- Phase 2: Park rails with entry lips ---
     // Skip rails in slopestyle jump sections
     const skipRails = isFixedLayout && fixedSection === 'jumps';
@@ -444,6 +483,8 @@ export class Terrain {
         rampData.startHeight = startHeight;
         rampData.endHeight = endHeight;
       }
+      if (feature.userData.profile) rampData.profile = feature.userData.profile;
+      if (feature.userData.kickAngle) rampData.kickAngle = feature.userData.kickAngle;
       this.ramps.push(rampData);
 
       // Register gap-on kicker for collision
@@ -1279,6 +1320,49 @@ export class Terrain {
     return group;
   }
 
+  // --- END-KINK RAIL: long flat rail that kinks up at the end and kicks you off like a lip ---
+  createEndKinkRail(lengthScale = 1, widthScale = 1) {
+    const group = new THREE.Group();
+    const railLength = 10 * lengthScale;
+    const railHeight = 0.8;
+    const kinkRun = 2.2;
+    const kickAngle = 0.55;
+    const kinkRise = kinkRun * Math.tan(kickAngle);
+    const flatLen = railLength - kinkRun;
+    const kinkZ = -railLength / 2 + kinkRun; // where the kink starts (rider travels toward -Z)
+    const r = 0.08 * widthScale;
+
+    const flat = new THREE.Mesh(new THREE.CylinderGeometry(r, r, flatLen, 8), this.metalMaterial);
+    flat.rotation.x = Math.PI / 2;
+    flat.position.set(0, railHeight, kinkZ + flatLen / 2);
+    flat.castShadow = true;
+    group.add(flat);
+
+    const kinkLen = Math.hypot(kinkRun, kinkRise);
+    const kink = new THREE.Mesh(new THREE.CylinderGeometry(r, r, kinkLen + 0.05, 8), this.paintedMetalMaterial);
+    kink.rotation.x = Math.PI / 2 + kickAngle;
+    kink.position.set(0, railHeight + kinkRise / 2, kinkZ - kinkRun / 2);
+    kink.castShadow = true;
+    group.add(kink);
+
+    const postZs = [];
+    const flatPosts = Math.max(2, Math.round(flatLen / 8) + 1);
+    for (let i = 0; i < flatPosts; i++) postZs.push([kinkZ + flatLen * (i / (flatPosts - 1)), railHeight]);
+    postZs.push([-railLength / 2, railHeight + kinkRise]);
+    for (const [z, h] of postZs) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, h, 6), this.rockMaterial);
+      post.position.set(0, h / 2, z);
+      group.add(post);
+    }
+
+    this.addRailEntryLip(group, railLength / 2, railHeight);
+    group.userData.surfaceHeight = railHeight;
+    // Height along the rail: t=0 at the entry (+Z), t=1 at the exit (-Z)
+    group.userData.profile = [[0, railHeight], [flatLen / railLength, railHeight], [1, railHeight + kinkRise]];
+    group.userData.kickAngle = kickAngle;
+    return group;
+  }
+
   // --- RAIL TYPE DISPATCHER ---
   createRailByType(railLength, railHeight) {
     const railTypes = this.config.railTypes;
@@ -1297,6 +1381,7 @@ export class Terrain {
       case 'downFlatDown': return this.createDownFlatDownRail(ls * 0.71, ws);
       case 'donkeyDick':  return this.createDonkeyDickRail(ls, ws);
       case 'waterfall':   return this.createWaterfallRail(ls, ws);
+      case 'endKink':     return this.createEndKinkRail(ls, ws);
       default:            return this.createParkRail(railLength, railHeight, 0);
     }
   }
@@ -1586,7 +1671,162 @@ export class Terrain {
   }
 
   getHeightAt(x, z) {
-    return this.computeHeight(x, z);
+    let h = this.computeHeight(x, z);
+    for (const r of this.rollers) {
+      if (z > r.zTop || z < r.zTop - r.len) continue;
+      h += this.rollerHeightAt(r, x, z);
+    }
+    return h;
+  }
+
+  // ===== ROLLERS =====
+  // A big snow roller across part of the run: smooth up face, flat deck, smooth down face.
+  // u is the distance downhill from the top edge of the up face.
+  createRollerData(chunkId) {
+    const height = 3.2 + this.rand() * 1.0;
+    const upLen = 13, deckLen = 10 + this.rand() * 4, downLen = 15;
+    return {
+      chunkId, height, upLen, deckLen, downLen,
+      len: upLen + deckLen + downLen,
+      width: 24, side: 5,
+      approach: 12, runout: 8,
+      footprint: 12 + upLen + deckLen + downLen + 8,
+      upRailSide: this.rand() < 0.5 ? -1 : 1,
+    };
+  }
+
+  rollerHeightAt(r, x, z) {
+    const u = r.zTop - z;
+    if (u <= 0 || u >= r.len) return 0;
+    const smooth = (t) => t * t * (3 - 2 * t);
+    let along;
+    if (u < r.upLen) along = smooth(u / r.upLen);
+    else if (u < r.upLen + r.deckLen) along = 1;
+    else along = 1 - smooth((u - r.upLen - r.deckLen) / r.downLen);
+    const dx = Math.abs(x - r.x) - r.width / 2;
+    const across = dx <= 0 ? 1 : (dx >= r.side ? 0 : 1 - smooth(dx / r.side));
+    return r.height * along * across;
+  }
+
+  // Up rail from the ground onto the deck in one lane, down rail from the deck in the other
+  addRollerRails(r, chunk) {
+    const laneX = 7;
+    const deckStart = r.zTop - r.upLen;
+    const deckEnd = deckStart - r.deckLen;
+
+    const up = this.buildWorldRail(r.x + laneX * r.upRailSide,
+      [r.zTop + 6, deckStart - 0.5], [0.5, 0.9], chunk);
+    up.ramp.kickAngle = 0.55; // pops you onto the deck like a small kicker
+
+    const down = this.buildWorldRail(r.x - laneX * r.upRailSide,
+      [deckStart - 3, deckEnd, deckEnd - r.downLen - 3], [0.8, 0.8, 0.6], chunk);
+    return { up, down };
+  }
+
+  // Rail in world space through the given z points (entry first, downhill last),
+  // each a given height above the snow there, never closer than minClear to the snow.
+  buildWorldRail(x, zs, heights, chunk, minClear = 0.45) {
+    const pts = zs.map((z, i) => ({ z, y: this.getHeightAt(x, z) + heights[i] }));
+    let deficit = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      for (let k = 1; k < 20; k++) {
+        const t = k / 20;
+        const z = pts[i].z + (pts[i + 1].z - pts[i].z) * t;
+        const y = pts[i].y + (pts[i + 1].y - pts[i].y) * t;
+        deficit = Math.max(deficit, minClear - (y - this.getHeightAt(x, z)));
+      }
+    }
+    if (deficit > 0) for (const p of pts) p.y += deficit;
+
+    const group = new THREE.Group();
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const len = Math.hypot(a.z - b.z, a.y - b.y);
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len + 0.1, 8),
+        i === pts.length - 2 ? this.metalMaterial : this.paintedMetalMaterial);
+      seg.position.set(x, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      seg.rotation.x = Math.PI / 2 - Math.atan2(a.y - b.y, a.z - b.z);
+      seg.castShadow = true;
+      group.add(seg);
+    }
+    // Posts every ~5 units down to the snow
+    const zEntry = pts[0].z, zExit = pts[pts.length - 1].z;
+    const postCount = Math.max(2, Math.round((zEntry - zExit) / 5) + 1);
+    for (let i = 0; i < postCount; i++) {
+      const z = zEntry - (zEntry - zExit) * (i / (postCount - 1));
+      const top = this._interpRail(pts, z);
+      const ground = this.getHeightAt(x, z);
+      const h = Math.max(0.05, top - ground);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, h, 6), this.rockMaterial);
+      post.position.set(x, ground + h / 2, z);
+      group.add(post);
+    }
+    this.scene.add(group);
+    chunk.objects.push(group);
+
+    const ramp = {
+      mesh: group,
+      position: new THREE.Vector3(x, (pts[0].y + pts[pts.length - 1].y) / 2, (zEntry + zExit) / 2),
+      type: 'rail', width: 4.0, length: zEntry - zExit, surfaceHeight: 0,
+      worldPoints: pts, lipHeight: 0, lipAngle: 0, chunkId: chunk.chunkId,
+    };
+    this.ramps.push(ramp);
+
+    // Gap-on kicker just uphill of the rail, sitting on the snow
+    const entryClear = pts[0].y - this.getHeightAt(x, zEntry);
+    const lipHeight = Math.min(entryClear * 0.65, 0.6);
+    const lipLen = lipHeight * 3, lipW = 5.0, gap = 0.8;
+    const lipZ = zEntry + gap + lipLen / 2;
+    const lipShape = new THREE.Shape();
+    lipShape.moveTo(0, 0);
+    lipShape.lineTo(lipLen, 0);
+    lipShape.lineTo(lipLen, lipHeight);
+    lipShape.closePath();
+    const geo = new THREE.ExtrudeGeometry(lipShape, { depth: lipW, bevelEnabled: false });
+    geo.rotateY(Math.PI / 2);
+    geo.translate(-lipW / 2, 0, lipLen / 2);
+    const lip = new THREE.Mesh(geo, this.rampMaterial);
+    const yUp = this.getHeightAt(x, lipZ + lipLen / 2), yDown = this.getHeightAt(x, lipZ - lipLen / 2);
+    lip.position.set(x, (yUp + yDown) / 2, lipZ);
+    lip.rotation.x = -Math.atan2(yUp - yDown, lipLen);
+    lip.castShadow = true;
+    group.add(lip);
+    this.ramps.push({
+      mesh: group, position: new THREE.Vector3(x, this.getHeightAt(x, lipZ), lipZ),
+      type: 'kicker', width: lipW, length: lipLen, lipHeight, lipAngle: 0.35,
+      surfaceHeight: 0, chunkId: chunk.chunkId,
+    });
+    return { group, ramp };
+  }
+
+  _interpRail(pts, z) {
+    if (z >= pts[0].z) return pts[0].y;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (z <= a.z && z >= b.z) return a.y + (b.y - a.y) * ((a.z - z) / (a.z - b.z));
+    }
+    return pts[pts.length - 1].y;
+  }
+
+  // Rail top in world space at z (handles world-space rails, height profiles and simple rails)
+  getRailTopAt(ramp, x, z) {
+    if (ramp.worldPoints) return this._interpRail(ramp.worldPoints, z);
+    const ground = this.computeHeight(x, z);
+    const t = Math.max(0, Math.min(1, 0.5 - (z - ramp.position.z) / ramp.length));
+    if (ramp.profile) {
+      const pr = ramp.profile;
+      for (let i = 0; i < pr.length - 1; i++) {
+        if (t <= pr[i + 1][0]) {
+          const k = (t - pr[i][0]) / Math.max(1e-6, pr[i + 1][0] - pr[i][0]);
+          return ground + pr[i][1] + (pr[i + 1][1] - pr[i][1]) * k;
+        }
+      }
+      return ground + pr[pr.length - 1][1];
+    }
+    if (ramp.startHeight !== undefined && ramp.endHeight !== undefined) {
+      return ground + ramp.startHeight * (1 - t) + ramp.endHeight * t;
+    }
+    return ground + ramp.surfaceHeight;
   }
 
   getSlopeNormalAt(x, z) {
@@ -1640,6 +1880,7 @@ export class Terrain {
       const cid = old.chunkId;
       this.ramps = this.ramps.filter(r => r.chunkId !== cid);
       this.obstacles = this.obstacles.filter(o => o.chunkId !== cid);
+      this.rollers = this.rollers.filter(r => r.chunkId !== cid);
     }
   }
 
@@ -1650,6 +1891,7 @@ export class Terrain {
     this.chunks = [];
     this.obstacles = [];
     this.ramps = [];
+    this.rollers = [];
     this.checkpoints = [];
   }
 }

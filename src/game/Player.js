@@ -1557,12 +1557,19 @@ export class Player {
         const dz = this.position.z - this.grindRail.position.z;
         if (Math.abs(dz) > this.grindRail.length / 2 + 0.5) {
           railEnded = true;
+          const endedRail = this.grindRail;
           this.grinding = false;
           this.grindRail = null;
           this.grounded = false;
           this.peakHeight = 0;
-          // Exit kicker pop — launch ~3-5 feet upward (about character height)
-          this.velocity.y = 7.0;
+          if (endedRail.kickAngle) {
+            // Kinked / up rail: the end kicks you off like a jump lip
+            this._launchOffLip(endedRail.kickAngle, true);
+            this.kickerCooldown = 0.5;
+          } else {
+            // Exit kicker pop — launch ~3-5 feet upward (about character height)
+            this.velocity.y = 7.0;
+          }
         }
       }
 
@@ -1576,8 +1583,7 @@ export class Player {
         this.velocity.z = (this.velocity.z <= 0 ? -1 : 1) * Math.sqrt(Math.max(0, railHSpeed ** 2 - this.velocity.x ** 2));
 
         // Lock Y to rail surface height at player's Z (follows terrain slope)
-        const terrainAtPlayer = terrain.computeHeight(this.position.x, this.position.z);
-        const railTop = terrainAtPlayer + this._getRailHeightAtZ(this.grindRail, this.position.z);
+        const railTop = this._getRailTop(this.grindRail, terrain);
         this.position.y = railTop + 0.2;
         this.velocity.y = 0;
 
@@ -2030,41 +2036,51 @@ export class Player {
 
     // Player has passed the lip — launch!
     if (t >= 0.95) {
-      // Launch as if riding at the original (faster) ground speed so air is unchanged
-      this.boostAirSpeed();
-      const rawSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-      // Cap effective launch speed — allow fast approach to matter
-      const speed = Math.min(rawSpeed, 32);
-
-      // Launch angle based on jump size (bigger = steeper lip)
-      const lipAngle = ramp.lipAngle || 0.55;
-
-      // Redirect velocity through the lip angle
-      const launchSpeed = speed * 0.92;
-      this.velocity.y = Math.sin(lipAngle) * launchSpeed;
-      const horizFactor = Math.cos(lipAngle);
-      // Dampen horizontal speed — smaller jumps (lower lipAngle) get more reduction
-      // so the rider lands on the landing zone instead of overshooting
-      const horizDamp = 0.3 + lipAngle * 0.8; // small(0.45)→0.66, big(0.65)→0.82
-      const hScale = horizFactor * horizDamp * Math.min(1, 32 / Math.max(rawSpeed, 1));
-      this.velocity.x *= hScale;
-      this.velocity.z *= hScale;
-
-      // Pop bonus from speed
-      this.velocity.y += Math.min(speed * 0.05, 3);
-
-      // Apply ollie pop boost if player pressed space on the kicker
-      if (this.kickerPopBoost > 0) {
-        this.velocity.y += this.kickerPopBoost;
-        this.kickerPopBoost = 0;
-      }
-
-      this.grounded = false;
-      this.onKicker = null;
-      this.peakHeight = 0;
-      this.launchedFromKicker = true;
+      this._launchOffLip(ramp.lipAngle || 0.55);
       this.kickerCooldown = 1.5; // ignore kicker surfaces for 1.5s after launch
     }
+  }
+
+  // Launch off a lip (kicker, kinked rail end, up rail end) at the given angle
+  // keepSpeed: rail kicks keep their horizontal speed instead of the kicker's landing-zone damping
+  _launchOffLip(lipAngle, keepSpeed = false) {
+    // Launch as if riding at the original (faster) ground speed so air is unchanged
+    this.boostAirSpeed();
+    const rawSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+    // Cap effective launch speed — allow fast approach to matter
+    const speed = Math.min(rawSpeed, 32);
+
+    // Redirect velocity through the lip angle
+    const launchSpeed = speed * 0.92;
+    this.velocity.y = Math.sin(lipAngle) * launchSpeed;
+    const horizFactor = Math.cos(lipAngle);
+    // Dampen horizontal speed — smaller jumps (lower lipAngle) get more reduction
+    // so the rider lands on the landing zone instead of overshooting
+    const horizDamp = 0.3 + lipAngle * 0.8; // small(0.45)→0.66, big(0.65)→0.82
+    const hScale = keepSpeed ? horizFactor
+      : horizFactor * horizDamp * Math.min(1, 32 / Math.max(rawSpeed, 1));
+    this.velocity.x *= hScale;
+    this.velocity.z *= hScale;
+
+    // Pop bonus from speed
+    this.velocity.y += Math.min(speed * 0.05, 3);
+
+    // Apply ollie pop boost if player pressed space on the kicker
+    if (this.kickerPopBoost > 0) {
+      this.velocity.y += this.kickerPopBoost;
+      this.kickerPopBoost = 0;
+    }
+
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+  }
+
+  // World-space rail top under the player (rollers, kinks and height profiles included)
+  _getRailTop(ramp, terrain) {
+    if (terrain.getRailTopAt) return terrain.getRailTopAt(ramp, this.position.x, this.position.z);
+    return terrain.computeHeight(this.position.x, this.position.z) + this._getRailHeightAtZ(ramp, this.position.z);
   }
 
   // Get rail surface height at a given Z, interpolating for variable-height rails
@@ -2093,8 +2109,7 @@ export class Player {
       const dx = this.position.x - ramp.position.x;
       const dz = this.position.z - ramp.position.z;
       // Use terrain height at player's Z for accurate rail top on tilted rails
-      const terrainH = terrain.computeHeight(this.position.x, this.position.z);
-      const railTop = terrainH + this._getRailHeightAtZ(ramp, this.position.z);
+      const railTop = this._getRailTop(ramp, terrain);
       const dy = this.position.y - railTop;
 
       const absDx = Math.abs(dx);
