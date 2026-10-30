@@ -61,7 +61,6 @@ export class Game {
     this.quests.checkSeasonReset();
     this.syncRidePassSeason();
     this.shop = new ShopSystem(this.ridePass);
-    this.activeShopTab = 'jacket';
     this.particles = new SnowParticles(this.scene);
     this.multiplayer = new MultiplayerManager(this);
 
@@ -133,14 +132,6 @@ export class Game {
       customizePanel: document.getElementById('customize-panel'),
       customizeBack: document.getElementById('customize-back'),
       lobbyCustomize: document.getElementById('lobby-customize'),
-      lobbyQuests: document.getElementById('lobby-quests'),
-      questsPanel: document.getElementById('quests-panel'),
-      questList: document.getElementById('quest-list'),
-      questsBack: document.getElementById('quests-back'),
-      questXpLabel: document.getElementById('quest-xp-label'),
-      shopPanel: document.getElementById('shop-panel'),
-      shopBack: document.getElementById('shop-back'),
-      lobbyShop: document.getElementById('lobby-shop'),
       lobbyAccount: document.getElementById('lobby-account'),
       accountPanel: document.getElementById('account-panel'),
       accountBack: document.getElementById('account-back'),
@@ -155,32 +146,9 @@ export class Game {
       accountTitleOptions: document.getElementById('account-title-options'),
       accountLogoutBtn: document.getElementById('account-logout-btn'),
       daynightToggle: document.getElementById('daynight-toggle'),
-      shopItemList: document.getElementById('shop-item-list'),
-      shopS1Count: document.getElementById('shop-s1-count'),
-      shopS2Count: document.getElementById('shop-s2-count'),
-      shopS3Count: document.getElementById('shop-s3-count'),
-      shopBoardCount: document.getElementById('shop-board-count'),
       mapPanel: document.getElementById('map-panel'),
       mapBack: document.getElementById('map-back'),
       lobbyMap: document.getElementById('lobby-map'),
-      scoresPanel: document.getElementById('scores-panel'),
-      scoresBack: document.getElementById('scores-back'),
-      scoresList: document.getElementById('scores-list'),
-      scoresLoading: document.getElementById('scores-loading'),
-      scoresError: document.getElementById('scores-error'),
-      lobbyScores: document.getElementById('lobby-scores'),
-      ridepassPanel: document.getElementById('ridepass-panel'),
-      ridepassBack: document.getElementById('ridepass-back'),
-      lobbyRidepass: document.getElementById('lobby-ridepass'),
-      rpLevelList: document.getElementById('rp-level-list'),
-      rpLevelLabel: document.getElementById('rp-level-label'),
-      rpProgressFill: document.getElementById('rp-progress-fill'),
-      rpXpLabel: document.getElementById('rp-xp-label'),
-      rpS1Count: document.getElementById('rp-s1-count'),
-      rpS2Count: document.getElementById('rp-s2-count'),
-      rpBoardCount: document.getElementById('rp-board-count'),
-      rpTitleSection: document.getElementById('rp-title-section'),
-      rpTitleOptions: document.getElementById('rp-title-options'),
       finishScreen: document.getElementById('finish-screen'),
       finishTitle: document.getElementById('finish-title'),
       finishScore: document.getElementById('finish-score'),
@@ -208,20 +176,7 @@ export class Game {
       authError: document.getElementById('auth-error'),
       authLoading: document.getElementById('auth-loading'),
       authForgot: document.getElementById('auth-forgot'),
-      lobbyLogout: document.getElementById('lobby-logout'),
       // Multiplayer party
-      partyPanel: document.getElementById('party-panel'),
-      partyJoinView: document.getElementById('party-join-view'),
-      partyActiveView: document.getElementById('party-active-view'),
-      partyCreate: document.getElementById('party-create'),
-      partyJoinInput: document.getElementById('party-join-input'),
-      partyJoinBtn: document.getElementById('party-join-btn'),
-      partyCode: document.getElementById('party-code'),
-      partyCopy: document.getElementById('party-copy'),
-      partyMembers: document.getElementById('party-members'),
-      partyLeave: document.getElementById('party-leave'),
-      partyStart: document.getElementById('party-start'),
-      partyError: document.getElementById('party-error'),
     };
 
     // Leaderboard (localStorage)
@@ -316,7 +271,6 @@ export class Game {
     if (!isFirebaseConfigured()) {
       // No Firebase — skip auth, go straight to start screen
       this.ui.startScreen.style.display = '';
-      if (this.ui.lobbyLogout) this.ui.lobbyLogout.style.display = 'none';
       return;
     }
 
@@ -390,12 +344,6 @@ export class Game {
         };
         this.ui.authError.textContent = friendly[msg] || msg.toUpperCase();
       }
-    });
-
-    // Logout button
-    this.ui.lobbyLogout.addEventListener('click', async () => {
-      await logoutAccount();
-      // onAuthChange will handle showing auth screen
     });
 
     // Listen for auth state changes
@@ -1111,12 +1059,6 @@ export class Game {
           if (stanceRow) {
             stanceRow.style.display = this.selectedEquipment === 'ski' ? 'none' : '';
           }
-          // Sync bottom equipment bar
-          document.querySelectorAll('[data-equip-bar]').forEach(b => b.classList.remove('selected'));
-          const barBtn = document.querySelector(`[data-equip-bar="${newType}"]`);
-          if (barBtn) barBtn.classList.add('selected');
-          const stanceBar = document.getElementById('equip-bar-stance');
-          if (stanceBar) stanceBar.style.display = newType === 'ski' ? 'none' : '';
         }
       });
     });
@@ -1129,66 +1071,6 @@ export class Game {
         this.selectedStance = btn.dataset.stance;
         this.player.stance = this.selectedStance;
         this.player.updateStanceYaw();
-        // Sync bottom stance bar
-        document.querySelectorAll('[data-stance-bar]').forEach(b => b.classList.remove('selected'));
-        const barBtn = document.querySelector(`[data-stance-bar="${this.selectedStance}"]`);
-        if (barBtn) barBtn.classList.add('selected');
-      });
-    });
-
-    // Bottom equipment bar (snowboard / ski)
-    document.querySelectorAll('[data-equip-bar]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const newType = btn.dataset.equipBar;
-        document.querySelectorAll('[data-equip-bar]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        // Show/hide stance row
-        const stanceBar = document.getElementById('equip-bar-stance');
-        if (stanceBar) stanceBar.style.display = newType === 'ski' ? 'none' : '';
-        if (newType !== this.selectedEquipment) {
-          this.selectedEquipment = newType;
-          const savedColors = {};
-          document.querySelectorAll('.color-options').forEach(group => {
-            const part = group.dataset.part;
-            const sel = group.querySelector('.color-swatch.selected');
-            if (sel) savedColors[part] = parseInt(sel.dataset.color);
-          });
-          this.scene.remove(this.player.group);
-          this.player = new Player(this.scene, this.selectedEquipment);
-          this.player.stance = this.selectedStance;
-          this.player.updateStanceYaw();
-          this.loadPlayerModel();
-          for (const [part, color] of Object.entries(savedColors)) {
-            this.player.setColor(part, color);
-          }
-          this.applyEquippedItems();
-          // Sync customize panel buttons
-          document.querySelectorAll('[data-equipment]').forEach(b => b.classList.remove('selected'));
-          const matchBtn = document.querySelector(`[data-equipment="${newType}"]`);
-          if (matchBtn) matchBtn.classList.add('selected');
-          const stanceRow = document.getElementById('stance-row');
-          if (stanceRow) stanceRow.style.display = newType === 'ski' ? 'none' : '';
-          const boardRow = document.querySelector('[data-part="board"]');
-          if (boardRow) {
-            boardRow.closest('.lobby-row').querySelector('label').textContent =
-              newType === 'ski' ? 'Skis' : 'Board';
-          }
-        }
-      });
-    });
-
-    // Bottom stance bar (regular / goofy)
-    document.querySelectorAll('[data-stance-bar]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-stance-bar]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        this.selectedStance = btn.dataset.stanceBar;
-        this.player.stance = this.selectedStance;
-        this.player.updateStanceYaw();
-        // Sync customize panel buttons
-        document.querySelectorAll('[data-stance]').forEach(b => b.classList.remove('selected'));
-        const matchBtn = document.querySelector(`[data-stance="${this.selectedStance}"]`);
-        if (matchBtn) matchBtn.classList.add('selected');
       });
     });
 
@@ -1213,47 +1095,6 @@ export class Game {
     // Back button → close customize panel
     this.ui.customizeBack.addEventListener('click', () => {
       this.ui.customizePanel.classList.remove('active');
-    });
-
-    // Quests button → open quests panel
-    this.ui.lobbyQuests.addEventListener('click', () => {
-      this.activeQuestTab = 'daily';
-      document.querySelectorAll('.quest-tab').forEach(t =>
-        t.classList.toggle('active', t.dataset.tab === 'daily')
-      );
-      this.renderQuestList('daily');
-      this.ui.questsPanel.classList.add('active');
-    });
-
-    // Quests back button
-    this.ui.questsBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.questsPanel.classList.remove('active');
-    });
-
-    // Shop button → open shop panel
-    this.ui.lobbyShop.addEventListener('click', () => {
-      this.openShopPanel();
-    });
-
-    // Shop panel — block clicks
-    this.ui.shopPanel.addEventListener('click', (e) => e.stopPropagation());
-
-    // Shop back button
-    this.ui.shopBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.shopPanel.classList.remove('active');
-    });
-
-    // Shop tab switching
-    document.querySelectorAll('.shop-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeShopTab = tab.dataset.shopTab;
-        document.querySelectorAll('.shop-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.shopTab === this.activeShopTab)
-        );
-        this.renderShopItems(this.activeShopTab);
-      });
     });
 
     // Map button → open map panel
@@ -1304,57 +1145,6 @@ export class Game {
         this.parkId = card.dataset.park;
         this.gameMode = 'park';
         this.backcountryChair = null;
-      });
-    });
-
-    // Scores button → open scores panel
-    this.activeScoresTab = 'big-white';
-    this.ui.lobbyScores.addEventListener('click', () => {
-      this.activeScoresTab = 'big-white';
-      document.querySelectorAll('.scores-tab').forEach(t =>
-        t.classList.toggle('active', t.dataset.scoresTab === 'big-white')
-      );
-      this.fetchAndRenderScores('big-white');
-      this.ui.scoresPanel.classList.add('active');
-    });
-    this.ui.scoresPanel.addEventListener('click', (e) => e.stopPropagation());
-    this.ui.scoresBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.scoresPanel.classList.remove('active');
-    });
-    document.querySelectorAll('.scores-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeScoresTab = tab.dataset.scoresTab;
-        document.querySelectorAll('.scores-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.scoresTab === this.activeScoresTab)
-        );
-        this.fetchAndRenderScores(this.activeScoresTab);
-      });
-    });
-
-    // Ride Pass button → open ridepass panel
-    this.ui.lobbyRidepass.addEventListener('click', () => {
-      this.openRidePassPanel();
-    });
-
-    // Panels — block clicks from reaching lobby buttons underneath
-    this.ui.ridepassPanel.addEventListener('click', (e) => e.stopPropagation());
-    this.ui.questsPanel.addEventListener('click', (e) => e.stopPropagation());
-
-    // Ride Pass back button
-    this.ui.ridepassBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.ridepassPanel.classList.remove('active');
-    });
-
-    // Quest tab switching
-    document.querySelectorAll('.quest-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeQuestTab = tab.dataset.tab;
-        document.querySelectorAll('.quest-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.tab === this.activeQuestTab)
-        );
-        this.renderQuestList(this.activeQuestTab);
       });
     });
 
@@ -1426,92 +1216,9 @@ export class Game {
       localStorage.setItem('shred-daynight', this.daynightPref);
       this.updateDaynightButton();
     });
-
-    // ---- PARTY SYSTEM ----
-    this.ui.partyCreate.addEventListener('click', async () => {
-      this.ui.partyError.textContent = 'CREATING...';
-      try {
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('CONNECTION TIMED OUT')), 5000));
-        const code = await Promise.race([this.multiplayer.createParty(), timeout]);
-        if (code) { this.ui.partyError.textContent = ''; this.showPartyView(code); }
-        else this.ui.partyError.textContent = 'FAILED TO CREATE PARTY';
-      } catch (e) {
-        console.warn('Party create error:', e);
-        this.ui.partyError.textContent = e.message || 'CONNECTION FAILED';
-      }
-    });
-
-    this.ui.partyJoinBtn.addEventListener('click', async () => {
-      this.ui.partyError.textContent = '';
-      const code = this.ui.partyJoinInput.value.trim().toUpperCase();
-      if (code.length !== 6) {
-        this.ui.partyError.textContent = 'ENTER A 6-CHARACTER CODE';
-        return;
-      }
-      const result = await this.multiplayer.joinParty(code);
-      if (result.error) {
-        this.ui.partyError.textContent = result.error;
-      } else {
-        this.showPartyView(code);
-      }
-    });
-
-    this.ui.partyJoinInput.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.code === 'Enter') this.ui.partyJoinBtn.click();
-    });
-    this.ui.partyJoinInput.addEventListener('keyup', (e) => e.stopPropagation());
-
-    this.ui.partyLeave.addEventListener('click', async () => {
-      await this.multiplayer.leaveParty();
-      this.hidePartyView();
-    });
-
-    this.ui.partyCopy.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.multiplayer.partyCode);
-      this.ui.partyCopy.textContent = 'COPIED!';
-      setTimeout(() => { this.ui.partyCopy.textContent = 'COPY'; }, 1500);
-    });
-
-    this.ui.partyStart.addEventListener('click', () => {
-      this.multiplayer.setGameMode(this.gameMode || 'park', this.backcountryChair || null, this.parkId || null);
-      this.closeLobby();
-    });
-
-    // Stop party panel clicks from propagating to lobby
-    this.ui.partyPanel.addEventListener('click', (e) => e.stopPropagation());
-  }
-
-  showPartyView(code) {
-    this.ui.partyJoinView.style.display = 'none';
-    this.ui.partyActiveView.style.display = '';
-    this.ui.partyCode.textContent = code;
-    this.ui.partyStart.style.display = this.multiplayer.isHost ? '' : 'none';
-    // Show big party code banner
-    const banner = document.getElementById('party-code-banner');
-    const bigCode = document.getElementById('party-code-big');
-    if (banner) { banner.style.display = ''; bigCode.textContent = code; }
-  }
-
-  hidePartyView() {
-    this.ui.partyJoinView.style.display = '';
-    this.ui.partyActiveView.style.display = 'none';
-    this.ui.partyJoinInput.value = '';
-    this.ui.partyError.textContent = '';
-    this.ui.partyMembers.innerHTML = '';
-    // Hide big party code banner
-    const banner = document.getElementById('party-code-banner');
-    if (banner) banner.style.display = 'none';
   }
 
   updatePartyMembers(members, hostUid) {
-    this.ui.partyMembers.innerHTML = '';
-    for (const [uid, data] of Object.entries(members)) {
-      const div = document.createElement('div');
-      div.className = 'party-member' + (uid === hostUid ? ' host' : '');
-      div.textContent = data.nickname || 'Player';
-      this.ui.partyMembers.appendChild(div);
-    }
 
     // Sync lobby remote players if currently in lobby
     if (this.state === 'lobby' && this.lobbyGroup) {
@@ -1520,7 +1227,6 @@ export class Game {
   }
 
   onPartyDissolved() {
-    this.hidePartyView();
     // If we were playing, go back to lobby
     if (this.state === 'playing' || this.state === 'dead' || this.state === 'finished') {
       this.openLobby();
@@ -1543,8 +1249,6 @@ export class Game {
     this.ui.newRecordLabel.classList.remove('show');
     this.ui.crashVignette.style.opacity = '0';
     this.ui.customizePanel.classList.remove('active');
-    this.ui.questsPanel.classList.remove('active');
-    this.ui.ridepassPanel.classList.remove('active');
     this.ui.mapPanel.classList.remove('active');
     // Reset map tabs to backcountry default
     document.querySelectorAll('.map-tab[data-map-tab]').forEach(t =>
@@ -1558,7 +1262,6 @@ export class Game {
     document.querySelectorAll('.park-card').forEach(c =>
       c.classList.toggle('selected', c.dataset.park === this.parkId)
     );
-    this.ui.shopPanel.classList.remove('active');
     this.ui.accountPanel.classList.remove('active');
     this.ui.lobbyScreen.classList.add('active');
     this.player.cleanupDebris();
@@ -2683,81 +2386,6 @@ export class Game {
     }
   }
 
-  async fetchAndRenderScores(tab) {
-    const db = this.firebaseDb;
-    const container = this.ui.scoresList;
-    container.innerHTML = '';
-    this.ui.scoresLoading.style.display = 'block';
-    this.ui.scoresError.style.display = 'none';
-
-    try {
-      let scores;
-      const parkTabs = ['big-white', 'woodward', 'xgames'];
-      if (parkTabs.includes(tab)) {
-        scores = await fetchWorldwideScores(db, 20, tab);
-      } else {
-        scores = await fetchSummitScores(db, tab, 20);
-      }
-
-      this.ui.scoresLoading.style.display = 'none';
-
-      if (scores === null) {
-        this.ui.scoresError.style.display = 'block';
-        this.ui.scoresError.textContent = 'OFFLINE — CHECK CONNECTION';
-        return;
-      }
-
-      if (scores.length === 0) {
-        this.ui.scoresError.style.display = 'block';
-        this.ui.scoresError.textContent = 'NO SCORES YET';
-        return;
-      }
-
-      scores.slice(0, 10).forEach((entry, i) => {
-        const div = document.createElement('div');
-        div.className = 'leaderboard-entry';
-
-        const rankSpan = document.createElement('span');
-        rankSpan.className = 'lb-rank';
-        if (i === 0) rankSpan.classList.add('gold');
-        else if (i === 1) rankSpan.classList.add('silver');
-        else if (i === 2) rankSpan.classList.add('bronze');
-        rankSpan.textContent = `#${i + 1}`;
-
-        const nameWrap = document.createElement('span');
-        nameWrap.className = 'lb-name';
-        const nameText = document.createElement('span');
-        nameText.textContent = entry.nickname || 'ANON';
-        nameWrap.appendChild(nameText);
-        if (entry.title) {
-          const titleSpan = document.createElement('span');
-          titleSpan.className = 'lb-title';
-          titleSpan.textContent = entry.title;
-          nameWrap.appendChild(titleSpan);
-        }
-
-        const scoreSpan = document.createElement('span');
-        scoreSpan.className = 'lb-score';
-        scoreSpan.textContent = entry.score.toLocaleString();
-
-        const labelSpan = document.createElement('span');
-        labelSpan.className = 'lb-label';
-        labelSpan.textContent = 'PTS';
-
-        div.appendChild(rankSpan);
-        div.appendChild(nameWrap);
-        div.appendChild(scoreSpan);
-        div.appendChild(labelSpan);
-        container.appendChild(div);
-      });
-    } catch (e) {
-      console.warn('Scores panel error:', e);
-      this.ui.scoresLoading.style.display = 'none';
-      this.ui.scoresError.style.display = 'block';
-      this.ui.scoresError.textContent = 'OFFLINE — CHECK CONNECTION';
-    }
-  }
-
   restartFromFinish() {
     this.ui.finishScreen.classList.remove('active');
     this.ui.newRecordLabel.classList.remove('show');
@@ -3162,139 +2790,6 @@ export class Game {
     }
   }
 
-  // ---- QUEST RENDERING ----
-
-  renderQuestList(tab) {
-    this.quests.checkDailyReset();
-    this.quests.checkSeasonReset();
-    const quests = tab === 'daily' ? this.quests.getDailyQuests() : this.quests.getSeasonQuests();
-    this.ui.questXpLabel.textContent = `${this.quests.getTotalXP()} XP`;
-
-    // Show/hide season timer
-    const timerEl = document.getElementById('quest-season-timer');
-    if (timerEl) {
-      if (tab === 'season') {
-        const rem = this.quests.getSeasonTimeRemaining();
-        const parts = [];
-        if (rem.days > 0) parts.push(`${rem.days}D`);
-        parts.push(`${rem.hours}H ${rem.minutes}M`);
-        document.getElementById('quest-timer-value').textContent = parts.join(' ');
-        timerEl.style.display = '';
-      } else {
-        timerEl.style.display = 'none';
-      }
-    }
-
-    this.ui.questList.innerHTML = quests.map(q => {
-      const pct = Math.min((q.current / q.target) * 100, 100);
-      const cls = q.completed ? 'quest-item completed' : 'quest-item';
-      const progressText = q.completed ? 'COMPLETE' : `${Math.floor(q.current)} / ${q.target}`;
-      return `<div class="${cls}">
-        <div class="quest-item-info">
-          <div class="quest-item-desc">${q.desc}</div>
-          <div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${pct}%"></div></div>
-          <div class="quest-progress-text">${progressText}</div>
-        </div>
-        <div class="quest-xp-badge">${q.completed ? '' : q.xp + ' XP'}</div>
-        <div class="quest-check">&check;</div>
-      </div>`;
-    }).join('');
-  }
-
-  // ---- RIDE PASS ----
-
-  openRidePassPanel() {
-    const totalXP = this.quests.getTotalXP();
-    this.ridePass.claimAvailable(totalXP);
-
-    const level = this.ridePass.getLevel(totalXP);
-    const progress = this.ridePass.getLevelProgress(totalXP);
-    const xpPerLevel = this.ridePass.getXPPerLevel();
-    const tokens = this.ridePass.getTokens();
-
-    // Header
-    this.ui.rpLevelLabel.textContent = level >= 60 ? 'LEVEL 60 — MAX' : `LEVEL ${level}`;
-    const pct = level >= 60 ? 100 : (progress / xpPerLevel) * 100;
-    this.ui.rpProgressFill.style.width = `${pct}%`;
-    this.ui.rpXpLabel.textContent = level >= 60 ? `${xpPerLevel} / ${xpPerLevel} XP` : `${progress} / ${xpPerLevel} XP`;
-
-    // Tokens
-    this.ui.rpS1Count.textContent = tokens.steezeL1;
-    this.ui.rpS2Count.textContent = tokens.steezeL2;
-    this.ui.rpBoardCount.textContent = tokens.board;
-
-    this.renderRidePassLevels(level);
-    this.renderRidePassTitles();
-    this.ui.ridepassPanel.classList.add('active');
-  }
-
-  renderRidePassLevels(currentLevel) {
-    const rewards = this.ridePass.getAllRewards();
-    const rewardLabel = (r) => {
-      if (r.type === 'steezeL1') return { icon: '&#9733;', desc: `Steeze L1 x${r.qty}`, cls: 'rp-icon-s1' };
-      if (r.type === 'steezeL2') return { icon: '&#9733;', desc: `Steeze L2 x${r.qty}`, cls: 'rp-icon-s2' };
-      if (r.type === 'steezeL3') return { icon: '&#11088;', desc: `Steeze L3${r.title ? ' + "' + r.title + '"' : ''}`, cls: 'rp-icon-s3' };
-      if (r.type === 'board') return { icon: '&#9830;', desc: `Board Token x${r.qty}`, cls: 'rp-icon-board' };
-      if (r.type === 'title') return { icon: '&#127942;', desc: `Title: "${r.title}"`, cls: 'rp-icon-title' };
-      return { icon: '?', desc: '???', cls: '' };
-    };
-
-    this.ui.rpLevelList.innerHTML = rewards.map((r, i) => {
-      const lvl = i + 1;
-      const claimed = this.ridePass.isLevelClaimed(lvl);
-      const isCurrent = lvl === currentLevel + 1;
-      const locked = lvl > currentLevel && !claimed;
-      const info = rewardLabel(r);
-
-      let cls = 'rp-level-item';
-      if (claimed) cls += ' claimed';
-      else if (isCurrent) cls += ' current';
-      else if (locked) cls += ' locked';
-
-      return `<div class="${cls}">
-        <div class="rp-level-num">${lvl}</div>
-        <div class="rp-reward-icon ${info.cls}">${info.icon}</div>
-        <div class="rp-reward-desc">${info.desc}</div>
-        <div class="rp-claim-badge">&#10003;</div>
-      </div>`;
-    }).join('');
-
-    // Auto-scroll to current level area
-    const target = this.ui.rpLevelList.querySelector('.rp-level-item.current') ||
-                   this.ui.rpLevelList.querySelector('.rp-level-item.claimed:last-child');
-    if (target) {
-      setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
-    }
-  }
-
-  renderRidePassTitles() {
-    const titles = this.ridePass.getUnlockedTitles();
-    const selected = this.ridePass.getSelectedTitle();
-
-    if (titles.length === 0) {
-      this.ui.rpTitleSection.style.display = 'none';
-      return;
-    }
-
-    this.ui.rpTitleSection.style.display = 'block';
-    const noneSelected = selected === null;
-    let html = `<button class="rp-title-btn${noneSelected ? ' selected' : ''}" data-title="">NONE</button>`;
-    html += titles.map(t =>
-      `<button class="rp-title-btn${t === selected ? ' selected' : ''}" data-title="${t}">${t}</button>`
-    ).join('');
-
-    this.ui.rpTitleOptions.innerHTML = html;
-
-    this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const title = btn.dataset.title || null;
-        this.ridePass.selectTitle(title);
-        this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-      });
-    });
-  }
-
   // ---- ACCOUNT ----
 
   renderAccountPanel() {
@@ -3331,252 +2826,6 @@ export class Game {
         });
       });
     }
-  }
-
-  // ---- SHOP ----
-
-  openShopPanel() {
-    this.activeShopTab = 'jacket';
-    document.querySelectorAll('.shop-tab').forEach(t =>
-      t.classList.toggle('active', t.dataset.shopTab === 'jacket')
-    );
-    this.updateShopTokens();
-    this.renderShopItems('jacket');
-    this.ui.shopPanel.classList.add('active');
-  }
-
-  updateShopTokens() {
-    const tokens = this.ridePass.getTokens();
-    this.ui.shopS1Count.textContent = tokens.steezeL1;
-    this.ui.shopS2Count.textContent = tokens.steezeL2;
-    this.ui.shopS3Count.textContent = tokens.steezeL3;
-    this.ui.shopBoardCount.textContent = tokens.board;
-  }
-
-  renderShopItems(category) {
-    const container = this.ui.shopItemList;
-    const equipType = this.selectedEquipment;
-    let items = this.shop.getItemsByCategory(category, category === 'board' ? equipType : null);
-
-    // Sort: equipped first, then owned, then by tier (S3 > S2 > S1 > Board)
-    const tierOrder = { steezeL3: 0, steezeL2: 1, steezeL1: 2, board: 3 };
-    items = [...items].sort((a, b) => {
-      const aEquipped = this.shop.isEquipped(a.id) ? 0 : 1;
-      const bEquipped = this.shop.isEquipped(b.id) ? 0 : 1;
-      if (aEquipped !== bEquipped) return aEquipped - bEquipped;
-      const aOwned = this.shop.isOwned(a.id) ? 0 : 1;
-      const bOwned = this.shop.isOwned(b.id) ? 0 : 1;
-      if (aOwned !== bOwned) return aOwned - bOwned;
-      return (tierOrder[a.tier] || 9) - (tierOrder[b.tier] || 9);
-    });
-
-    container.innerHTML = items.map(item => {
-      const owned = this.shop.isOwned(item.id);
-      const equipped = this.shop.isEquipped(item.id);
-      const tokens = this.ridePass.getTokens();
-      const canAfford = (tokens[item.tier] || 0) >= item.cost;
-
-      let classes = 'shop-item';
-      if (equipped) classes += ' equipped';
-      else if (owned) classes += ' owned';
-      if (item.legendary) classes += ' legendary';
-
-      const colorHex = '#' + item.color.toString(16).padStart(6, '0');
-
-      // Stats HTML for boards
-      let statsHtml = '';
-      if (item.stats) {
-        statsHtml = `<div class="shop-stats">
-          <div class="shop-stat">SPD <div class="shop-stat-bar"><div class="shop-stat-fill speed" style="width:${item.stats.speed * 10}%"></div></div></div>
-          <div class="shop-stat">POP <div class="shop-stat-bar"><div class="shop-stat-fill pop" style="width:${item.stats.pop * 10}%"></div></div></div>
-          <div class="shop-stat">FLX <div class="shop-stat-bar"><div class="shop-stat-fill flex" style="width:${item.stats.flex * 10}%"></div></div></div>
-        </div>`;
-      }
-
-      // Style tag for boards
-      const styleTag = item.style ? `<div class="shop-item-style">${item.style}</div>` : '';
-
-      // Button
-      let btnHtml;
-      if (equipped) {
-        btnHtml = `<button class="shop-btn shop-btn-equipped">EQUIPPED</button>`;
-      } else if (owned) {
-        btnHtml = `<button class="shop-btn shop-btn-equip" data-shop-equip="${item.id}">EQUIP</button>`;
-      } else {
-        const disabledClass = canAfford ? '' : ' disabled';
-        const priceIcon = this.shop.getTierIcon(item.tier);
-        const tierClass = this.shop.getTierClass(item.tier);
-        btnHtml = `<span class="shop-price ${tierClass}">${priceIcon} ${item.cost}</span>
-          <button class="shop-btn shop-btn-buy${disabledClass}" data-shop-buy="${item.id}">BUY</button>`;
-      }
-
-      return `<div class="${classes}">
-        <div class="shop-color-swatch" style="background:${colorHex}"></div>
-        <div class="shop-item-info">
-          <div class="shop-item-brand">${item.brand}</div>
-          <div class="shop-item-name">${item.name}</div>
-          ${styleTag}
-          ${statsHtml}
-        </div>
-        ${btnHtml}
-      </div>`;
-    }).join('');
-
-    // Add board/ski sub-tabs for the board category
-    if (category === 'board') {
-      const subTabHtml = `<div style="display:flex;gap:6px;margin-bottom:8px;justify-content:center">
-        <button class="shop-btn ${equipType === 'snowboard' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="snowboard" style="font-size:12px;padding:4px 12px">SNOWBOARDS</button>
-        <button class="shop-btn ${equipType === 'ski' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="ski" style="font-size:12px;padding:4px 12px">SKIS</button>
-      </div>`;
-      container.insertAdjacentHTML('afterbegin', subTabHtml);
-    }
-
-    // Attach click handlers
-    container.querySelectorAll('[data-shop-buy]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.shopBuy;
-        this.handleShopPurchase(id);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.shopEquip;
-        this.handleShopEquip(id);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip-type]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Switch equipment type filter for board tab display only
-        const type = btn.dataset.shopEquipType;
-        this.renderShopItems('board');
-        // Re-render with correct equipment type would need the buttons to toggle selectedEquipment
-        // For now, filter the display
-        const items2 = this.shop.getItemsByCategory('board', type);
-        // Just re-render with the selected type
-        this._shopBoardFilter = type;
-        this.renderShopBoardsFiltered(type);
-      });
-    });
-  }
-
-  renderShopBoardsFiltered(equipType) {
-    const container = this.ui.shopItemList;
-    let items = this.shop.getItemsByCategory('board', equipType);
-
-    const tierOrder = { steezeL3: 0, steezeL2: 1, steezeL1: 2, board: 3 };
-    items = [...items].sort((a, b) => {
-      const aEquipped = this.shop.isEquipped(a.id) ? 0 : 1;
-      const bEquipped = this.shop.isEquipped(b.id) ? 0 : 1;
-      if (aEquipped !== bEquipped) return aEquipped - bEquipped;
-      const aOwned = this.shop.isOwned(a.id) ? 0 : 1;
-      const bOwned = this.shop.isOwned(b.id) ? 0 : 1;
-      if (aOwned !== bOwned) return aOwned - bOwned;
-      return (tierOrder[a.tier] || 9) - (tierOrder[b.tier] || 9);
-    });
-
-    const subTabHtml = `<div style="display:flex;gap:6px;margin-bottom:8px;justify-content:center">
-      <button class="shop-btn ${equipType === 'snowboard' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="snowboard" style="font-size:12px;padding:4px 12px">SNOWBOARDS</button>
-      <button class="shop-btn ${equipType === 'ski' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="ski" style="font-size:12px;padding:4px 12px">SKIS</button>
-    </div>`;
-
-    let itemsHtml = items.map(item => {
-      const owned = this.shop.isOwned(item.id);
-      const equipped = this.shop.isEquipped(item.id);
-      const tokens = this.ridePass.getTokens();
-      const canAfford = (tokens[item.tier] || 0) >= item.cost;
-
-      let classes = 'shop-item';
-      if (equipped) classes += ' equipped';
-      else if (owned) classes += ' owned';
-
-      const colorHex = '#' + item.color.toString(16).padStart(6, '0');
-
-      const statsHtml = `<div class="shop-stats">
-        <div class="shop-stat">SPD <div class="shop-stat-bar"><div class="shop-stat-fill speed" style="width:${item.stats.speed * 10}%"></div></div></div>
-        <div class="shop-stat">POP <div class="shop-stat-bar"><div class="shop-stat-fill pop" style="width:${item.stats.pop * 10}%"></div></div></div>
-        <div class="shop-stat">FLX <div class="shop-stat-bar"><div class="shop-stat-fill flex" style="width:${item.stats.flex * 10}%"></div></div></div>
-      </div>`;
-
-      const styleTag = item.style ? `<div class="shop-item-style">${item.style}</div>` : '';
-
-      let btnHtml;
-      if (equipped) {
-        btnHtml = `<button class="shop-btn shop-btn-equipped">EQUIPPED</button>`;
-      } else if (owned) {
-        btnHtml = `<button class="shop-btn shop-btn-equip" data-shop-equip="${item.id}">EQUIP</button>`;
-      } else {
-        const disabledClass = canAfford ? '' : ' disabled';
-        const priceIcon = this.shop.getTierIcon(item.tier);
-        const tierClass = this.shop.getTierClass(item.tier);
-        btnHtml = `<span class="shop-price ${tierClass}">${priceIcon} ${item.cost}</span>
-          <button class="shop-btn shop-btn-buy${disabledClass}" data-shop-buy="${item.id}">BUY</button>`;
-      }
-
-      return `<div class="${classes}">
-        <div class="shop-color-swatch" style="background:${colorHex}"></div>
-        <div class="shop-item-info">
-          <div class="shop-item-brand">${item.brand}</div>
-          <div class="shop-item-name">${item.name}</div>
-          ${styleTag}
-          ${statsHtml}
-        </div>
-        ${btnHtml}
-      </div>`;
-    }).join('');
-
-    container.innerHTML = subTabHtml + itemsHtml;
-
-    // Re-attach click handlers
-    container.querySelectorAll('[data-shop-buy]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.handleShopPurchase(btn.dataset.shopBuy);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.handleShopEquip(btn.dataset.shopEquip);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip-type]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.renderShopBoardsFiltered(btn.dataset.shopEquipType);
-      });
-    });
-  }
-
-  handleShopPurchase(itemId) {
-    const item = this.shop.getItem(itemId);
-    if (!item) return;
-
-    // Confirm legendary purchase
-    if (item.legendary) {
-      if (!confirm('This is your only Legendary token. Are you sure you want to buy this?')) return;
-    }
-
-    if (this.shop.purchase(itemId)) {
-      this.updateShopTokens();
-      this.renderShopItems(this.activeShopTab);
-    }
-  }
-
-  handleShopEquip(itemId) {
-    const item = this.shop.getItem(itemId);
-    if (!item) return;
-
-    // If already equipped, unequip
-    if (this.shop.isEquipped(itemId)) {
-      this.shop.unequip(item.category);
-    } else {
-      this.shop.equip(itemId);
-    }
-    this.applyEquippedItems();
-    this.renderShopItems(this.activeShopTab);
   }
 
   loadPlayerModel() {

@@ -2478,79 +2478,14 @@
   <div id="lobby-screen">
     <!-- Right side button stack -->
     <div class="lobby-btn-stack">
-      <div class="lobby-corner-btn" id="lobby-shop">SHOP</div>
       <div class="lobby-corner-btn" id="lobby-map">MAP</div>
-      <div class="lobby-corner-btn" id="lobby-quests">QUESTS</div>
-      <div class="lobby-corner-btn" id="lobby-ridepass">RIDE PASS</div>
-      <div class="lobby-corner-btn" id="lobby-scores">SCORES</div>
+      <div class="lobby-corner-btn" id="lobby-customize">CUSTOMIZE</div>
       <div class="lobby-corner-btn" id="lobby-account">ACCOUNT</div>
-      <button id="lobby-logout">LOG OUT</button>
-    </div>
-
-    <!-- Big party code banner (hidden until party created/joined) -->
-    <div id="party-code-banner" style="display:none">
-      <div class="party-code-label">PARTY CODE</div>
-      <div id="party-code-big">------</div>
     </div>
 
     <!-- Center: DROP IN -->
     <button id="lobby-drop-in">DROP IN</button>
     <div class="lobby-hint">ESC TO RETURN TO LOBBY AFTER CRASHING</div>
-
-    <!-- Bottom equipment / stance selector -->
-    <div id="lobby-equipment-bar">
-      <div class="equip-bar-row" id="equip-bar-main">
-        <button class="equip-bar-btn selected" data-equip-bar="snowboard">SNOWBOARD</button>
-        <button class="equip-bar-btn" data-equip-bar="ski">SKI</button>
-      </div>
-      <div class="equip-bar-row" id="equip-bar-stance">
-        <button class="equip-bar-btn selected" data-stance-bar="regular">REGULAR</button>
-        <button class="equip-bar-btn" data-stance-bar="goofy">GOOFY</button>
-      </div>
-    </div>
-
-    <!-- Party panel -->
-    <div id="party-panel">
-      <div id="party-join-view">
-        <h3>MULTIPLAYER</h3>
-        <button class="party-btn" id="party-create">CREATE PARTY</button>
-        <div class="party-divider">&mdash; OR &mdash;</div>
-        <div class="party-join-row">
-          <input id="party-join-input" type="text" maxlength="6" placeholder="CODE" autocomplete="off" spellcheck="false" />
-          <button class="party-btn" id="party-join-btn">JOIN</button>
-        </div>
-        <div id="party-error"></div>
-      </div>
-      <div id="party-active-view" style="display:none">
-        <h3>PARTY</h3>
-        <div class="party-code-row">
-          <span id="party-code">------</span>
-          <button class="party-btn" id="party-copy">COPY</button>
-        </div>
-        <div id="party-members"></div>
-        <button class="party-btn" id="party-start" style="display:none">START GAME</button>
-        <button class="party-btn" id="party-leave">LEAVE PARTY</button>
-      </div>
-    </div>
-
-    <!-- Shop panel (hidden until SHOP clicked) -->
-    <div id="shop-panel">
-      <h2>SHOP</h2>
-      <div class="shop-tokens-bar">
-        <span class="shop-token shop-token-s1"><span>&#9733;</span> <span id="shop-s1-count">0</span></span>
-        <span class="shop-token shop-token-s2"><span>&#9733;</span> <span id="shop-s2-count">0</span></span>
-        <span class="shop-token shop-token-s3"><span>&#9733;</span> <span id="shop-s3-count">0</span></span>
-        <span class="shop-token shop-token-board"><span>&#9830;</span> <span id="shop-board-count">0</span></span>
-      </div>
-      <div class="shop-tabs">
-        <div class="shop-tab active" data-shop-tab="jacket">JACKETS</div>
-        <div class="shop-tab" data-shop-tab="pants">PANTS</div>
-        <div class="shop-tab" data-shop-tab="helmet">HELMETS</div>
-        <div class="shop-tab" data-shop-tab="board">BOARDS</div>
-      </div>
-      <div id="shop-item-list"></div>
-      <button id="shop-back">BACK</button>
-    </div>
 
     <!-- Map panel (hidden until MAP clicked) -->
     <div id="map-panel">
@@ -2643,63 +2578,6 @@
       </div>
 
       <button id="map-back">BACK</button>
-    </div>
-
-    <!-- Ride Pass panel (hidden until RIDE PASS clicked) -->
-    <div id="ridepass-panel">
-      <h2>RIDE PASS</h2>
-      <div class="rp-tokens-bar">
-        <span class="rp-token rp-token-s1"><span class="rp-token-icon">&#9733;</span> <span id="rp-s1-count">0</span></span>
-        <span class="rp-token rp-token-s2"><span class="rp-token-icon">&#9733;</span> <span id="rp-s2-count">0</span></span>
-        <span class="rp-token rp-token-board"><span class="rp-token-icon">&#9830;</span> <span id="rp-board-count">0</span></span>
-      </div>
-      <div class="rp-level-bar">
-        <span class="rp-level-label" id="rp-level-label">LEVEL 0</span>
-        <div class="rp-progress-track">
-          <div class="rp-progress-fill" id="rp-progress-fill"></div>
-        </div>
-        <span class="rp-xp-label" id="rp-xp-label">0 / 100 XP</span>
-      </div>
-      <div id="rp-level-list" class="rp-level-list"></div>
-      <div id="rp-title-section" class="rp-title-section" style="display:none">
-        <div class="rp-title-heading">EQUIPPED TITLE</div>
-        <div id="rp-title-options" class="rp-title-options"></div>
-      </div>
-      <button id="ridepass-back">BACK</button>
-    </div>
-
-    <!-- Quests panel (hidden until QUESTS clicked) -->
-    <div id="quests-panel">
-      <h2>QUESTS</h2>
-      <div class="quest-tabs">
-        <button class="quest-tab active" data-tab="daily">DAILY</button>
-        <button class="quest-tab" data-tab="season">SEASON</button>
-      </div>
-      <div id="quest-season-timer" class="quest-season-timer" style="display:none">RESETS IN <span id="quest-timer-value">--</span></div>
-      <div class="quest-xp-bar">
-        <span id="quest-xp-label">0 XP</span>
-      </div>
-      <div id="quest-list" class="quest-list"></div>
-      <button id="quests-back">BACK</button>
-    </div>
-
-    <!-- Scores panel (hidden until SCORES clicked) -->
-    <div id="scores-panel">
-      <h2>LEADERBOARDS</h2>
-      <div class="scores-tabs">
-        <button class="scores-tab active" data-scores-tab="big-white">BIG WHITE</button>
-        <button class="scores-tab" data-scores-tab="woodward">WOODWARD</button>
-        <button class="scores-tab" data-scores-tab="xgames">X-GAMES</button>
-        <button class="scores-tab" data-scores-tab="biggie">BIGGIE</button>
-        <button class="scores-tab" data-scores-tab="summit">SUMMIT</button>
-        <button class="scores-tab" data-scores-tab="peak">PEAK</button>
-        <button class="scores-tab" data-scores-tab="moonlight">MOONLIGHT</button>
-      </div>
-      <div class="scores-label">ALL TIME — WORLDWIDE</div>
-      <div id="scores-list" class="scores-list"></div>
-      <div id="scores-loading" class="lb-loading">LOADING...</div>
-      <div id="scores-error" class="lb-error" style="display:none"></div>
-      <button id="scores-back">BACK</button>
     </div>
 
     <!-- Customize panel (hidden until CUSTOMIZE clicked) -->
