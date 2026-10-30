@@ -5,7 +5,7 @@ import { TrickSystem } from './TrickSystem.js';
 import { InputManager, isTouchDevice } from './InputManager.js';
 import { TouchControls } from './TouchControls.js';
 import { SnowParticles } from './Particles.js';
-import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, getFirebaseAuth, createAccount, loginAccount, logoutAccount, resetPassword, onAuthChange, cloudSaveProgress, cloudLoadProgress, submitSummitScore, fetchSummitScores } from './firebase.js';
+import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, createAccount, loginAccount, logoutAccount, resetPassword, onAuthChange, cloudSaveProgress, cloudLoadProgress, submitSummitScore, fetchSummitScores } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
 import { QuestSystem } from './QuestSystem.js';
 import { ShopSystem } from './ShopSystem.js';
@@ -39,15 +39,11 @@ export class Game {
     this.parkTerrain = this.terrain; // keep reference to default park terrain
     this.gameMode = 'park';          // 'park' | 'backcountry'
     this.backcountryChair = null;    // 'peak', 'oldgrowth'
-    this.auroraIntensity = 0;        // 0=dark moonlit, 1=full aurora
-    this.auroraActive = false;       // true when playing Moonlight Ridge
-    this.auroraMultiplier = 1.0;     // score multiplier from aurora (1.0–7.5)
-    this.auroraMesh = null;          // sky aurora visual
     this.nightMode = false;          // true when local clock says night
     this.nightBlend = 0;             // 0=day, 1=full night (for dawn/dusk lerp)
     this.starField = null;           // night sky stars (backcountry only)
     this.daynightPref = localStorage.getItem('shred-daynight') || 'auto'; // 'auto' | 'day' | 'night'
-    this.parkId = 'big-white';       // 'big-white', 'woodward', 'xgames', 'slopestyle'
+    this.parkId = 'big-white';       // 'big-white', 'xgames', 'slopestyle'
     this.selectedEquipment = 'snowboard';
     this.selectedStance = 'regular';
     this.player = new Player(this.scene, this.selectedEquipment);
@@ -109,7 +105,6 @@ export class Game {
     this.ui = {
       score: document.getElementById('score-display'),
       combo: document.getElementById('combo-display'),
-      auroraMultiplier: document.getElementById('aurora-multiplier'),
       landingAnnounce: document.getElementById('landing-announce'),
       stompedLabel: document.getElementById('stomped-label'),
       trickName: document.getElementById('trick-name'),
@@ -504,144 +499,6 @@ export class Game {
     this.scene.add(this.rimLight);
   }
 
-  createAuroraMesh() {
-    if (this.auroraMesh) {
-      this.scene.remove(this.auroraMesh);
-      this.auroraMesh.geometry.dispose();
-      this.auroraMesh.material.dispose();
-      this.auroraMesh = null;
-    }
-
-    const vertexShader = `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      uniform float uTime;
-      uniform float uIntensity;
-      varying vec2 vUv;
-
-      // Hash for pseudo-random per-ray variation
-      float hash(float n) { return fract(sin(n) * 43758.5453); }
-
-      void main() {
-        float x = vUv.x;
-        float y = vUv.y;
-
-        // === VERTICAL RAYS — the dominant aurora feature ===
-        // Many individual rays fanning upward from the horizon
-        float rays = 0.0;
-        vec3 rayColor = vec3(0.0);
-
-        for (int i = 0; i < 18; i++) {
-          float fi = float(i);
-          // Each ray has a unique horizontal position that drifts slowly
-          float rayX = hash(fi * 7.3) + sin(uTime * 0.12 + fi * 1.7) * 0.06;
-          // Ray width varies — some thin, some wider
-          float rayW = 0.008 + hash(fi * 3.1) * 0.018;
-          // Distance from ray center
-          float dx = abs(x - rayX);
-          // Soft gaussian-ish falloff
-          float rayStrength = exp(-dx * dx / (rayW * rayW));
-
-          // Each ray has slightly different vertical extent
-          float rayTop = 0.5 + hash(fi * 11.0) * 0.45;
-          float rayBottom = 0.0;
-          // Rays brighten at base, fade at top
-          float vertFade = smoothstep(rayBottom, rayBottom + 0.08, y)
-                         * smoothstep(rayTop, rayTop * 0.5, y);
-          // Slow pulsing per-ray
-          float pulse = 0.6 + 0.4 * sin(uTime * (0.3 + hash(fi * 5.0) * 0.4) + fi * 2.0);
-
-          rayStrength *= vertFade * pulse;
-
-          // Color per ray: mostly vivid green, some teal, rare purple
-          vec3 rc;
-          float colorSeed = hash(fi * 13.0);
-          if (colorSeed < 0.55) {
-            rc = vec3(0.08, 1.0, 0.35);    // vivid green (dominant)
-          } else if (colorSeed < 0.75) {
-            rc = vec3(0.05, 0.9, 0.55);    // green-teal
-          } else if (colorSeed < 0.88) {
-            rc = vec3(0.12, 0.7, 0.85);    // cyan-teal
-          } else {
-            rc = vec3(0.45, 0.1, 0.75);    // purple accent
-          }
-
-          rayColor += rc * rayStrength;
-          rays += rayStrength;
-        }
-
-        // === BACKGROUND GLOW — soft diffuse aurora wash behind the rays ===
-        float drift = sin(x * 2.5 + uTime * 0.2) * 0.06
-                    + sin(x * 5.0 - uTime * 0.3) * 0.03;
-        float glow1 = exp(-(y - 0.25 + drift) * (y - 0.25 + drift) / 0.04) * 0.4;
-        float glow2 = exp(-(y - 0.45 - drift * 0.7) * (y - 0.45 - drift * 0.7) / 0.06) * 0.3;
-        vec3 glowColor = vec3(0.06, 0.6, 0.3) * glow1 + vec3(0.04, 0.45, 0.5) * glow2;
-
-        // Combine rays + glow — rays are bright and dominant
-        vec3 col = rayColor * 2.8 + glowColor * 1.5;
-
-        // Vertical fade: transparent at very bottom, gentle fade at top
-        float vFade = smoothstep(0.0, 0.05, y) * smoothstep(1.0, 0.7, y);
-
-        // Horizontal fade at edges
-        float hFade = smoothstep(0.0, 0.06, x) * smoothstep(1.0, 0.94, x);
-
-        float alpha = (length(rayColor) * 0.8 + length(glowColor) * 0.3) * vFade * hFade * uIntensity;
-        col *= uIntensity;
-
-        gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uIntensity: { value: 0 },
-      },
-      vertexShader,
-      fragmentShader,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
-    // Curved sky dome — centered in front of player, just above horizon
-    const geo = new THREE.PlaneGeometry(1000, 250, 64, 32);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      // Curve into a wide dome arc centered ahead of the player
-      const angle = (x / 1000) * Math.PI * 1.2; // ~216 degree arc for wide coverage
-      const radius = 450;
-      pos.setX(i, Math.sin(angle) * radius);
-      pos.setZ(i, -Math.cos(angle) * radius - 100); // push forward in front of player
-      pos.setY(i, y + 10); // sit right at horizon line
-    }
-    pos.needsUpdate = true;
-    geo.computeVertexNormals();
-
-    this.auroraMesh = new THREE.Mesh(geo, material);
-    this.auroraMesh.renderOrder = -1; // render behind everything
-    this.auroraMesh.frustumCulled = false;
-    this.scene.add(this.auroraMesh);
-  }
-
-  disposeAuroraMesh() {
-    if (this.auroraMesh) {
-      this.scene.remove(this.auroraMesh);
-      this.auroraMesh.geometry.dispose();
-      this.auroraMesh.material.dispose();
-      this.auroraMesh = null;
-    }
-  }
-
   // ===== DAY/NIGHT CYCLE =====
 
   getTimeOfDay() {
@@ -685,7 +542,7 @@ export class Game {
       this.rimLight.intensity = 0.3 - t * 0.1;
       this.renderer.toneMappingExposure = 1.1 - t * 0.15;
     } else {
-      // Backcountry night (non-moonlight): dark sky for bright stars, terrain still readable
+      // Backcountry night: dark sky for bright stars, terrain still readable
       const bg = new THREE.Color(0x8aafc4).lerp(new THREE.Color(0x080c18), t);
       this.scene.background.copy(bg);
       const fogC = new THREE.Color(0xbccfe0).lerp(new THREE.Color(0x1a2230), t);
@@ -707,7 +564,7 @@ export class Game {
   createStarField() {
     if (this.starField) return;
 
-    // Curved sky dome with star shader — same approach as aurora mesh
+    // Curved sky dome with star shader
     const vertexShader = `
       varying vec2 vUv;
       void main() {
@@ -848,7 +705,7 @@ export class Game {
       side: THREE.DoubleSide,
     });
 
-    // Curved sky dome — same geometry approach as aurora mesh
+    // Curved sky dome
     const geo = new THREE.PlaneGeometry(1000, 250, 64, 32);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -1319,18 +1176,6 @@ export class Game {
       this.terrain.dispose();
     }
 
-    // Reset atmosphere from previous mode
-    if (this.auroraActive) {
-      this.auroraActive = false;
-      this.auroraIntensity = 0;
-      this.auroraMultiplier = 1.0;
-      this.disposeAuroraMesh();
-      if (this.auroraSnowLight) {
-        this.scene.remove(this.auroraSnowLight.target);
-        this.scene.remove(this.auroraSnowLight);
-        this.auroraSnowLight = null;
-      }
-    }
     this.disposeStarField();
     this.disposeShootingStars();
 
@@ -1349,36 +1194,11 @@ export class Game {
     this.rimLight.intensity = 0.3;
     this.renderer.toneMappingExposure = 1.1;
 
-    // Determine if night mode applies (moonlight always has its own night)
-    const useNight = this.nightMode && this.backcountryChair !== 'moonlight';
+    const useNight = this.nightMode;
 
     if (this.gameMode === 'backcountry') {
       console.log('[swapTerrain] Creating BackcountryTerrain, night:', useNight);
       this.terrain = new BackcountryTerrain(this.scene, this.backcountryChair, useNight);
-
-      // Chair-specific atmosphere
-      if (this.backcountryChair === 'moonlight') {
-        // Moonlight always night with aurora — unaffected by clock
-        this.auroraActive = true;
-        this.auroraIntensity = 0;
-        this.auroraMultiplier = 1.0;
-        this.scene.background = new THREE.Color(0x0a0e1a);
-        this.scene.fog.color.set(0x0a0e1a);
-        this.scene.fog.density = 0.012;
-        this.sun.intensity = 0.35;
-        this.sun.color.set(0x99aadd);
-        this.sun.position.set(-20, 60, 10);
-        this.createAuroraMesh();
-        if (!this.shootingStarPool) this.initShootingStars();
-
-        // Aurora light that casts green/teal glow onto the snow
-        if (!this.auroraSnowLight) {
-          this.auroraSnowLight = new THREE.DirectionalLight(0x30cc80, 0);
-          this.auroraSnowLight.target = new THREE.Object3D();
-          this.scene.add(this.auroraSnowLight);
-          this.scene.add(this.auroraSnowLight.target);
-        }
-      }
     } else {
       console.log('[swapTerrain] Creating Park Terrain, parkId:', this.parkId, 'night:', useNight);
       const seed = this.multiplayer.active ? this.multiplayer.terrainSeed : null;
@@ -1386,7 +1206,7 @@ export class Game {
       this.parkTerrain = this.terrain;
     }
 
-    // Apply night atmosphere (non-moonlight only)
+    // Apply night atmosphere
     if (useNight) {
       this.applyNightAtmosphere();
     }
@@ -2029,69 +1849,6 @@ export class Game {
         this.multiplayer.updateRemotePlayers(dt, this.camera);
       }
 
-      // Aurora system — Moonlight Ridge
-      if (this.auroraActive && this.terrain.config.aurora) {
-        const acfg = this.terrain.config.aurora;
-        // Trick landing triggers brightness flare + multiplier bump
-        const timeSinceLastTrick = performance.now() - trickState.lastTrickTime;
-        if (trickState.lastTrickTime > 0 && timeSinceLastTrick < 200) {
-          this.auroraIntensity = Math.min(acfg.maxBrightness,
-            this.auroraIntensity + acfg.flareRate * dt * 5);
-          // Bump multiplier on trick landing (detected once per trick)
-          if (!this._lastAuroraTrickTime || this._lastAuroraTrickTime !== trickState.lastTrickTime) {
-            this._lastAuroraTrickTime = trickState.lastTrickTime;
-            this.auroraMultiplier = Math.min(7.5, this.auroraMultiplier + 0.5);
-          }
-        }
-        // Decay intensity over time without tricks
-        this.auroraIntensity = Math.max(0, this.auroraIntensity - acfg.decayRate * dt);
-        // Decay multiplier slowly when not tricking
-        if (this.auroraMultiplier > 1.0 && timeSinceLastTrick > 3000) {
-          this.auroraMultiplier = Math.max(1.0, this.auroraMultiplier - 0.3 * dt);
-        }
-        // Feed multiplier to trick system
-        this.tricks.auroraMultiplier = this.auroraMultiplier;
-
-        // Apply to scene atmosphere
-        const t = this.auroraIntensity;
-        this.scene.fog.density = acfg.baseFogDensity + (acfg.litFogDensity - acfg.baseFogDensity) * t;
-        this.sun.intensity = acfg.baseAmbient + (acfg.litAmbient - acfg.baseAmbient) * t;
-        // Dark sky that shifts green with aurora — keeps contrast with bright rays
-        const r = 0.02 + t * 0.01;
-        const g = 0.04 + t * 0.08;
-        const b = 0.08 + t * 0.04;
-        this.scene.background.setRGB(r, g, b);
-        this.scene.fog.color.setRGB(r, g, b);
-
-        // Update aurora sky visual
-        if (this.auroraMesh) {
-          this.auroraMesh.material.uniforms.uTime.value += dt;
-          this.auroraMesh.material.uniforms.uIntensity.value = t;
-          // Follow player position so aurora stays overhead
-          this.auroraMesh.position.x = this.player.position.x;
-          this.auroraMesh.position.y = this.player.position.y;
-          this.auroraMesh.position.z = this.player.position.z - 50;
-        }
-
-        // Aurora casts green/teal light onto snow
-        if (this.auroraSnowLight) {
-          this.auroraSnowLight.intensity = t * 0.7;
-          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.001 * 0.4);
-          // Shift between green and teal
-          this.auroraSnowLight.color.setRGB(
-            0.08 + pulse * 0.05,
-            0.55 + pulse * 0.15,
-            0.35 + (1 - pulse) * 0.2
-          );
-          this.auroraSnowLight.position.set(
-            this.player.position.x,
-            this.player.position.y + 80,
-            this.player.position.z - 20
-          );
-          this.auroraSnowLight.target.position.copy(this.player.position);
-        }
-      }
-
       // Star field follows player (backcountry night)
       if (this.starField) {
         this.starField.position.x = this.player.position.x;
@@ -2110,7 +1867,7 @@ export class Game {
       }
 
       // Shooting stars when airborne above 30ft at night
-      if (this.nightMode || this.backcountryChair === 'moonlight') {
+      if (this.nightMode) {
         this.updateShootingStars(dt, playerState.jumpHeightFeet || 0);
       }
 
@@ -2415,9 +2172,6 @@ export class Game {
     this.quests.onRunStart();
     this.tricks.comboMultiplier = 1;
     this.tricks.comboTimer = 0;
-    this.tricks.auroraMultiplier = 1.0;
-    this.auroraMultiplier = 1.0;
-    this._lastAuroraTrickTime = 0;
 
     // Ensure backcountry mode flag stays in sync
     this.player.backcountryMode = this.gameMode === 'backcountry';
@@ -3150,17 +2904,6 @@ export class Game {
       this.ui.combo.textContent = `${trickState.combo.toFixed(1)}x COMBO`;
     } else {
       this.ui.combo.style.opacity = '0';
-    }
-
-    // Aurora multiplier (Moonlight Ridge)
-    if (this.auroraActive && this.auroraMultiplier > 1.0) {
-      this.ui.auroraMultiplier.style.opacity = '1';
-      this.ui.auroraMultiplier.textContent = `AURORA ${this.auroraMultiplier.toFixed(1)}x`;
-      // Glow intensity scales with multiplier
-      const glow = Math.min((this.auroraMultiplier - 1) / 6.5, 1);
-      this.ui.auroraMultiplier.style.filter = `drop-shadow(0 2px ${8 + glow * 16}px rgba(100, 255, 160, ${0.3 + glow * 0.5}))`;
-    } else {
-      this.ui.auroraMultiplier.style.opacity = '0';
     }
 
     // Jump height (show while airborne)

@@ -102,8 +102,8 @@ export class Player {
     this.daveWaypoints = [];     // escape path waypoints
     this.daveWaypointIndex = 0;
 
-    // Surface type (Alpine Meadow / Moonlight Ridge)
-    this.surfaceType = 'snow'; // 'snow', 'grass', 'mud', 'creek', 'ice'
+    // Surface type (ice on frozen creeks)
+    this.surfaceType = 'snow'; // 'snow', 'ice'
 
     // Capsule hitbox: center = position, radius, half-height
     this.capsuleRadius = 0.4;
@@ -1109,7 +1109,7 @@ export class Player {
 
     // ===== SURFACE TYPE QUERY =====
     if (this.grounded && terrain.config && terrain.config.frozenCreeks) {
-      // Moonlight Ridge: check frozen creeks first for ice physics
+      // Frozen creeks give ice physics
       let onIce = false;
       for (const fc of terrain.config.frozenCreeks) {
         if (this.position.z < fc.startZ && this.position.z > fc.endZ) {
@@ -1123,8 +1123,6 @@ export class Player {
         }
       }
       this.surfaceType = onIce ? 'ice' : 'snow';
-    } else if (this.grounded && terrain.getSurfaceType) {
-      this.surfaceType = terrain.getSurfaceType(this.position.x, this.position.z);
     } else if (!this.grounded) {
       // Keep last surface type while airborne (for particle effects)
     } else {
@@ -1393,13 +1391,7 @@ export class Player {
         this.turnRate *= 0.90;
       } else {
         let baseFriction = this.isTucking ? 0.998 : 0.995;
-        if (this.surfaceType === 'grass') {
-          baseFriction = this.isTucking ? 0.985 : 0.975;
-        } else if (this.surfaceType === 'mud') {
-          baseFriction = 0.92;
-        } else if (this.surfaceType === 'creek') {
-          baseFriction = 0.88;
-        } else if (this.surfaceType === 'ice') {
+        if (this.surfaceType === 'ice') {
           baseFriction = this.isTucking ? 0.999 : 0.998;
           this.turnRate *= 0.7; // harder to turn on ice
         }

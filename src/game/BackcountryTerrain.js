@@ -455,9 +455,6 @@ export class BackcountryTerrain {
     this.poleMaterial = new THREE.MeshStandardMaterial({
       color: 0xff6600, roughness: 0.6,
     });
-    this.exposedRockMaterial = new THREE.MeshStandardMaterial({
-      color: 0x6a5a48, roughness: 0.85, flatShading: true,
-    });
     // Old Growth Glades materials
     this.logMaterial = new THREE.MeshStandardMaterial({
       color: 0x4a3520, roughness: 1.0, flatShading: true,
@@ -465,27 +462,14 @@ export class BackcountryTerrain {
     this.mossyTrunkMaterial = new THREE.MeshStandardMaterial({
       color: 0x2d1f0f, roughness: 1.0,
     });
-    this.dirtMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5a3e2b, roughness: 0.95, flatShading: true,
-    });
-    // Moonlight Ridge materials
+    // Frozen creek material
     this.frozenIceMaterial = new THREE.MeshStandardMaterial({
       color: 0x6699cc, roughness: 0.1, metalness: 0.15,
       transparent: true, opacity: 0.75,
     });
-    // Dead tree materials for Moonlight Ridge
-    this.birchBarkMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd0c8b8, roughness: 0.85, flatShading: true, // pale white bark
-    });
-    this.deadOakMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3a2a1a, roughness: 1.0, flatShading: true, // dark gnarly bark
-    });
-    this.snagMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a2220, roughness: 1.0, flatShading: true, // charred/weathered
-    });
 
-    // Night mode: slight blue tint for non-moonlight backcountry chairs
-    if (nightMode && chairId !== 'moonlight') {
+    // Night mode: slight blue tint
+    if (nightMode) {
       this.snowMaterial.color.set(0xb8c8dd);
       this.rockMaterial.color.set(0x506070);
       this.treeMaterial.color.set(0x122812);
@@ -494,8 +478,6 @@ export class BackcountryTerrain {
 
     // River zones — populated during chunk generation for collision detection
     this.riverZones = [];
-    // Creek zones (Alpine Meadow)
-    this.creekZones = [];
 
     // Lazy chunk generation — keep generateRadius chunks around the player
     this.generateRadius = this.config.generateRadius || 3;
@@ -532,15 +514,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Populate creekZones from config
-    if (this.config.creeks) {
-      for (const creek of this.config.creeks) {
-        this.creekZones.push({
-          z: creek.z, xCenter: creek.xCenter,
-          halfWidth: creek.width / 2, halfSpan: creek.xSpan / 2,
-        });
-      }
-    }
   }
 
   // ---- VARIABLE SLOPE ----
@@ -647,50 +620,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Scattered cliff ledges — small droppable faces at various positions
-    if (cfg.ledges) {
-      for (const ledge of cfg.ledges) {
-        const dx = x - ledge.x;
-        const dz = globalZ - ledge.z;
-        const halfW = ledge.w / 2;
-        // Only affect terrain within the ledge's width band
-        if (Math.abs(dx) < halfW && dz < 0 && dz > -8) {
-          const xFade = 1 - Math.pow(Math.abs(dx) / halfW, 2); // smooth fade at edges
-          const zProgress = -dz / 8;
-          const dropFactor = 1 / (1 + Math.exp(-10 * (zProgress - 0.5)));
-          height -= ledge.drop * dropFactor * xFade;
-        } else if (Math.abs(dx) < halfW && dz <= -8) {
-          const xFade = 1 - Math.pow(Math.abs(dx) / halfW, 2);
-          height -= ledge.drop * xFade;
-        }
-      }
-    }
-
-    // Sub-bowls — concave pockets within the main bowl
-    if (cfg.subBowls) {
-      for (const sb of cfg.subBowls) {
-        const dx = x - sb.x;
-        const dz = globalZ - sb.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < sb.radius) {
-          const t = 1 - dist / sb.radius;
-          // Smooth parabolic depression
-          height -= sb.depth * t * t;
-        }
-      }
-    }
-
-    // Pillow field — rounded snow mounds at two scales
-    if (cfg.pillowField) {
-      const pf = cfg.pillowField;
-      const p1 = Math.sin(x * pf.frequency) * Math.cos(globalZ * pf.frequency * 1.3);
-      const p2 = Math.cos(x * pf.frequency * 0.7 + 1.5) * Math.sin(globalZ * pf.frequency * 0.9 + 0.8);
-      const pillow = Math.max(0, (p1 + p2) * 0.5) * pf.strength;
-      const s1 = Math.sin(x * pf.secondaryFreq + 2.3) * Math.cos(globalZ * pf.secondaryFreq * 1.1 + 1.1);
-      const secondary = (s1 * 0.5 + 0.5) * pf.secondaryStrength;
-      height += pillow + secondary;
-    }
-
     // Partial-width cliffs — only affect part of the terrain width
     if (cfg.partialCliffs) {
       for (const cliff of cfg.partialCliffs) {
@@ -754,23 +683,7 @@ export class BackcountryTerrain {
       }
     }
 
-    // Creek crossings — shallow V-channel depressions (Alpine Meadow)
-    if (cfg.creeks) {
-      for (const creek of cfg.creeks) {
-        const dz = globalZ - creek.z;
-        const halfW = creek.width / 2;
-        if (Math.abs(dz) < halfW) {
-          const dx = Math.abs(x - creek.xCenter);
-          if (dx < creek.xSpan / 2) {
-            const xFade = Math.max(0, 1 - dx / (creek.xSpan / 2));
-            const vShape = 1 - Math.abs(dz) / halfW;
-            height -= 2.5 * vShape * xFade;
-          }
-        }
-      }
-    }
-
-    // Mogul fields — slushy bump runs (Alpine Meadow)
+    // Mogul fields — slushy bump runs
     if (cfg.mogulFields) {
       for (const mf of cfg.mogulFields) {
         if (globalZ < mf.zStart && globalZ > mf.zEnd) {
@@ -785,31 +698,7 @@ export class BackcountryTerrain {
       }
     }
 
-    // Rock drops — exposed rock outcrops with clean landings (Alpine Meadow)
-    if (cfg.rockDrops) {
-      for (const rd of cfg.rockDrops) {
-        const cliffEnd = rd.z - rd.drop * 0.5;
-        if (globalZ < rd.z && globalZ > cliffEnd) {
-          const dx = Math.abs(x - rd.x);
-          const halfW = rd.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const progress = (rd.z - globalZ) / (rd.z - cliffEnd);
-            const dropFactor = 1 / (1 + Math.exp(-25 * (progress - 0.5)));
-            height -= rd.drop * dropFactor * xFade;
-          }
-        } else if (globalZ <= cliffEnd) {
-          const dx = Math.abs(x - rd.x);
-          const halfW = rd.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) height -= rd.drop * xFade;
-        }
-      }
-    }
-
-    // Frozen creek beds — U-shaped halfpipe channels (Moonlight Ridge)
+    // Frozen creek beds — U-shaped halfpipe channels
     if (cfg.frozenCreeks) {
       for (const fc of cfg.frozenCreeks) {
         if (globalZ < fc.startZ && globalZ > fc.endZ) {
@@ -905,54 +794,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Sastrugi fields — wavy wind-carved snow ridges (Moonlight Ridge)
-    if (cfg.sastrugiFields) {
-      for (const sf of cfg.sastrugiFields) {
-        if (globalZ < sf.zStart && globalZ > sf.zEnd) {
-          const dx = Math.abs(x - sf.xCenter);
-          if (dx < sf.xWidth / 2) {
-            const xFade = 1 - Math.pow(dx / (sf.xWidth / 2), 2);
-            const wave = Math.sin((globalZ + x * 0.3) * sf.frequency * Math.PI) * sf.amplitude;
-            height += Math.abs(wave) * xFade;
-          }
-        }
-      }
-    }
-
-    // Cornices — overhanging snow lips with big drops (Moonlight Ridge)
-    if (cfg.cornices) {
-      for (const corn of cfg.cornices) {
-        const dropEnd = corn.z - corn.drop * 0.6;
-        const lipRegion = corn.z + 4;
-        if (globalZ < lipRegion && globalZ > corn.z) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const lipT = (lipRegion - globalZ) / 4;
-            height += 2.5 * Math.sin(lipT * Math.PI * 0.5) * xFade;
-          }
-        } else if (globalZ <= corn.z && globalZ > dropEnd) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const progress = (corn.z - globalZ) / (corn.z - dropEnd);
-            const dropFactor = 1 / (1 + Math.exp(-25 * (progress - 0.5)));
-            height -= corn.drop * dropFactor * xFade;
-          }
-        } else if (globalZ <= dropEnd) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) height -= corn.drop * xFade;
-        }
-      }
-    }
-
     // Runout zone — flatten at the bottom
     const totalLength = cfg.totalChunks * cfg.chunkLength;
     const runoutStart = -(totalLength - 400);
@@ -987,34 +828,6 @@ export class BackcountryTerrain {
     return normal;
   }
 
-  // ---- SURFACE TYPE ----
-  getSurfaceType(x, globalZ) {
-    const cfg = this.config;
-    if (!cfg.surfaceMap) return 'snow';
-
-    // Check creeks first (highest priority)
-    if (cfg.creeks) {
-      for (const creek of cfg.creeks) {
-        if (Math.abs(globalZ - creek.z) < creek.width / 2 &&
-            Math.abs(x - creek.xCenter) < creek.xSpan / 2) {
-          return 'creek';
-        }
-      }
-    }
-
-    // Deterministic surface from noise
-    const sm = cfg.surfaceMap;
-    const snowNoise = Math.sin(x * sm.snowFreqX + 1.3) * Math.cos(globalZ * sm.snowFreqZ + 0.7)
-                    + Math.sin(x * sm.snowFreqX * 2.1 + 3.0) * Math.cos(globalZ * sm.snowFreqZ * 1.5 + 1.2) * 0.5;
-
-    if (snowNoise > sm.snowThreshold) return 'snow';
-
-    const mudNoise = Math.sin(x * sm.mudFreqX + 2.1) * Math.cos(globalZ * sm.mudFreqZ + 0.4);
-    if (mudNoise > sm.mudThreshold) return 'mud';
-
-    return 'grass';
-  }
-
   // ---- CHUNK GENERATION ----
   generateChunk() {
     const zOffset = -this.chunksGenerated * this.chunkLength;
@@ -1047,18 +860,6 @@ export class BackcountryTerrain {
       colors[i * 3] = base - shadowTint * 1.5;
       colors[i * 3 + 1] = base - shadowTint * 0.5;
       colors[i * 3 + 2] = base + shadowTint;
-
-      // Pillow highlights — slightly brighter on mound tops
-      if (cfg.pillowField) {
-        const pf = cfg.pillowField;
-        const p1 = Math.sin(x * pf.frequency) * Math.cos(globalZ * pf.frequency * 1.3);
-        const p2 = Math.cos(x * pf.frequency * 0.7 + 1.5) * Math.sin(globalZ * pf.frequency * 0.9 + 0.8);
-        const pillowIntensity = Math.max(0, (p1 + p2) * 0.5);
-        const brighten = pillowIntensity * 0.04;
-        colors[i * 3] = Math.min(1, colors[i * 3] + brighten);
-        colors[i * 3 + 1] = Math.min(1, colors[i * 3 + 1] + brighten);
-        colors[i * 3 + 2] = Math.min(1, colors[i * 3 + 2] + brighten * 0.5);
-      }
 
       // Full-width cliff faces get dark rock color
       for (const cliff of (cfg.cliffs || [])) {
@@ -1123,97 +924,6 @@ export class BackcountryTerrain {
             colors[i * 3] = colors[i * 3] * (1 - iceBlend) + 0.53 * iceBlend;
             colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - iceBlend) + 0.80 * iceBlend;
             colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - iceBlend) + 0.93 * iceBlend;
-          }
-        }
-      }
-
-      // Surface colors (Alpine Meadow)
-      if (cfg.surfaceMap) {
-        const surfaceType = this.getSurfaceType(x, globalZ);
-        if (surfaceType === 'grass') {
-          colors[i * 3]     = 0.35 + Math.sin(x * 0.1 + globalZ * 0.08) * 0.05;
-          colors[i * 3 + 1] = 0.55 + Math.sin(x * 0.07 + globalZ * 0.06) * 0.08;
-          colors[i * 3 + 2] = 0.20 + Math.sin(x * 0.12 + globalZ * 0.09) * 0.03;
-        } else if (surfaceType === 'mud') {
-          colors[i * 3]     = 0.35;
-          colors[i * 3 + 1] = 0.25;
-          colors[i * 3 + 2] = 0.15;
-        } else if (surfaceType === 'creek') {
-          colors[i * 3]     = 0.30;
-          colors[i * 3 + 1] = 0.55;
-          colors[i * 3 + 2] = 0.75;
-        }
-      }
-
-      // Rock drop faces — brownish exposed rock
-      if (cfg.rockDrops) {
-        for (const rd of cfg.rockDrops) {
-          const cliffEnd = rd.z - rd.drop * 0.5;
-          if (globalZ < rd.z && globalZ > cliffEnd) {
-            const progress = (rd.z - globalZ) / (rd.z - cliffEnd);
-            if (progress > 0.2 && progress < 0.8) {
-              const dx = Math.abs(x - rd.x);
-              const halfW = rd.width / 2;
-              let xFade = 1;
-              if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-              if (xFade > 0.1) {
-                const rb = 0.8 * xFade;
-                colors[i * 3]     = colors[i * 3] * (1 - rb) + 0.42 * rb;
-                colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - rb) + 0.35 * rb;
-                colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - rb) + 0.28 * rb;
-              }
-            }
-          }
-        }
-      }
-
-      // Moonlight Ridge — bright moonlit snow palette
-      if (this.chairId === 'moonlight') {
-        const moonBase = 0.72 + Math.sin(x * 0.08 + globalZ * 0.04) * 0.05;
-        colors[i * 3]     = moonBase * 0.82;
-        colors[i * 3 + 1] = moonBase * 0.88;
-        colors[i * 3 + 2] = moonBase * 1.0;
-
-        // Frozen creek beds: icy blue-white
-        if (cfg.frozenCreeks) {
-          for (const fc of cfg.frozenCreeks) {
-            if (globalZ < fc.startZ && globalZ > fc.endZ) {
-              const t = (fc.startZ - globalZ) / (fc.startZ - fc.endZ);
-              const pathIdx = t * (fc.xPath.length - 1);
-              const i0 = Math.floor(pathIdx);
-              const i1 = Math.min(i0 + 1, fc.xPath.length - 1);
-              const frac = pathIdx - i0;
-              const ccX = fc.xPath[i0] * (1 - frac) + fc.xPath[i1] * frac;
-              const dx = Math.abs(x - ccX);
-              if (dx < fc.halfWidth * 1.5) {
-                const iceBlend = Math.max(0, 1 - dx / (fc.halfWidth * 1.5)) * 0.5;
-                colors[i * 3]     = colors[i * 3] * (1 - iceBlend) + 0.55 * iceBlend;
-                colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - iceBlend) + 0.75 * iceBlend;
-                colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - iceBlend) + 0.95 * iceBlend;
-              }
-            }
-          }
-        }
-
-        // Cornice faces: slightly brighter rock
-        if (cfg.cornices) {
-          for (const corn of cfg.cornices) {
-            const dropEnd = corn.z - corn.drop * 0.6;
-            if (globalZ <= corn.z && globalZ > dropEnd) {
-              const progress = (corn.z - globalZ) / (corn.z - dropEnd);
-              if (progress > 0.2 && progress < 0.8) {
-                const dx = Math.abs(x - corn.xCenter);
-                const halfW = corn.width / 2;
-                let xFade = 1;
-                if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-                if (xFade > 0.1) {
-                  const rb = 0.7 * xFade;
-                  colors[i * 3]     = colors[i * 3] * (1 - rb) + 0.22 * rb;
-                  colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - rb) + 0.24 * rb;
-                  colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - rb) + 0.30 * rb;
-                }
-              }
-            }
           }
         }
       }
@@ -1310,10 +1020,7 @@ export class BackcountryTerrain {
     this.placeRiverVisuals(chunk, zOffset);
     this.placeJumps(chunk, zOffset);
     this.placeNaturalKickers(chunk, zOffset);
-    this.placeCreekVisuals(chunk, zOffset);
-    this.placeRockDropWalls(chunk, zOffset);
     this.placeFrozenCreekVisuals(chunk, zOffset);
-    this.placeCorniceWalls(chunk, zOffset);
     this.placeFallenLogs(chunk, zOffset);
     this.placeRootDrops(chunk, zOffset);
     this.placeGapJumps(chunk, zOffset);
@@ -1719,12 +1426,11 @@ export class BackcountryTerrain {
 
       const y = this.computeHeight(x, globalZ);
 
-      const tree = this.chairId === 'moonlight' ? this.createMoonlightTree()
-        : cfg.oldGrowthTrees ? this.createOldGrowthTree() : this.createSnowPineTree();
+      const tree = cfg.oldGrowthTrees ? this.createOldGrowthTree() : this.createSnowPineTree();
       tree.position.set(x, y, globalZ);
       this.scene.add(tree);
       chunk.objects.push(tree);
-      const treeRadius = cfg.oldGrowthTrees ? 1.8 : this.chairId === 'moonlight' ? 0.8 : 1.2;
+      const treeRadius = cfg.oldGrowthTrees ? 1.8 : 1.2;
       const obs = { position: new THREE.Vector3(x, y, globalZ), radius: treeRadius, type: 'tree' };
       this.obstacles.push(obs);
       chunk.chunkObstacles.push(obs);
@@ -1783,65 +1489,7 @@ export class BackcountryTerrain {
     }
   }
 
-  // ---- CREEK VISUALS (Alpine Meadow) ----
-  placeCreekVisuals(chunk, zOffset) {
-    if (!this.config.creeks) return;
-    for (const creek of this.config.creeks) {
-      if (creek.z > zOffset || creek.z < zOffset - this.chunkLength) continue;
-      const geo = new THREE.PlaneGeometry(creek.xSpan, creek.width * 0.8);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, this.creekMaterial);
-      const iceY = this.computeHeight(creek.xCenter, creek.z) + 0.08;
-      mesh.position.set(creek.xCenter, iceY, creek.z);
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      chunk.objects.push(mesh);
-    }
-  }
-
-  // ---- ROCK DROP WALLS (Alpine Meadow) ----
-  placeRockDropWalls(chunk, zOffset) {
-    if (!this.config.rockDrops) return;
-    for (const rd of this.config.rockDrops) {
-      const cliffEnd = rd.z - rd.drop * 0.5;
-      const cliffMidZ = (rd.z + cliffEnd) / 2;
-      if (cliffMidZ > zOffset || cliffMidZ < zOffset - this.chunkLength) continue;
-
-      const wallWidth = rd.width;
-      const segments = Math.max(6, Math.ceil(wallWidth / 15));
-      const segWidth = wallWidth / segments;
-
-      for (let s = 0; s < segments; s++) {
-        const segX = rd.x - wallWidth / 2 + segWidth * s + segWidth / 2;
-        const segSeed = Math.abs(Math.sin(segX * 0.37 + rd.z * 0.13));
-        const segW = segWidth * (0.9 + segSeed * 0.2);
-
-        const topY = this.computeHeight(segX, rd.z);
-        const bottomY = this.computeHeight(segX, cliffEnd);
-        const wallH = Math.max(topY - bottomY, rd.drop * 0.15) * (0.3 + segSeed * 0.2);
-        if (wallH < 1) continue;
-        const centerY = bottomY + wallH / 2;
-
-        const geo = new THREE.BoxGeometry(segW, wallH, 3);
-        const pos = geo.attributes.position;
-        for (let v = 0; v < pos.count; v++) {
-          const vy = pos.getY(v); const vx = pos.getX(v); const vz = pos.getZ(v);
-          if (vz > 0) pos.setZ(v, vz + Math.sin(vx * 2.1 + vy * 1.7) * 0.6);
-          if (vy > 0) pos.setY(v, vy + Math.sin(vx * 3.0) * 0.4);
-        }
-        geo.computeVertexNormals();
-
-        const mesh = new THREE.Mesh(geo, this.exposedRockMaterial);
-        mesh.position.set(segX, centerY, cliffMidZ);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        chunk.objects.push(mesh);
-      }
-    }
-  }
-
-  // ---- FROZEN CREEK VISUALS (Moonlight Ridge) ----
+  // ---- FROZEN CREEK VISUALS ----
   placeFrozenCreekVisuals(chunk, zOffset) {
     if (!this.config.frozenCreeks) return;
     // Old Growth uses vertex coloring for creek beds instead of ice planes
@@ -1869,48 +1517,6 @@ export class BackcountryTerrain {
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, this.frozenIceMaterial);
         mesh.position.set(cx, this.computeHeight(cx, midZ) + 0.05, midZ);
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        chunk.objects.push(mesh);
-      }
-    }
-  }
-
-  // ---- CORNICE WALLS (Moonlight Ridge) ----
-  placeCorniceWalls(chunk, zOffset) {
-    if (!this.config.cornices) return;
-    for (const corn of this.config.cornices) {
-      const dropEnd = corn.z - corn.drop * 0.6;
-      const cliffMidZ = (corn.z + dropEnd) / 2;
-      if (cliffMidZ > zOffset || cliffMidZ < zOffset - this.chunkLength) continue;
-
-      const wallWidth = corn.width;
-      const segments = Math.max(6, Math.ceil(wallWidth / 15));
-      const segWidth = wallWidth / segments;
-
-      for (let s = 0; s < segments; s++) {
-        const segX = corn.xCenter - wallWidth / 2 + segWidth * s + segWidth / 2;
-        const segSeed = Math.abs(Math.sin(segX * 0.37 + corn.z * 0.13));
-        const segW = segWidth * (0.9 + segSeed * 0.2);
-
-        const topY = this.computeHeight(segX, corn.z);
-        const bottomY = this.computeHeight(segX, dropEnd);
-        const wallH = Math.max(topY - bottomY, corn.drop * 0.15) * (0.3 + segSeed * 0.2);
-        if (wallH < 1) continue;
-        const centerY = bottomY + wallH / 2;
-
-        const geo = new THREE.BoxGeometry(segW, wallH, 3);
-        const pos = geo.attributes.position;
-        for (let v = 0; v < pos.count; v++) {
-          const vy = pos.getY(v); const vx = pos.getX(v); const vz = pos.getZ(v);
-          if (vz > 0) pos.setZ(v, vz + Math.sin(vx * 2.1 + vy * 1.7) * 0.6);
-          if (vy > 0) pos.setY(v, vy + Math.sin(vx * 3.0) * 0.4);
-        }
-        geo.computeVertexNormals();
-
-        const mesh = new THREE.Mesh(geo, this.cliffMaterial);
-        mesh.position.set(segX, centerY, cliffMidZ);
-        mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.scene.add(mesh);
         chunk.objects.push(mesh);
@@ -2169,187 +1775,6 @@ export class BackcountryTerrain {
     group.add(topSnow);
 
     return group;
-  }
-
-  // Dead birch — tall white trunk with thin forking branches at top
-  createDeadBirch() {
-    const group = new THREE.Group();
-    const scale = 0.7 + this.rng() * 0.6;
-    const height = (8 + this.rng() * 5) * scale;
-    const lean = (this.rng() - 0.5) * 0.15;
-
-    // Main trunk — tall, thin, white bark
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12 * scale, 0.22 * scale, height, 5),
-      this.birchBarkMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 3-5 forking branches near the top
-    const branchCount = 3 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < branchCount; i++) {
-      const branchLen = (2 + this.rng() * 3) * scale;
-      const branchRadius = 0.04 * scale + this.rng() * 0.03 * scale;
-      const branch = new THREE.Mesh(
-        new THREE.CylinderGeometry(branchRadius * 0.3, branchRadius, branchLen, 4),
-        this.birchBarkMaterial
-      );
-      const attachY = height * (0.55 + this.rng() * 0.4);
-      branch.position.y = attachY;
-      branch.position.x = (this.rng() - 0.5) * 0.4 * scale;
-      // Branch angles outward and upward
-      const spreadAngle = (this.rng() - 0.5) * 1.2;
-      branch.rotation.z = spreadAngle + lean;
-      branch.rotation.y = this.rng() * Math.PI * 2;
-      // Offset branch tip position
-      branch.position.x += Math.sin(spreadAngle) * branchLen * 0.3;
-      branch.castShadow = true;
-      group.add(branch);
-
-      // Sub-branch (thin twig)
-      if (this.rng() > 0.4) {
-        const twig = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.01 * scale, branchRadius * 0.25, branchLen * 0.6, 3),
-          this.birchBarkMaterial
-        );
-        twig.position.copy(branch.position);
-        twig.position.y += branchLen * 0.3;
-        twig.position.x += (this.rng() - 0.5) * 1.0 * scale;
-        twig.rotation.z = spreadAngle * 1.3 + (this.rng() - 0.5) * 0.5;
-        twig.rotation.y = this.rng() * Math.PI * 2;
-        twig.castShadow = true;
-        group.add(twig);
-      }
-    }
-
-    return group;
-  }
-
-  // Dead oak — thick dark trunk with wide spreading gnarly branches
-  createDeadOak() {
-    const group = new THREE.Group();
-    const scale = 0.8 + this.rng() * 0.5;
-    const height = (5 + this.rng() * 4) * scale;
-    const lean = (this.rng() - 0.5) * 0.1;
-
-    // Thick trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.25 * scale, 0.45 * scale, height, 6),
-      this.deadOakMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 4-6 wide-spreading thick branches
-    const branchCount = 4 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < branchCount; i++) {
-      const branchLen = (3 + this.rng() * 4) * scale;
-      const branchR = (0.08 + this.rng() * 0.08) * scale;
-      const branch = new THREE.Mesh(
-        new THREE.CylinderGeometry(branchR * 0.3, branchR, branchLen, 5),
-        this.deadOakMaterial
-      );
-      const attachY = height * (0.4 + this.rng() * 0.45);
-      // Wide horizontal spread — oak branches go outward
-      const angle = (i / branchCount) * Math.PI * 2 + this.rng() * 0.5;
-      const spreadTilt = 0.4 + this.rng() * 0.8; // more horizontal than birch
-      branch.position.set(
-        Math.cos(angle) * 0.3 * scale,
-        attachY,
-        Math.sin(angle) * 0.3 * scale
-      );
-      branch.rotation.z = Math.cos(angle) * spreadTilt;
-      branch.rotation.x = Math.sin(angle) * spreadTilt;
-      branch.castShadow = true;
-      group.add(branch);
-
-      // Gnarly sub-branch
-      if (this.rng() > 0.3) {
-        const subLen = branchLen * (0.4 + this.rng() * 0.3);
-        const sub = new THREE.Mesh(
-          new THREE.CylinderGeometry(branchR * 0.15, branchR * 0.4, subLen, 4),
-          this.deadOakMaterial
-        );
-        sub.position.copy(branch.position);
-        sub.position.y += branchLen * 0.25;
-        sub.position.x += Math.cos(angle) * branchLen * 0.4;
-        sub.position.z += Math.sin(angle) * branchLen * 0.4;
-        sub.rotation.z = branch.rotation.z + (this.rng() - 0.5) * 0.6;
-        sub.rotation.x = branch.rotation.x + (this.rng() - 0.5) * 0.6;
-        sub.castShadow = true;
-        group.add(sub);
-      }
-    }
-
-    return group;
-  }
-
-  // Gnarly snag — twisted thick stump with broken branches
-  createGnarlySnag() {
-    const group = new THREE.Group();
-    const scale = 0.6 + this.rng() * 0.5;
-    const height = (3 + this.rng() * 4) * scale;
-    const lean = (this.rng() - 0.5) * 0.2;
-
-    // Thick broken trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15 * scale, 0.5 * scale, height, 6),
-      this.snagMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.rotation.x = (this.rng() - 0.5) * 0.1;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 2-4 broken stubs sticking out
-    const stubCount = 2 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < stubCount; i++) {
-      const stubLen = (1 + this.rng() * 2.5) * scale;
-      const stubR = (0.06 + this.rng() * 0.06) * scale;
-      const stub = new THREE.Mesh(
-        new THREE.CylinderGeometry(stubR * 0.2, stubR, stubLen, 4),
-        this.snagMaterial
-      );
-      const attachY = height * (0.3 + this.rng() * 0.5);
-      const angle = this.rng() * Math.PI * 2;
-      stub.position.set(
-        Math.cos(angle) * 0.25 * scale,
-        attachY,
-        Math.sin(angle) * 0.25 * scale
-      );
-      // Stubs point outward at various angles — some drooping, some up
-      const tilt = 0.5 + this.rng() * 1.0;
-      stub.rotation.z = Math.cos(angle) * tilt;
-      stub.rotation.x = Math.sin(angle) * tilt;
-      stub.castShadow = true;
-      group.add(stub);
-    }
-
-    // Optional: snow clump on top of broken trunk
-    if (this.rng() > 0.5) {
-      const snowCap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3 * scale, 4, 3, 0, Math.PI * 2, 0, Math.PI * 0.5),
-        this.snowMaterial
-      );
-      snowCap.position.y = height + 0.1 * scale;
-      group.add(snowCap);
-    }
-
-    return group;
-  }
-
-  // Random dead tree for moonlight — mix of birch, oak, snags
-  createMoonlightTree() {
-    const roll = this.rng();
-    if (roll < 0.4) return this.createDeadBirch();
-    if (roll < 0.7) return this.createDeadOak();
-    return this.createGnarlySnag();
   }
 
   createBackcountryJump(feet) {

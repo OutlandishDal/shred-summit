@@ -168,20 +168,6 @@ export class QuestSystem {
     }
   }
 
-  getSeasonTimeRemaining() {
-    const seasonStart = this.data.seasonStart || getTodayString();
-    const start = new Date(seasonStart + 'T00:00:00');
-    const end = new Date(start);
-    end.setDate(end.getDate() + QUEST_CYCLE_DAYS);
-    const now = new Date();
-    const diff = end - now;
-    if (diff <= 0) return { days: 0, hours: 0, minutes: 0 };
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return { days, hours, minutes };
-  }
-
   generateDaily(dateStr) {
     const seed = hashSeed(dateStr);
     const rng = seededRandom(seed);
@@ -241,18 +227,6 @@ export class QuestSystem {
         completed: progress.completed,
       };
     }
-  }
-
-  getDailyQuests() {
-    return this.data.dailyProgress.map(p => this.getQuestInfo(p, 'daily')).filter(Boolean);
-  }
-
-  getSeasonQuests() {
-    return this.data.seasonProgress.map(p => this.getQuestInfo(p, 'season')).filter(Boolean);
-  }
-
-  getTotalXP() {
-    return this.data.totalXP;
   }
 
   // ---- Run lifecycle ----

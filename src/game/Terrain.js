@@ -32,27 +32,6 @@ const PARK_CONFIGS = {
     booterFeet: 200, booterPositions: [-3950, -4200],
     railsPerChunk: [6, 10],
   },
-  'woodward': {
-    name: 'WOODWARD COPPER PARK',
-    checkpointCount: 6, checkpointInterval: 600,
-    railWidthScale: 1,
-    railTypes: ['kinkRail', 'flatDownFlat', 'down', 'cRail', 'flat'],
-    zones: {
-      1: {
-        medium: { feet: 100, lipHeight: 6.75, lipAngle: 0.55 },
-        small:  { feet: 75,  lipHeight: 5.0,  lipAngle: 0.50 },
-        big:    { feet: 125, lipHeight: 8.5,  lipAngle: 0.60 },
-      },
-      2: {
-        medium: { feet: 125, lipHeight: 8.5,  lipAngle: 0.60 },
-        small:  { feet: 100, lipHeight: 6.75, lipAngle: 0.55 },
-        big:    { feet: 150, lipHeight: 10.0, lipAngle: 0.65 },
-      },
-    },
-    zoneThreshold: -1800,
-    booterFeet: 150, booterPositions: [-3000, -3250],
-    railsPerChunk: [6, 10],
-  },
   'xgames': {
     name: 'X-GAMES PARK',
     checkpointCount: 6, checkpointInterval: 600,
@@ -73,7 +52,6 @@ const PARK_CONFIGS = {
     zoneThreshold: -1800,
     booterFeet: 200, booterPositions: [-3000, -3250],
     railsPerChunk: [8, 12],
-    heavyKinks: true,
   },
   'slopestyle': {
     name: 'SLOPESTYLE COURSE',

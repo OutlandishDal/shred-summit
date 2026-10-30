@@ -43,15 +43,6 @@ function drawText(ctx, text, x, y, font, color, align = 'center') {
   ctx.restore();
 }
 
-// Helper: lighten/darken a hex color
-function shadeColor(hex, amt) {
-  const c = new THREE.Color(hex);
-  c.r = Math.min(1, Math.max(0, c.r + amt));
-  c.g = Math.min(1, Math.max(0, c.g + amt));
-  c.b = Math.min(1, Math.max(0, c.b + amt));
-  return '#' + c.getHexString();
-}
-
 // ---- PER-BOARD DRAW FUNCTIONS ----
 
 const BOARD_DRAWS = {
