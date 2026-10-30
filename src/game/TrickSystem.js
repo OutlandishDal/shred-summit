@@ -453,6 +453,16 @@ export class TrickSystem {
         trickScore += scoredSwaps * 150;
       }
 
+      // Timing bonuses for popping on / off in the gold
+      if (playerState.railPerfectOn) {
+        tricks.push('PERFECT ON');
+        trickScore += 150;
+      }
+      if (playerState.railPerfectOff) {
+        tricks.push('PERFECT OFF');
+        trickScore += 150;
+      }
+
       // Long grind bonus
       if (this.grindAccumulatedTime > 2.0) {
         trickScore += Math.floor((this.grindAccumulatedTime - 2.0) * 150);

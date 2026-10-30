@@ -3144,7 +3144,8 @@ export class Game {
   updatePopMeter() {
     const p = this.player;
     const [lo, hi] = p.popSweetSpot;
-    const meter = p.ollieCharge;
+    // Hold-to-ollie charge, or the automatic rail on/off timing meter
+    const meter = p.railTiming ? p.railTiming.meter : p.ollieCharge;
     const sincePop = performance.now() - p.lastPopTime;
     const el = this.ui.popMeter;
     if (meter > 0) {
@@ -3153,7 +3154,9 @@ export class Game {
       el.classList.toggle('in-sweet', meter >= lo && meter <= hi);
       el.classList.toggle('over', meter > hi);
       el.classList.remove('perfect');
-      this.ui.popMeterLabel.textContent = meter > hi ? 'TOO LONG' : 'POP';
+      this.ui.popMeterLabel.textContent = p.railTiming
+        ? (p.railTiming.kind === 'on' ? 'TAP TO POP ON' : 'TAP TO POP OFF')
+        : (meter > hi ? 'TOO LONG' : 'POP');
       el.classList.add('visible');
     } else if (sincePop < 700 && this._popMeterShown) {
       el.classList.toggle('perfect', p.lastPopPerfect);

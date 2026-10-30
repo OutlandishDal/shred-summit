@@ -85,6 +85,15 @@ export class Player {
     this.popSweetSpot = [0.72, 0.88]; // release (or reach the lip) inside this for a perfect pop
     this.lastPopPerfect = false;
     this.lastPopTime = -1;
+    // Rail timing: the pop meter fills on its own before a rail lip / rail end; tap jump in the gold
+    this.railTiming = null;      // { kind: 'on' | 'off', meter } while active
+    this.railTimingWindow = 0.7; // seconds before the lip / end that the meter shows
+    this._railOnLocked = false;  // jump already tapped for this rail lip
+    this._pendingPerfectOn = false;
+    this.railPerfectOn = false;
+    this.railPerfectOff = false;
+    this._swapTimer = 0;         // frontswap in progress (seconds left)
+    this.swapDuration = 0.5;     // a frontswap takes this long; no new swap until it finishes
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -1112,6 +1121,7 @@ export class Player {
   }
 
   update(dt, input, terrain) {
+    if (!this.grounded && !this.grinding) this.railTiming = null; // timing meter is only for the ground and rails
     // Rails keep air speed; it's restored to ground speed on the next landing
     if (this.grounded && !this.grinding && !this.onKicker) this.restoreGroundSpeed();
 
@@ -1455,8 +1465,17 @@ export class Player {
       this.velocity.z *= frictionMul * carveFriction;
 
       // Ollie / Pop: hold jump to load (rider crouches), release to pop. Longer hold = bigger pop.
+      // Riding at a rail lip, the meter fills by itself instead: tap jump when it's in the gold.
       const jumpHeld = input.jumpHeld ?? input.jump;
-      if (jumpHeld) {
+      this._updateRailOnTiming(terrain);
+      if (this.railTiming) {
+        this.ollieCharge = 0;
+        if (input.jump && !this._railOnLocked) {
+          this.kickerPopBoost = Math.max(0.3, this._popStrength(this.railTiming.meter));
+          this._pendingPerfectOn = this.lastPopPerfect;
+          this._railOnLocked = true;
+        }
+      } else if (jumpHeld) {
         this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
       } else if (this.ollieCharge > 0) {
         if (this.onKicker) {
@@ -1592,6 +1611,7 @@ export class Player {
         const dz = this.position.z - this.grindRail.position.z;
         if (Math.abs(dz) > this.grindRail.length / 2 + 0.5) {
           railEnded = true;
+          this.railTiming = null;
           const endedRail = this.grindRail;
           this.grinding = false;
           this.grindRail = null;
@@ -1654,16 +1674,24 @@ export class Player {
         // Track grind duration
         this.grindTime += dt;
 
-        // A/D for boardslide tricks while grinding
+        // A/D for boardslide tricks while grinding.
+        // Switching sides is a frontswap: it takes swapDuration and can't be interrupted, so it can't be spammed.
         const prevBoardslideType = this.boardslideType;
-        if (input.steer > 0) {
-          // D key = frontside boardslide
-          this.boardslideType = 'frontside';
-          this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, Math.PI / 2, 0.15);
-        } else if (input.steer < 0) {
-          // A key = backside boardslide
-          this.boardslideType = 'backside';
-          this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, -Math.PI / 2, 0.15);
+        this._swapTimer = Math.max(0, this._swapTimer - dt);
+        const swapping = this._swapTimer > 0;
+        let want = null;
+        if (input.steer > 0) want = 'frontside';      // D key = frontside boardslide
+        else if (input.steer < 0) want = 'backside';  // A key = backside boardslide
+        if (swapping || want) {
+          if (!swapping && want !== this.boardslideType) {
+            if (this.boardslideType) this._swapTimer = this.swapDuration; // start a frontswap
+            this.boardslideType = want;
+          }
+          const target = this.boardslideType === 'frontside' ? Math.PI / 2 : -Math.PI / 2;
+          // Rotate at a steady rate: a full 180 swap takes swapDuration
+          const rate = Math.PI / this.swapDuration;
+          const diff = target - this.boardslideAngle;
+          this.boardslideAngle += Math.sign(diff) * Math.min(Math.abs(diff), rate * dt);
         } else if (this.boardslideType) {
           // No A/D but already in a boardslide (from spin-on or previous input) — hold angle
         } else if (this.equipmentType === 'ski') {
@@ -1675,7 +1703,7 @@ export class Player {
           this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, 0, 0.15);
         }
 
-        // Detect frontswap: switching between frontside ↔ backside
+        // Count a frontswap when one starts (switching between frontside ↔ backside)
         if (prevBoardslideType && this.boardslideType &&
             prevBoardslideType !== this.boardslideType) {
           this.frontswapCount = (this.frontswapCount || 0) + 1;
@@ -1688,14 +1716,8 @@ export class Player {
           0.1
         );
 
-        // Can do spins while grinding (Q/E)
-        if (input.spinLeft) this.angularVelocity.y = 4.0;
-        else if (input.spinRight) this.angularVelocity.y = -4.0;
-
-        this.trickRotation.y += this.angularVelocity.y * dt;
-        this.angularVelocity.multiplyScalar(0.95);
-
-        // Combine spin rotation with boardslide angle
+        // No spinning on the rail (Q/E do nothing here)
+        this.angularVelocity.y = 0;
         this.boardGroup.rotation.y = this.trickRotation.y + this.boardslideAngle;
 
         // Grind rider animations: arms spread wide for balance
@@ -1717,9 +1739,28 @@ export class Player {
         this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
 
-        // Jump off rail
+        // Timing meter for popping off the end of the rail
+        this._updateRailOffTiming();
+
+        // Jump off rail: tapping in the gold near the end is a perfect pop off
         if (input.jump) {
-          this.velocity.y = this.jumpForce * 0.7;
+          let pop = 0.7;
+          if (this.railTiming) {
+            const strength = this._popStrength(this.railTiming.meter);
+            this.railPerfectOff = this.lastPopPerfect;
+            pop = 0.6 + 0.6 * strength; // perfect = 1.2, well above the automatic end pop
+            if (this.grindRail.kickAngle && this.railTiming.meter > 0.6) {
+              // Popping off a kinked / up rail end adds to its kick
+              this._launchOffLip(this.grindRail.kickAngle, true);
+              pop = 0.35 * strength;
+            } else {
+              this.velocity.y = 0;
+            }
+            this.railTiming = null;
+          } else {
+            this.velocity.y = 0;
+          }
+          this.velocity.y += this.jumpForce * pop;
           this.grinding = false;
           this._grindedRails.add(this.grindRail);
           this.grindRail = null;
@@ -2134,6 +2175,42 @@ export class Player {
     this.lastJumpPopped = popped;
   }
 
+  // Rail lip ahead: show the pop meter filling so it hits the middle of the gold at the lip
+  _updateRailOnTiming(terrain) {
+    this.railTiming = null;
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (hSpeed < 1 || this.velocity.z >= 0) { this._railOnLocked = false; return; }
+    for (const ramp of terrain.ramps) {
+      if (!ramp.railLip) continue;
+      if (Math.abs(this.position.x - ramp.position.x) > ramp.width / 2) continue;
+      const lipEnd = ramp.position.z - ramp.length / 2;
+      const timeToLip = (this.position.z - lipEnd) / hSpeed;
+      if (timeToLip < 0 || timeToLip > this.railTimingWindow) continue;
+      this.railTiming = { kind: 'on', meter: this._timingMeter(timeToLip) };
+      return;
+    }
+    this._railOnLocked = false; // left the approach without reaching a lip
+  }
+
+  // Near the end of a rail: meter fills so it hits the middle of the gold at the end
+  _updateRailOffTiming() {
+    this.railTiming = null;
+    const rail = this.grindRail;
+    if (!rail) return;
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (hSpeed < 1) return;
+    const railEnd = rail.position.z - rail.length / 2;
+    const timeToEnd = (this.position.z - railEnd) / hSpeed;
+    if (timeToEnd < 0 || timeToEnd > this.railTimingWindow) return;
+    this.railTiming = { kind: 'off', meter: this._timingMeter(timeToEnd) };
+  }
+
+  _timingMeter(timeLeft) {
+    const [lo, hi] = this.popSweetSpot;
+    const center = (lo + hi) / 2;
+    return Math.min(1, center * (1 - timeLeft / this.railTimingWindow));
+  }
+
   // Pop strength from the pop meter: builds up to the sweet spot (perfect = 1), weaker if overloaded
   _popStrength(meter) {
     const [lo, hi] = this.popSweetSpot;
@@ -2328,6 +2405,12 @@ export class Player {
     }
 
     this.frontswapCount = 0;
+    this._swapTimer = 0;
+    this._railOnLocked = false;
+    this.railPerfectOn = this._pendingPerfectOn;
+    this._pendingPerfectOn = false;
+    this.railPerfectOff = false;
+    this.railTiming = null;
 
     // Signal to TrickSystem that we landed on a rail from air
     this.landedOnRail = true;
@@ -2765,6 +2848,9 @@ export class Player {
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
     this.ollieCharge = 0;
+    this.railTiming = null;
+    this._railOnLocked = false;
+    this._pendingPerfectOn = false;
     this.terrainPopCooldown = 0;
     this._airSpeedBoost = 1;
     this.launchedFromKicker = false;
@@ -2978,6 +3064,8 @@ export class Player {
       boardslideType: this.boardslideType,
       grindTime: this.grindTime,
       frontswapCount: this.frontswapCount,
+      railPerfectOn: this.railPerfectOn,
+      railPerfectOff: this.railPerfectOff,
       isCork: this.isCorkingThisJump,
       corkFlipDirection: this.corkFlipDirection,
       corkSpinDirection: this.corkSpinDirection,
