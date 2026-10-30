@@ -548,11 +548,12 @@ export class Terrain {
     const knuckleDrop = landSlope * knuckleLen / 2;
     const landStart = transLen + deckLen + knuckleLen;
     const landEnd = landStart + (deckHeight - knuckleDrop) / landSlope;
-    const width = 6 + feet * 0.03;
+    // Wide park kickers: each of a side-by-side pair covers about half the run
+    const width = size === 'massive' ? 34 : 20;
     return {
       feet, size, lipAngle, lipHeight, radius, transLen, deckHeight, deckLen, knuckleLen,
       landSlope, knuckleDrop, landStart, landEnd, total: landEnd + 1,
-      width, landingWidth: width * 1.5,
+      width, landingWidth: width + 4,
       sweetSpot: landStart + (landEnd - landStart) * 0.4, // 40% of the way down the landing
     };
   }
@@ -625,7 +626,7 @@ export class Terrain {
     });
     const buffer = 6;
     this.exclusionZones.push({
-      x, zStart: zStart - j.total - buffer, zEnd: zStart + buffer,
+      x, zStart: zStart - j.total - buffer, zEnd: zStart + 40, // keep the in-run clear
       halfWidth: j.landingWidth / 2 + buffer,
     });
   }

@@ -80,8 +80,11 @@ export class Player {
     // Kicker launch cooldown — prevents re-launch when landing back on same kicker
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0; // ollie charge (0..1) released on a kicker, used at the lip
-    this.ollieCharge = 0;    // 0..1 while jump is held on the ground
-    this.ollieChargeTime = 0.45; // seconds of holding for a full pop
+    this.ollieCharge = 0;    // pop meter 0..1 while jump is held on the ground
+    this.ollieChargeTime = 0.7;  // seconds to fill the meter
+    this.popSweetSpot = [0.72, 0.88]; // release (or reach the lip) inside this for a perfect pop
+    this.lastPopPerfect = false;
+    this.lastPopTime = -1;
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -1456,19 +1459,21 @@ export class Player {
       if (jumpHeld) {
         this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
       } else if (this.ollieCharge > 0) {
-        const charge = this.ollieCharge;
-        this.ollieCharge = 0;
         if (this.onKicker) {
           // Released on a kicker or rail lip: used when you reach the lip
-          this.kickerPopBoost = charge;
-        } else if (charge >= 0.15) {
+          this.kickerPopBoost = this._popStrength(this.ollieCharge);
+          this.ollieCharge = 0;
+        } else if (this.ollieCharge >= 0.15) {
           // Backcountry: full jump (pillows, bumps, drops need big air)
           // Park flat ground: reduced ollie (~6 feet)
           const force = this.backcountryMode ? this.jumpForce : this.ollieForce;
-          this.velocity.y = force * (0.35 + 0.65 * charge);
+          this.velocity.y = force * this._popStrength(this.ollieCharge);
+          this.ollieCharge = 0;
           this.grounded = false;
           this.peakHeight = 0;
           this.launchedFromKicker = this.backcountryMode;
+        } else {
+          this.ollieCharge = 0; // a quick tap doesn't pop
         }
       }
 
@@ -2129,13 +2134,24 @@ export class Player {
     this.lastJumpPopped = popped;
   }
 
+  // Pop strength from the pop meter: builds up to the sweet spot (perfect = 1), weaker if overloaded
+  _popStrength(meter) {
+    const [lo, hi] = this.popSweetSpot;
+    this.lastPopTime = performance.now();
+    this.lastPopPerfect = meter >= lo && meter <= hi;
+    if (meter < 0.15) return 0;
+    if (meter < lo) return 0.3 + 0.55 * (meter / lo);
+    if (meter <= hi) return 1;
+    return 0.8;
+  }
+
   // Pop strength at a lip: an ollie released on the kicker, or one still being held (0 = no pop)
   _takePopCharge() {
-    let charge = this.kickerPopBoost;
-    if (this.ollieCharge >= 0.15) charge = Math.max(charge, this.ollieCharge);
+    let strength = this.kickerPopBoost;
+    if (this.ollieCharge >= 0.15) strength = this._popStrength(this.ollieCharge);
     this.kickerPopBoost = 0;
     this.ollieCharge = 0;
-    return charge >= 0.15 ? charge : 0;
+    return strength;
   }
 
   // Speed check on the in-run: riders gently scrub any extra speed before the kicker

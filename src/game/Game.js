@@ -113,6 +113,9 @@ export class Game {
       jumpHeight: document.getElementById('jump-height'),
       jumpHeightValue: document.getElementById('jump-height-value'),
       speed: document.getElementById('speed-display'),
+      popMeter: document.getElementById('pop-meter'),
+      popMeterFill: document.getElementById('pop-meter-fill'),
+      popMeterLabel: document.getElementById('pop-meter-label'),
       meterFill: document.getElementById('trick-meter-fill'),
       startScreen: document.getElementById('start-screen'),
       deathScreen: document.getElementById('death-screen'),
@@ -3137,6 +3140,31 @@ export class Game {
     this.pendingNicknameCallback = callback;
   }
 
+  // Pop meter: shows while jump is held, then briefly shows how the pop went
+  updatePopMeter() {
+    const p = this.player;
+    const [lo, hi] = p.popSweetSpot;
+    const meter = p.ollieCharge;
+    const sincePop = performance.now() - p.lastPopTime;
+    const el = this.ui.popMeter;
+    if (meter > 0) {
+      this._popMeterShown = meter;
+      this.ui.popMeterFill.style.width = `${meter * 100}%`;
+      el.classList.toggle('in-sweet', meter >= lo && meter <= hi);
+      el.classList.toggle('over', meter > hi);
+      el.classList.remove('perfect');
+      this.ui.popMeterLabel.textContent = meter > hi ? 'TOO LONG' : 'POP';
+      el.classList.add('visible');
+    } else if (sincePop < 700 && this._popMeterShown) {
+      el.classList.toggle('perfect', p.lastPopPerfect);
+      this.ui.popMeterLabel.textContent = p.lastPopPerfect ? 'PERFECT POP' : 'POP';
+      el.classList.add('visible');
+    } else {
+      el.classList.remove('visible', 'perfect', 'in-sweet', 'over');
+      this._popMeterShown = 0;
+    }
+  }
+
   updateUI(trickState, playerState) {
     // Score
     this.ui.score.textContent = trickState.score.toLocaleString();
@@ -3144,6 +3172,8 @@ export class Game {
     // Speed (divide by visual scale so display matches original feel)
     const kmh = Math.round(playerState.speed / 1.2 * 3.6);
     this.ui.speed.textContent = kmh;
+
+    this.updatePopMeter();
 
     // Altitude
     const alt = Math.round(2400 + this.player.position.y * 0.5);

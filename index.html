@@ -216,6 +216,49 @@
       transition: width 0.15s;
     }
 
+    /* Pop meter: fills while jump is held; release in the gold zone for a perfect pop */
+    #pop-meter {
+      position: absolute;
+      bottom: 34px; left: 50%;
+      width: 240px; margin-left: -120px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    #pop-meter.visible { opacity: 1; }
+    #pop-meter-track {
+      position: relative;
+      height: 12px;
+      background: rgba(10,20,35,0.55);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    #pop-meter-sweet {
+      position: absolute; top: 0; bottom: 0;
+      left: 72%; width: 16%;
+      background: rgba(255,204,0,0.35);
+      border-left: 2px solid #ffcc00;
+      border-right: 2px solid #ffcc00;
+    }
+    #pop-meter-fill {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      width: 0%;
+      background: linear-gradient(90deg, #7fd3ff, #ffffff);
+    }
+    #pop-meter.in-sweet #pop-meter-fill { background: linear-gradient(90deg, #ffcc00, #fff3b0); }
+    #pop-meter.over #pop-meter-fill { background: linear-gradient(90deg, #7fd3ff, #ff6b35); }
+    #pop-meter-label {
+      margin-top: 4px;
+      text-align: center;
+      color: rgba(255,255,255,0.75);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    }
+    #pop-meter.perfect #pop-meter-label { color: #ffcc00; }
+
     #controls-hint {
       position: absolute;
       bottom: 50px; right: 32px;
@@ -1633,6 +1676,7 @@
       #altitude-display { bottom: 150px; left: 16px; font-size: 11px; }
 
       #trick-meter { bottom: 130px; right: 16px; width: 120px; }
+      #pop-meter { bottom: 170px; width: 180px; margin-left: -90px; }
       #controls-hint { display: none; }
 
       #jump-height { font-size: 48px; }
@@ -1708,6 +1752,10 @@
     <div id="party-hud" style="display:none"></div>
     <div id="checkpoint-alert">CHECKPOINT REACHED</div>
     <div id="trick-meter"><div id="trick-meter-fill"></div></div>
+    <div id="pop-meter">
+      <div id="pop-meter-track"><div id="pop-meter-sweet"></div><div id="pop-meter-fill"></div></div>
+      <div id="pop-meter-label">POP</div>
+    </div>
     <div id="controls-hint">
       A/D STEER · S BRAKE · HOLD SPACE OLLIE<br>
       SHIFT TUCK · W/S FLIP · Q/E SPIN<br>
