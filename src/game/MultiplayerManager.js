@@ -1,131 +1,218 @@
-import { getRtdb, rtdbRef, rtdbSet, rtdbGet, onValue, onDisconnect, rtdbRemove, rtdbUpdate } from './firebase.js';
+import { getRtdb, rtdbRef, rtdbSet, rtdbGet, onValue, onDisconnect, rtdbRemove, rtdbUpdate, rtdbTimestamp } from './firebase.js';
 import { RemotePlayer } from './RemotePlayer.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const MAX_PARTY_SIZE = 4;
+const CODE_LENGTH = 6;
+const MAX_PARTY_SIZE = 8;
 const SEND_RATE_MS = 100; // 10 Hz
+const DEFAULT_MAP = { mode: 'park', chair: null, parkId: 'big-white', seed: 1 };
+
+// Party data lives in one Realtime Database node per party:
+//
+//   parties/{CODE}/
+//     createdAt
+//     map:     { mode, chair, parkId, seed }   — picked by the leader
+//     runId:   number                          — bumped by the leader to start a run for everyone
+//     members/{uid}: { nickname, cosmetics, joinedAt, status: 'lobby' | 'riding' }
+//     players/{uid}: live rider state, only while riding
+//
+// The leader is whoever joined first and is still connected, so if the leader
+// leaves or loses connection the next player takes over automatically.
+// Each client removes its own member/player entries on disconnect, and
+// re-adds them when the connection comes back (phones going to sleep etc.).
+
+export function mapKey(map) {
+  if (!map) return '';
+  const id = map.mode === 'backcountry' ? map.chair : map.parkId;
+  return `${map.mode}:${id}:${map.seed}`;
+}
 
 export class MultiplayerManager {
   constructor(game) {
     this.game = game;
     this.rtdb = null;
     this.partyCode = null;
-    this.isHost = false;
-    this.members = {};          // { uid: { nickname, cosmetics } }
-    this.remotePlayers = {};    // { uid: RemotePlayer }
-    this.listeners = [];        // onValue unsubscribe functions
-    this.sendInterval = null;
+    this.members = {};          // { uid: { nickname, cosmetics, joinedAt, status } }
+    this.map = { ...DEFAULT_MAP };
+    this.runId = 0;
+    this.remotePlayers = {};    // { uid: RemotePlayer } — riders on the same map as us
+    this.listeners = [];        // onValue unsubscribe functions for the current party
+    this.status = 'lobby';
     this.lastSendTime = 0;
     this.active = false;
-    this.terrainSeed = null;
-    this._gameStarted = false;  // tracks if we're syncing game state
+    this._connected = false;
+    this._seenRunId = null;
+    this._wasLeader = false;
   }
 
   init() {
     this.rtdb = getRtdb();
+    if (!this.rtdb || this._connListener) return;
+    // Re-register ourselves whenever the connection comes back
+    this._connListener = onValue(rtdbRef(this.rtdb, '.info/connected'), (snap) => {
+      this._connected = snap.val() === true;
+      if (this._connected && this.active) this.registerPresence();
+      this.game.onPartyChanged();
+    });
+  }
+
+  get available() {
+    return !!(this.rtdb && this.game.currentUser);
+  }
+
+  get uid() {
+    return this.game.currentUser?.uid || null;
+  }
+
+  get leaderUid() {
+    const entries = Object.entries(this.members);
+    if (entries.length === 0) return this.uid;
+    // joinedAt is a server timestamp; it's a placeholder until the server confirms it
+    const t = (m) => (typeof m.joinedAt === 'number' ? m.joinedAt : Number.MAX_SAFE_INTEGER);
+    entries.sort(([ua, a], [ub, b]) => (t(a) - t(b)) || ua.localeCompare(ub));
+    return entries[0][0];
+  }
+
+  get isLeader() {
+    return this.active && this.leaderUid === this.uid;
+  }
+
+  get memberCount() {
+    return Object.keys(this.members).length;
+  }
+
+  get inviteLink() {
+    if (!this.partyCode) return '';
+    return `${location.origin}${location.pathname}?party=${this.partyCode}`;
   }
 
   // ---- PARTY LIFECYCLE ----
 
   async createParty() {
-    if (!this.rtdb || !this.game.currentUser) return null;
-    const code = this.generateCode();
-    const uid = this.game.currentUser.uid;
+    if (!this.available) return { error: 'SIGN IN TO PLAY ONLINE' };
+    if (this.active) await this.leaveParty();
 
-    this.partyCode = code;
-    this.isHost = true;
-    this.terrainSeed = Math.floor(Math.random() * 999999);
+    // Pick a code nobody is using
+    let code = null;
+    for (let i = 0; i < 5 && !code; i++) {
+      const candidate = this.generateCode();
+      const snap = await rtdbGet(rtdbRef(this.rtdb, `parties/${candidate}`));
+      if (!snap.exists()) code = candidate;
+    }
+    if (!code) return { error: 'COULD NOT CREATE PARTY, TRY AGAIN' };
 
-    const partyRef = rtdbRef(this.rtdb, `parties/${code}`);
-    await rtdbSet(partyRef, {
-      host: uid,
-      gameMode: 'park',
-      chair: null,
-      state: 'lobby',
-      seed: this.terrainSeed,
+    const map = this.mapFromGame();
+    await rtdbSet(rtdbRef(this.rtdb, `parties/${code}`), {
+      createdAt: rtdbTimestamp(),
+      map,
+      runId: 0,
+      members: { [this.uid]: this.memberData() },
     });
-
-    await this.addSelfToParty();
-    this.listenToParty();
-
-    // Auto-cleanup on disconnect
-    const memberRef = rtdbRef(this.rtdb, `parties/${code}/members/${uid}`);
-    onDisconnect(memberRef).remove();
-
-    this.active = true;
-    return code;
+    this.enterParty(code, map, 0);
+    return { code };
   }
 
-  async joinParty(code) {
-    if (!this.rtdb || !this.game.currentUser) return { error: 'NOT SIGNED IN' };
+  async joinParty(rawCode) {
+    if (!this.available) return { error: 'SIGN IN TO PLAY ONLINE' };
+    const code = (rawCode || '').trim().toUpperCase();
+    if (code.length !== CODE_LENGTH) return { error: `ENTER A ${CODE_LENGTH}-CHARACTER CODE` };
+    if (this.active && this.partyCode === code) return { code };
+    if (this.active) await this.leaveParty();
 
-    // Check if party exists
-    const partyRef = rtdbRef(this.rtdb, `parties/${code}`);
-    const snap = await rtdbGet(partyRef);
+    const snap = await rtdbGet(rtdbRef(this.rtdb, `parties/${code}`));
     if (!snap.exists()) return { error: 'PARTY NOT FOUND' };
-
     const data = snap.val();
+    const members = data.members || {};
+    if (!members[this.uid] && Object.keys(members).length >= MAX_PARTY_SIZE) {
+      return { error: 'PARTY IS FULL' };
+    }
 
-    // Check member count
-    const memberCount = data.members ? Object.keys(data.members).length : 0;
-    if (memberCount >= MAX_PARTY_SIZE) return { error: 'PARTY IS FULL' };
+    await rtdbSet(rtdbRef(this.rtdb, `parties/${code}/members/${this.uid}`), this.memberData());
+    this.enterParty(code, data.map || DEFAULT_MAP, data.runId || 0);
+    return { code };
+  }
 
-    // Check if game already started
-    if (data.state === 'playing') return { error: 'GAME IN PROGRESS' };
-
+  enterParty(code, map, runId) {
     this.partyCode = code;
-    this.isHost = false;
-    this.terrainSeed = data.seed || 12345;
-
-    await this.addSelfToParty();
-    this.listenToParty();
-
-    // Auto-cleanup on disconnect
-    const uid = this.game.currentUser.uid;
-    const memberRef = rtdbRef(this.rtdb, `parties/${code}/members/${uid}`);
-    onDisconnect(memberRef).remove();
-
+    this._joinedAt = null;
+    this.map = { ...DEFAULT_MAP, ...map };
+    this.runId = runId;
+    this._seenRunId = runId; // don't auto-start a run that began before we joined
+    this.members = { [this.uid]: this.memberData() };
+    this.status = 'lobby';
     this.active = true;
-    return { success: true };
+    this.armDisconnectCleanup();
+    this.listenToParty();
+    this.game.onPartyChanged();
   }
 
   async leaveParty() {
-    if (!this.active || !this.partyCode) return;
-    const uid = this.game.currentUser.uid;
+    if (!this.active) return;
+    const code = this.partyCode;
+    const uid = this.uid;
+    this.teardown();
 
-    this.stopGameSync();
-
-    // Unsubscribe all listeners
-    for (const unsub of this.listeners) unsub();
-    this.listeners = [];
-
-    // Remove self from party
-    const memberRef = rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${uid}`);
-    await rtdbRemove(memberRef);
-
-    // If host, delete the whole party
-    if (this.isHost) {
-      const partyRef = rtdbRef(this.rtdb, `parties/${this.partyCode}`);
-      await rtdbRemove(partyRef);
-      // Also clean up game state
-      const gameRef = rtdbRef(this.rtdb, `games/${this.partyCode}`);
-      await rtdbRemove(gameRef);
+    try {
+      await onDisconnect(rtdbRef(this.rtdb, `parties/${code}/members/${uid}`)).cancel();
+      await onDisconnect(rtdbRef(this.rtdb, `parties/${code}/players/${uid}`)).cancel();
+      await rtdbRemove(rtdbRef(this.rtdb, `parties/${code}/players/${uid}`));
+      await rtdbRemove(rtdbRef(this.rtdb, `parties/${code}/members/${uid}`));
+      // Last one out deletes the party
+      const left = await rtdbGet(rtdbRef(this.rtdb, `parties/${code}/members`));
+      if (!left.exists()) await rtdbRemove(rtdbRef(this.rtdb, `parties/${code}`));
+    } catch (e) {
+      console.warn('[multiplayer] leave cleanup failed:', e);
     }
-
-    this.partyCode = null;
-    this.isHost = false;
-    this.active = false;
-    this.members = {};
-    this.terrainSeed = null;
+    this.game.onPartyChanged();
   }
 
-  async addSelfToParty() {
-    const uid = this.game.currentUser.uid;
-    const nickname = this.game.nicknameManager.getNickname() || 'Player';
-    const cosmetics = this.gatherCosmetics();
+  teardown() {
+    for (const unsub of this.listeners) unsub();
+    this.listeners = [];
+    this.clearRemotePlayers();
+    this.partyCode = null;
+    this.active = false;
+    this.members = {};
+    this.status = 'lobby';
+    this.map = { ...DEFAULT_MAP };
+    this._joinedAt = null;
+  }
 
-    const memberRef = rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${uid}`);
-    await rtdbSet(memberRef, { nickname, cosmetics });
+  // ---- PRESENCE ----
+
+  memberData() {
+    return {
+      nickname: this.game.nicknameManager.getNickname() || 'Player',
+      cosmetics: this.gatherCosmetics(),
+      joinedAt: this._joinedAt || rtdbTimestamp(),
+      status: this.status,
+    };
+  }
+
+  armDisconnectCleanup() {
+    onDisconnect(rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${this.uid}`)).remove();
+    onDisconnect(rtdbRef(this.rtdb, `parties/${this.partyCode}/players/${this.uid}`)).remove();
+  }
+
+  registerPresence() {
+    if (!this.active) return;
+    // After a reconnect the server has already run our onDisconnect cleanup.
+    // Keep our original joinedAt so we don't lose (or steal) the leader spot.
+    rtdbSet(rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${this.uid}`), this.memberData());
+    this.armDisconnectCleanup();
+  }
+
+  /** Push nickname / cosmetics changes to the party. */
+  refreshSelf() {
+    if (!this.active) return;
+    const { nickname, cosmetics } = this.memberData();
+    rtdbUpdate(rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${this.uid}`), { nickname, cosmetics });
+  }
+
+  setStatus(status) {
+    this.status = status;
+    if (!this.active) return;
+    rtdbUpdate(rtdbRef(this.rtdb, `parties/${this.partyCode}/members/${this.uid}`), { status });
   }
 
   gatherCosmetics() {
@@ -173,141 +260,128 @@ export class MultiplayerManager {
     return cosmetics;
   }
 
-  // ---- PARTY LISTENER ----
+  // ---- PARTY LISTENERS ----
 
   listenToParty() {
-    const partyRef = rtdbRef(this.rtdb, `parties/${this.partyCode}`);
+    const base = `parties/${this.partyCode}`;
 
-    const unsub = onValue(partyRef, (snap) => {
-      if (!snap.exists()) {
-        // Party deleted (host left)
-        this.onPartyDissolved();
-        return;
+    this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/members`), (snap) => {
+      const members = snap.val() || {};
+      const mine = members[this.uid];
+      if (mine && typeof mine.joinedAt === 'number') this._joinedAt = mine.joinedAt;
+      // Our own entry can briefly vanish during a reconnect; keep showing ourselves
+      if (!members[this.uid]) members[this.uid] = this.memberData();
+      this.members = members;
+
+      // Drop riders who left the party
+      for (const uid of Object.keys(this.remotePlayers)) {
+        if (!members[uid]) this.removeRemotePlayer(uid);
       }
 
-      const data = snap.val();
-      const uid = this.game.currentUser.uid;
-
-      // Update members
-      this.members = data.members || {};
-      this.game.updatePartyMembers(this.members, data.host);
-
-      // Non-host: detect game mode changes from host
-      if (!this.isHost && data.gameMode) {
-        this.game.gameMode = data.gameMode;
-        this.game.backcountryChair = data.chair || null;
-        if (data.parkId) this.game.parkId = data.parkId;
-        this.terrainSeed = data.seed || 12345;
+      const leaderNow = this.isLeader;
+      if (leaderNow && !this._wasLeader && this.memberCount > 1) {
+        console.log('[multiplayer] you are now the party leader');
       }
+      this._wasLeader = leaderNow;
+      this.game.onPartyChanged();
+    }));
 
-      // Detect game start (state changed to 'playing')
-      if (data.state === 'playing' && !this._gameStarted) {
-        this.onGameStart();
+    this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/map`), (snap) => {
+      if (!snap.exists()) return;
+      this.map = { ...DEFAULT_MAP, ...snap.val() };
+      this.game.onPartyMapChanged(this.map);
+    }));
+
+    this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/runId`), (snap) => {
+      const runId = snap.val() || 0;
+      this.runId = runId;
+      if (this._seenRunId !== null && runId > this._seenRunId) {
+        this._seenRunId = runId;
+        this.game.onPartyRunStarted(this.map);
       }
-    });
+      this._seenRunId = runId;
+    }));
 
-    this.listeners.push(unsub);
+    this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/players`), (snap) => {
+      this.receivePlayers(snap.val() || {});
+    }));
   }
 
-  onPartyDissolved() {
-    this.stopGameSync();
-    for (const unsub of this.listeners) unsub();
-    this.listeners = [];
-    this.partyCode = null;
-    this.isHost = false;
-    this.active = false;
-    this.members = {};
-    this.game.onPartyDissolved();
+  // ---- MAP / RUNS (leader) ----
+
+  mapFromGame() {
+    const g = this.game;
+    return {
+      mode: g.gameMode === 'backcountry' ? 'backcountry' : 'park',
+      chair: g.gameMode === 'backcountry' ? g.backcountryChair : null,
+      parkId: g.parkId || 'big-white',
+      seed: Math.floor(Math.random() * 999999) + 1,
+    };
   }
 
-  // ---- GAME START ----
-
-  setGameMode(mode, chair, parkId = null) {
-    if (!this.isHost || !this.partyCode) return;
-    const partyRef = rtdbRef(this.rtdb, `parties/${this.partyCode}`);
-    rtdbUpdate(partyRef, { gameMode: mode, chair: chair || null, parkId: parkId || null });
+  /** Leader picks a map for the party. Returns false for non-leaders. */
+  setMap(mode, chair, parkId) {
+    if (!this.isLeader) return false;
+    const map = {
+      mode,
+      chair: mode === 'backcountry' ? chair : null,
+      parkId: parkId || this.map.parkId || 'big-white',
+      // A new park layout each time the park changes; same layout for everyone
+      seed: (mode === this.map.mode && parkId === this.map.parkId && chair === this.map.chair)
+        ? this.map.seed : Math.floor(Math.random() * 999999) + 1,
+    };
+    this.map = map;
+    rtdbSet(rtdbRef(this.rtdb, `parties/${this.partyCode}/map`), map);
+    this.game.onPartyMapChanged(map);
+    return true;
   }
 
-  async startGame() {
-    if (!this.isHost || !this.partyCode) return;
-    // Write state = 'playing' — all clients detect via listener
-    const partyRef = rtdbRef(this.rtdb, `parties/${this.partyCode}`);
-    await rtdbUpdate(partyRef, { state: 'playing' });
+  /** Leader starts a run: everyone waiting in the lobby drops in together. */
+  startRun() {
+    if (!this.isLeader) return;
+    const next = (this.runId || 0) + 1;
+    this.runId = next;
+    this._seenRunId = next;
+    rtdbSet(rtdbRef(this.rtdb, `parties/${this.partyCode}/runId`), next);
   }
 
-  onGameStart() {
-    this._gameStarted = true;
+  // ---- LOCAL RUN LIFECYCLE (called by Game) ----
 
-    // Close lobby for ALL players (host included as a fallback)
-    this.game.closeLobby();
-
-    // Create remote players for all other members
-    this.createRemotePlayers();
-
-    // Start syncing player state and listen for remote updates
-    this.startSendLoop();
-    this.listenToGameState();
+  onLocalRunStarted() {
+    if (!this.active) return;
+    this.setStatus('riding');
+    this._myMapKey = mapKey(this.map);
+    this.lastSendTime = 0;
+    this.sendState(true);
   }
 
-  onLocalGameStarted() {
-    // Called by Game.js after closeLobby() completes
-    if (!this._gameStarted && this.isHost) {
-      // Host starts the game
-      this.startGame();
-    }
-  }
-
-  // ---- REMOTE PLAYERS ----
-
-  createRemotePlayers() {
-    const uid = this.game.currentUser.uid;
-
-    for (const [memberUid, memberData] of Object.entries(this.members)) {
-      if (memberUid === uid) continue;
-      if (this.remotePlayers[memberUid]) continue;
-
-      const remote = new RemotePlayer(
-        this.game.scene,
-        memberUid,
-        memberData.nickname || 'Player',
-        memberData.cosmetics || {}
-      );
-      this.remotePlayers[memberUid] = remote;
-    }
-  }
-
-  removeRemotePlayer(uid) {
-    if (this.remotePlayers[uid]) {
-      this.remotePlayers[uid].dispose();
-      delete this.remotePlayers[uid];
-    }
+  onLocalReturnedToLobby() {
+    if (!this.active) return;
+    this.setStatus('lobby');
+    this._myMapKey = null;
+    this.clearRemotePlayers();
+    rtdbRemove(rtdbRef(this.rtdb, `parties/${this.partyCode}/players/${this.uid}`));
   }
 
   // ---- STATE SYNC ----
 
-  startSendLoop() {
-    if (this.sendInterval) return;
-    this.sendInterval = setInterval(() => this.sendState(), SEND_RATE_MS);
-  }
-
-  stopSendLoop() {
-    if (this.sendInterval) {
-      clearInterval(this.sendInterval);
-      this.sendInterval = null;
+  update(dt, camera) {
+    if (!this.active || this.status !== 'riding') return;
+    this.sendState();
+    for (const remote of Object.values(this.remotePlayers)) {
+      remote.update(dt, camera);
     }
   }
 
-  sendState() {
-    if (!this.rtdb || !this.game.currentUser || !this.partyCode) return;
-    // Throttle to 10Hz
+  sendState(force = false) {
+    if (!this.active || this.status !== 'riding' || !this._connected) return;
     const now = performance.now();
-    if (now - this.lastSendTime < SEND_RATE_MS) return;
+    if (!force && now - this.lastSendTime < SEND_RATE_MS) return;
     this.lastSendTime = now;
-    const p = this.game.player;
-    const uid = this.game.currentUser.uid;
-    const playerRef = rtdbRef(this.rtdb, `games/${this.partyCode}/players/${uid}`);
 
-    rtdbSet(playerRef, {
+    const p = this.game.player;
+    rtdbSet(rtdbRef(this.rtdb, `parties/${this.partyCode}/players/${this.uid}`), {
+      m: this._myMapKey,
       x: +p.position.x.toFixed(2),
       y: +p.position.y.toFixed(2),
       z: +p.position.z.toFixed(2),
@@ -327,93 +401,55 @@ export class MultiplayerManager {
       bs: p.boardslideType || null,
       ba: +(p.boardslideAngle || 0).toFixed(3),
       trick: this.game.tricks.lastTrickName || null,
-    });
+    }).catch(() => { /* dropped frame, next one will follow */ });
   }
 
-  listenToGameState() {
-    const uid = this.game.currentUser.uid;
-    const playersRef = rtdbRef(this.rtdb, `games/${this.partyCode}/players`);
+  receivePlayers(allPlayers) {
+    const myKey = this.status === 'riding' ? this._myMapKey : null;
 
-    const unsub = onValue(playersRef, (snap) => {
-      if (!snap.exists()) return;
-      const allPlayers = snap.val();
+    for (const [uid, data] of Object.entries(allPlayers)) {
+      if (uid === this.uid) continue;
+      const member = this.members[uid];
+      const sameMap = myKey && data.m === myKey;
 
-      for (const [playerUid, data] of Object.entries(allPlayers)) {
-        if (playerUid === uid) continue;
-
-        // Create remote player if needed (late joiner)
-        if (!this.remotePlayers[playerUid] && this.members[playerUid]) {
-          const memberData = this.members[playerUid];
-          const remote = new RemotePlayer(
-            this.game.scene,
-            playerUid,
-            memberData.nickname || 'Player',
-            memberData.cosmetics || {}
-          );
-          this.remotePlayers[playerUid] = remote;
-        }
-
-        if (this.remotePlayers[playerUid]) {
-          this.remotePlayers[playerUid].receiveState(data);
-        }
+      if (!sameMap || !member) {
+        this.removeRemotePlayer(uid);
+        continue;
       }
-
-      // Remove remote players that are no longer in the game
-      for (const existingUid of Object.keys(this.remotePlayers)) {
-        if (!allPlayers[existingUid]) {
-          this.removeRemotePlayer(existingUid);
-        }
+      if (!this.remotePlayers[uid]) {
+        this.remotePlayers[uid] = new RemotePlayer(
+          this.game.scene, uid, member.nickname || 'Player', member.cosmetics || {}
+        );
       }
-    });
-
-    this.listeners.push(unsub);
-  }
-
-  updateRemotePlayers(dt, camera) {
-    for (const remote of Object.values(this.remotePlayers)) {
-      remote.update(dt, camera);
+      this.remotePlayers[uid].receiveState(data);
     }
-  }
 
-  // ---- CLEANUP ----
-
-  stopGameSync() {
-    this.stopSendLoop();
-    this._gameStarted = false;
-
-    // Remove all remote players from scene
     for (const uid of Object.keys(this.remotePlayers)) {
-      this.removeRemotePlayer(uid);
-    }
-
-    // Remove own game state
-    if (this.rtdb && this.game.currentUser && this.partyCode) {
-      const playerRef = rtdbRef(this.rtdb, `games/${this.partyCode}/players/${this.game.currentUser.uid}`);
-      rtdbRemove(playerRef);
+      if (!allPlayers[uid]) this.removeRemotePlayer(uid);
     }
   }
 
-  returnToLobby() {
-    this.stopGameSync();
-
-    // Reset party state to lobby so others can rejoin
-    if (this.isHost && this.partyCode) {
-      const partyRef = rtdbRef(this.rtdb, `parties/${this.partyCode}`);
-      rtdbUpdate(partyRef, { state: 'lobby', gameMode: 'park', chair: null, parkId: null });
+  removeRemotePlayer(uid) {
+    if (this.remotePlayers[uid]) {
+      this.remotePlayers[uid].dispose();
+      delete this.remotePlayers[uid];
     }
   }
 
-  cleanup() {
-    this.stopGameSync();
-    for (const unsub of this.listeners) unsub();
-    this.listeners = [];
+  clearRemotePlayers() {
+    for (const uid of Object.keys(this.remotePlayers)) this.removeRemotePlayer(uid);
+  }
+
+  /** Number of other riders currently visible on our map. */
+  get ridersHere() {
+    return Object.keys(this.remotePlayers).length;
   }
 
   // ---- UTILITY ----
 
   generateCode() {
     let code = '';
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < CODE_LENGTH; i++) {
       code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
     }
     return code;

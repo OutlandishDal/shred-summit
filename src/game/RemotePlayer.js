@@ -96,6 +96,11 @@ export class RemotePlayer {
 
   receiveState(data) {
     this.targetPos.set(data.x, data.y, data.z);
+    // Snap instead of gliding on the first update and after respawns
+    if (this.lastUpdateTime === 0 || this.currentPos.distanceTo(this.targetPos) > 40) {
+      this.currentPos.copy(this.targetPos);
+      this.currentHeading = data.h;
+    }
     this.targetHeading = data.h;
     this.targetTrickRot.set(data.tx || 0, data.ty || 0, data.tz || 0);
     this.grounded = !!data.g;

@@ -172,6 +172,27 @@ export class Game {
       authLoading: document.getElementById('auth-loading'),
       authForgot: document.getElementById('auth-forgot'),
       // Multiplayer party
+      lobbyMultiplayer: document.getElementById('lobby-multiplayer'),
+      startMultiplayerBtn: document.getElementById('start-multiplayer-btn'),
+      partyPanel: document.getElementById('party-panel'),
+      partyJoinView: document.getElementById('party-join-view'),
+      partyActiveView: document.getElementById('party-active-view'),
+      partyCreate: document.getElementById('party-create'),
+      partyJoinInput: document.getElementById('party-join-input'),
+      partyJoinBtn: document.getElementById('party-join-btn'),
+      partyCode: document.getElementById('party-code'),
+      partyCopy: document.getElementById('party-copy'),
+      partyMapLabel: document.getElementById('party-map-label'),
+      partyMembers: document.getElementById('party-members'),
+      partyStart: document.getElementById('party-start'),
+      partyLeave: document.getElementById('party-leave'),
+      partyError: document.getElementById('party-error'),
+      partyBack: document.getElementById('party-back'),
+      partyBanner: document.getElementById('party-banner'),
+      partyBannerCode: document.getElementById('party-banner-code'),
+      partyBannerInfo: document.getElementById('party-banner-info'),
+      lobbyPartyHint: document.getElementById('lobby-party-hint'),
+      partyHud: document.getElementById('party-hud'),
     };
 
     // Leaderboard (localStorage)
@@ -216,7 +237,11 @@ export class Game {
         } else if (this.state === 'dead' || this.state === 'finished') {
           this.openLobby();
         } else if (this.state === 'lobby') {
-          this.closeLobby();
+          if (this.ui.partyPanel.classList.contains('active')) {
+            this.ui.partyPanel.classList.remove('active');
+          } else {
+            this.dropIn();
+          }
         }
       }
     });
@@ -255,6 +280,7 @@ export class Game {
 
     // Lobby setup
     this.setupLobby();
+    this.setupParty();
     this.setupLeaderboardTabs();
     this.setupNickname();
 
@@ -389,15 +415,21 @@ export class Game {
     this.ui.startScreen.style.display = '';
     this.input.disabled = false;
     this.state = 'start';
+    this.ui.startMultiplayerBtn.style.display = this.multiplayer.available ? '' : 'none';
+
+    // Opened from an invite link (?party=CODE) → join straight away
+    this.joinPartyFromInviteLink();
   }
 
   onLogout() {
+    this.multiplayer.leaveParty();
     this.state = 'auth';
     this.input.disabled = true;
     this.ui.startScreen.style.display = 'none';
-    this.ui.lobbyScreen.style.display = 'none';
-    this.ui.deathScreen.style.display = 'none';
-    this.ui.finishScreen.style.display = 'none';
+    // Hide via classes (not inline styles) so the screens still work after the next login
+    this.ui.lobbyScreen.classList.remove('active');
+    this.ui.deathScreen.classList.remove('active');
+    this.ui.finishScreen.classList.remove('active');
     this.ui.authScreen.classList.add('active');
     this.ui.authEmail.value = '';
     this.ui.authPassword.value = '';
@@ -931,15 +963,13 @@ export class Game {
       });
     });
 
-    // Drop In button — park mode (or multiplayer start)
+    // Drop In button — selected park (or the party's map)
     this.ui.lobbyDropIn.addEventListener('click', () => {
-      if (this.multiplayer.active) {
-        if (!this.multiplayer.isHost) return; // Only host can start
-        this.multiplayer.setGameMode('park', null, this.parkId);
+      if (!this.multiplayer.active) {
+        this.gameMode = 'park';
+        this.backcountryChair = null;
       }
-      this.gameMode = 'park';
-      this.backcountryChair = null;
-      this.closeLobby();
+      this.dropIn();
     });
 
     // Customize button → open customize panel
@@ -952,6 +982,7 @@ export class Game {
     // Back button → close customize panel
     this.ui.customizeBack.addEventListener('click', () => {
       this.ui.customizePanel.classList.remove('active');
+      this.multiplayer.refreshSelf();
     });
 
     // Map button → open map panel
@@ -969,15 +1000,14 @@ export class Game {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const chairId = el.dataset.chair;
-        if (this.multiplayer.active) {
-          if (!this.multiplayer.isHost) return;
-          this.multiplayer.setGameMode('backcountry', chairId);
+        if (this.multiplayer.active && !this.multiplayer.setMap('backcountry', chairId, this.parkId)) {
+          this.showPartyHint('THE PARTY LEADER PICKS THE MAP');
+          return;
         }
-        console.log('[chair click] chairId:', chairId, 'multiplayer:', this.multiplayer.active);
         this.gameMode = 'backcountry';
         this.backcountryChair = chairId;
         this.ui.mapPanel.classList.remove('active');
-        this.closeLobby();
+        this.dropIn();
       });
     });
 
@@ -999,6 +1029,11 @@ export class Game {
         e.stopPropagation();
         document.querySelectorAll('.park-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
+        if (this.multiplayer.active && !this.multiplayer.setMap('park', null, card.dataset.park)) {
+          this.showPartyHint('THE PARTY LEADER PICKS THE MAP');
+          this.highlightParkCard(this.multiplayer.map.parkId);
+          return;
+        }
         this.parkId = card.dataset.park;
         this.gameMode = 'park';
         this.backcountryChair = null;
@@ -1038,6 +1073,7 @@ export class Game {
         return;
       }
       this.nicknameManager.save(value);
+      this.multiplayer.refreshSelf();
       this.ui.accountNickname.textContent = value;
       this.ui.accountNicknameEditRow.style.display = 'none';
       this.ui.accountNickname.parentElement.style.display = 'flex';
@@ -1075,18 +1111,240 @@ export class Game {
     });
   }
 
-  updatePartyMembers(members, hostUid) {
+  // ---- MULTIPLAYER ----
 
-    // Sync lobby remote players if currently in lobby
-    if (this.state === 'lobby' && this.lobbyGroup) {
-      this.syncLobbyRemotePlayers();
+  setupParty() {
+    const mp = this.multiplayer;
+    const ui = this.ui;
+
+    // Multiplayer needs Firebase (accounts + Realtime Database)
+    ui.startMultiplayerBtn.style.display = isFirebaseConfigured() ? '' : 'none';
+    ui.lobbyMultiplayer.style.display = isFirebaseConfigured() ? '' : 'none';
+
+    ui.lobbyMultiplayer.addEventListener('click', () => this.openPartyPanel());
+    ui.partyBanner.addEventListener('click', () => this.openPartyPanel());
+    ui.partyPanel.addEventListener('click', (e) => e.stopPropagation());
+    ui.partyBack.addEventListener('click', () => ui.partyPanel.classList.remove('active'));
+
+    // Start screen → go to the lobby with the multiplayer panel open
+    ui.startMultiplayerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ensureNickname(() => {
+        this.enterLobbyFromStart();
+        this.openPartyPanel();
+      });
+    });
+
+    ui.partyCreate.addEventListener('click', async () => {
+      await this.runPartyAction('CREATING PARTY...', () => mp.createParty());
+    });
+
+    const join = async () => {
+      const code = ui.partyJoinInput.value;
+      await this.runPartyAction('JOINING...', () => mp.joinParty(code));
+    };
+    ui.partyJoinBtn.addEventListener('click', join);
+    ui.partyJoinInput.addEventListener('input', () => {
+      ui.partyJoinInput.value = ui.partyJoinInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    ui.partyJoinInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') join();
+    });
+    ui.partyJoinInput.addEventListener('keyup', (e) => e.stopPropagation());
+
+    ui.partyCopy.addEventListener('click', async () => {
+      const url = mp.inviteLink;
+      if (!url) return;
+      try {
+        if (isTouchDevice && navigator.share) {
+          await navigator.share({ title: 'Shred Summit', text: `Ride with me! Party code ${mp.partyCode}`, url });
+          return;
+        }
+        await navigator.clipboard.writeText(url);
+        ui.partyCopy.textContent = 'COPIED!';
+      } catch (e) {
+        ui.partyCopy.textContent = 'SHARE THE CODE ABOVE';
+      }
+      setTimeout(() => { ui.partyCopy.textContent = 'COPY INVITE LINK'; }, 1800);
+    });
+
+    ui.partyStart.addEventListener('click', () => this.dropIn());
+
+    ui.partyLeave.addEventListener('click', async () => {
+      await mp.leaveParty();
+      this.setPartyError('');
+    });
+  }
+
+  async runPartyAction(pendingText, action) {
+    const ui = this.ui;
+    ui.partyCreate.disabled = true;
+    ui.partyJoinBtn.disabled = true;
+    this.setPartyError(pendingText, true);
+    try {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('CONNECTION TIMED OUT, CHECK YOUR INTERNET')), 10000));
+      const result = await Promise.race([action(), timeout]);
+      this.setPartyError(result.error || '');
+    } catch (e) {
+      console.warn('[multiplayer]', e);
+      const denied = /permission/i.test(e.message || '');
+      this.setPartyError(denied ? 'MULTIPLAYER IS NOT SET UP ON THE SERVER YET' : (e.message || 'CONNECTION FAILED'));
+    } finally {
+      ui.partyCreate.disabled = false;
+      ui.partyJoinBtn.disabled = false;
+      this.renderPartyPanel();
     }
   }
 
-  onPartyDissolved() {
-    // If we were playing, go back to lobby
-    if (this.state === 'playing' || this.state === 'dead' || this.state === 'finished') {
+  setPartyError(text, ok = false) {
+    this.ui.partyError.textContent = text;
+    this.ui.partyError.classList.toggle('ok', ok);
+  }
+
+  openPartyPanel() {
+    this.renderPartyPanel();
+    this.ui.mapPanel.classList.remove('active');
+    this.ui.customizePanel.classList.remove('active');
+    this.ui.accountPanel.classList.remove('active');
+    this.ui.partyPanel.classList.add('active');
+    if (!this.multiplayer.available) this.setPartyError('SIGN IN TO PLAY ONLINE');
+  }
+
+  enterLobbyFromStart() {
+    if (this.state !== 'start') return;
+    this.ui.startScreen.style.display = 'none';
+    this.clock.start();
+    this.openLobby();
+  }
+
+  /** Opened with ?party=CODE → join that party and show the lobby. */
+  joinPartyFromInviteLink() {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('party');
+    if (!code) return;
+    params.delete('party');
+    const query = params.toString();
+    history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash);
+
+    this.ensureNickname(() => {
+      this.enterLobbyFromStart();
+      this.openPartyPanel();
+      this.runPartyAction('JOINING...', () => this.multiplayer.joinParty(code));
+    });
+  }
+
+  /** Leave the lobby and start riding. In a party, the leader brings everyone waiting along. */
+  dropIn() {
+    if (this.state !== 'lobby') return;
+    if (this.multiplayer.isLeader) this.multiplayer.startRun();
+    this.closeLobby();
+  }
+
+  applyPartyMap(map) {
+    this.gameMode = map.mode;
+    this.backcountryChair = map.mode === 'backcountry' ? map.chair : null;
+    this.parkId = map.parkId || 'big-white';
+  }
+
+  partyMapName(map) {
+    const el = map.mode === 'backcountry'
+      ? document.querySelector(`.map-chair[data-chair="${map.chair}"] .map-chair-label`)
+      : document.querySelector(`.park-card[data-park="${map.parkId}"] .park-card-name`);
+    return el ? el.textContent.trim() : 'UNKNOWN MAP';
+  }
+
+  highlightParkCard(parkId) {
+    document.querySelectorAll('.park-card').forEach(c =>
+      c.classList.toggle('selected', c.dataset.park === parkId)
+    );
+  }
+
+  showPartyHint(text) {
+    this.ui.lobbyPartyHint.textContent = text;
+    clearTimeout(this._partyHintTimer);
+    this._partyHintTimer = setTimeout(() => { this.ui.lobbyPartyHint.textContent = ''; }, 2500);
+  }
+
+  // Called by MultiplayerManager whenever members or connection state change
+  onPartyChanged() {
+    this.renderPartyPanel();
+    this.updatePartyHud();
+    if (this.state === 'lobby' && this.lobbyGroup) this.syncLobbyRemotePlayers();
+  }
+
+  onPartyMapChanged(map) {
+    if (this.state === 'lobby' || this.state === 'start') {
+      this.parkId = map.parkId || 'big-white';
+      this.highlightParkCard(this.parkId);
+    }
+    this.renderPartyPanel();
+  }
+
+  // The leader started a run: anyone waiting drops in with them
+  onPartyRunStarted() {
+    if (this.state === 'lobby') {
+      this.closeLobby();
+    } else if (this.state === 'dead' || this.state === 'finished') {
       this.openLobby();
+      this.closeLobby();
+    }
+  }
+
+  renderPartyPanel() {
+    const mp = this.multiplayer;
+    const ui = this.ui;
+    const inParty = mp.active;
+
+    ui.partyJoinView.style.display = inParty ? 'none' : 'flex';
+    ui.partyActiveView.style.display = inParty ? 'flex' : 'none';
+    ui.partyCreate.disabled = ui.partyCreate.disabled || !mp.available;
+    ui.lobbyMultiplayer.textContent = inParty ? `PARTY (${mp.memberCount})` : 'MULTIPLAYER';
+
+    // Lobby banner
+    ui.partyBanner.style.display = inParty ? '' : 'none';
+    if (inParty) {
+      ui.partyBannerCode.textContent = mp.partyCode;
+      const riders = mp.memberCount === 1 ? 'JUST YOU SO FAR' : `${mp.memberCount} RIDERS`;
+      ui.partyBannerInfo.textContent = `${riders} · ${this.partyMapName(mp.map)}${mp._connected ? '' : ' · RECONNECTING...'}`;
+    }
+
+    if (!inParty) return;
+
+    ui.partyCode.textContent = mp.partyCode;
+    ui.partyMapLabel.textContent = mp.isLeader
+      ? `MAP: ${this.partyMapName(mp.map)} — YOU'RE THE LEADER, PICK MAPS FROM THE MAP MENU`
+      : `MAP: ${this.partyMapName(mp.map)} — THE LEADER PICKS THE MAP`;
+    ui.partyStart.textContent = mp.isLeader ? 'DROP IN TOGETHER' : 'DROP IN';
+
+    const leader = mp.leaderUid;
+    ui.partyMembers.innerHTML = '';
+    const uids = Object.keys(mp.members).sort((a, b) => (a === leader ? -1 : b === leader ? 1 : 0));
+    for (const uid of uids) {
+      const m = mp.members[uid];
+      const row = document.createElement('div');
+      row.className = 'party-member' + (uid === mp.uid ? ' me' : '');
+      const name = document.createElement('span');
+      name.textContent = `${uid === leader ? '★ ' : ''}${m.nickname || 'Player'}${uid === mp.uid ? ' (YOU)' : ''}`;
+      const status = document.createElement('span');
+      status.className = 'party-member-status' + (m.status === 'riding' ? ' riding' : '');
+      status.textContent = m.status === 'riding' ? 'RIDING' : 'IN LOBBY';
+      row.append(name, status);
+      ui.partyMembers.appendChild(row);
+    }
+  }
+
+  updatePartyHud() {
+    const mp = this.multiplayer;
+    const show = mp.active && (this.state === 'playing' || this.state === 'dead' || this.state === 'finished');
+    const text = show
+      ? `PARTY ${mp.partyCode} · ${mp.ridersHere + 1}/${mp.memberCount} ON THIS RUN${mp._connected ? '' : ' · RECONNECTING...'}`
+      : '';
+    if (this._partyHudText !== text) {
+      this._partyHudText = text;
+      this.ui.partyHud.textContent = text;
+      this.ui.partyHud.style.display = show ? '' : 'none';
     }
   }
 
@@ -1120,24 +1378,28 @@ export class Game {
       c.classList.toggle('selected', c.dataset.park === this.parkId)
     );
     this.ui.accountPanel.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
     this.ui.lobbyScreen.classList.add('active');
     this.player.cleanupDebris();
     this.player.boardGroup.visible = true;
     this.applyEquippedItems();
     this.setupLobbyScene();
 
-    // Multiplayer: stop game sync but keep party connection
-    if (this.multiplayer.active) {
-      this.multiplayer.returnToLobby();
-    }
+    // Multiplayer: stop sending our position but stay in the party
+    this.multiplayer.onLocalReturnedToLobby();
+    this.onPartyChanged();
   }
 
   closeLobby() {
     // Guard against double-calling (e.g. click handler + Firebase callback)
     if (this.state !== 'lobby') return;
 
+    // In a party everyone rides the party's map
+    if (this.multiplayer.active) this.applyPartyMap(this.multiplayer.map);
+
     // Hide lobby UI immediately so it disappears even if teardown errors
     this.ui.lobbyScreen.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
     this.teardownLobbyScene();
     this.applyEquippedItems();
     // Evaluate day/night: preference overrides real clock
@@ -1163,10 +1425,9 @@ export class Game {
     }
     this.fullReset();
 
-    // Multiplayer: notify manager that game started locally
-    if (this.multiplayer.active) {
-      this.multiplayer.onLocalGameStarted();
-    }
+    // Multiplayer: start sharing our position
+    this.multiplayer.onLocalRunStarted();
+    this.onPartyChanged();
   }
 
   swapTerrain() {
@@ -1201,7 +1462,8 @@ export class Game {
       this.terrain = new BackcountryTerrain(this.scene, this.backcountryChair, useNight);
     } else {
       console.log('[swapTerrain] Creating Park Terrain, parkId:', this.parkId, 'night:', useNight);
-      const seed = this.multiplayer.active ? this.multiplayer.terrainSeed : null;
+      // Party members share the park layout via a common seed
+      const seed = this.multiplayer.active ? this.multiplayer.map.seed : null;
       this.terrain = new Terrain(this.scene, seed, this.parkId, useNight);
       this.parkTerrain = this.terrain;
     }
@@ -1844,10 +2106,7 @@ export class Game {
       }
 
       // Multiplayer: send local state and update remote players
-      if (this.multiplayer.active && this.multiplayer._gameStarted) {
-        this.multiplayer.sendState();
-        this.multiplayer.updateRemotePlayers(dt, this.camera);
-      }
+      this.multiplayer.update(dt, this.camera);
 
       // Star field follows player (backcountry night)
       if (this.starField) {
@@ -1876,6 +2135,7 @@ export class Game {
     } else if (this.state === 'dead' || this.state === 'finished') {
       this.particles.update(dt);
       this.updateSkiPatrol(dt);
+      this.multiplayer.update(dt, this.camera);
     } else if (this.state === 'lobby') {
       this.updateLobby(dt);
     }
@@ -2428,7 +2688,8 @@ export class Game {
 
     // Seat angles for up to 3 remote players (semicircle around fire)
     const REMOTE_SEAT_ANGLES = [3 * Math.PI / 4, Math.PI / 4, Math.PI];
-    const remoteMemberUids = Object.keys(members).filter(uid => uid !== selfUid);
+    const remoteMemberUids = Object.keys(members)
+      .filter(uid => uid !== selfUid && members[uid].status !== 'riding');
 
     // Remove players who left
     for (const uid of Object.keys(this.lobbyRemotePlayers)) {
@@ -2897,6 +3158,8 @@ export class Game {
     } else {
       this.ui.checkpointAlert.style.opacity = '0';
     }
+
+    this.updatePartyHud();
 
     // Combo
     if (trickState.combo > 1 && trickState.comboTimer > 0) {
