@@ -1252,8 +1252,12 @@ export class Player {
             this.landingZoneSlopeAbsorb = Math.min(worldSlope * 0.8, 0.7);
             const t = (d - j.landStart) / (j.landEnd - j.landStart);
             this.landingQuality = (t >= 0.15 && t <= 0.7) ? 'perfect' : 'clean';
+          } else if (part === 'knuckle') {
+            // Casing the knuckle: rough but the rounded edge soaks up some of it
+            this.landingZoneSlopeAbsorb = 0.45;
+            this.landingQuality = 'clean';
           } else if (part !== 'kicker') {
-            // Deck or knuckle: flat and harsh — you came up short
+            // Deck: flat and harsh — you came up short
             this.landingZoneSlopeAbsorb = 0;
             this.landingQuality = 'clean';
           }
@@ -1487,8 +1491,9 @@ export class Player {
       } else if (jumpHeld) {
         this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
       } else if (this.ollieCharge > 0) {
-        if (this.onKicker) {
-          // Released on a kicker or rail lip: used when you reach the lip
+        if (this.onKicker || this._jumpAhead(terrain)) {
+          // Released on a kicker, a rail lip, or the run-in to a jump: saved for the lip
+          // (you can't pop off a jump before its lip)
           this.kickerPopBoost = this._popStrength(this.ollieCharge);
           this.ollieCharge = 0;
         } else if (this.ollieCharge >= 0.15) {
@@ -2261,9 +2266,22 @@ export class Player {
     this.lastPopTime = performance.now();
     this.lastPopPerfect = meter >= lo && meter <= hi;
     if (meter < 0.15) return 0;
-    if (meter < lo) return 0.3 + 0.55 * (meter / lo);
-    if (meter <= hi) return 1;
-    return 0.8;
+    if (meter < lo) return 0.25 + 0.45 * (meter / lo); // early: up to 0.7
+    if (meter <= hi) return 1;                         // perfect pop: clearly the most height
+    return 0.65;                                       // held too long
+  }
+
+  // A jump kicker just ahead on the run-in (or under you): pops are saved for its lip
+  _jumpAhead(terrain) {
+    for (const ramp of terrain.ramps) {
+      const j = ramp.jump;
+      if (!j) continue;
+      const before = this.position.z - j.zStart;
+      if (before < -j.transLen || before > 40) continue;
+      if (Math.abs(this.position.x - j.x) > j.width / 2 + 1) continue;
+      return ramp;
+    }
+    return null;
   }
 
   // Pop strength at a lip: an ollie released on the kicker, or one still being held (0 = no pop)
