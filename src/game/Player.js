@@ -100,7 +100,8 @@ export class Player {
     this.railPerfectOn = false;
     this.railPerfectOff = false;
     this._swapTimer = 0;         // frontswap in progress (seconds left)
-    this.swapDuration = 0.5;     // a frontswap takes this long; no new swap until it finishes
+    this.swapDuration = 0.25;    // a frontswap takes this long; no new swap until it finishes
+    this.swapHopHeight = 0.3;    // how high the board hops off the rail during a frontswap
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -1656,7 +1657,10 @@ export class Player {
 
         // Lock Y to rail surface height at player's Z (follows terrain slope)
         const railTop = this._getRailTop(this.grindRail, terrain);
-        this.position.y = railTop + 0.2;
+        // A frontswap is a little hop: the board lifts off the rail and lands back on it
+        const swapHop = this._swapTimer > 0
+          ? Math.sin(Math.PI * (1 - this._swapTimer / this.swapDuration)) * this.swapHopHeight : 0;
+        this.position.y = railTop + 0.2 + swapHop;
         this.velocity.y = 0;
 
         // Maintain forward speed — very light friction so momentum carries
