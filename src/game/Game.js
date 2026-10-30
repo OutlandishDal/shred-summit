@@ -38,7 +38,7 @@ export class Game {
     this.terrain = new Terrain(this.scene);
     this.parkTerrain = this.terrain; // keep reference to default park terrain
     this.gameMode = 'park';          // 'park' | 'backcountry'
-    this.backcountryChair = null;    // 'summit', 'biggie', 'peak', 'moonlight'
+    this.backcountryChair = null;    // 'peak', 'oldgrowth'
     this.auroraIntensity = 0;        // 0=dark moonlit, 1=full aurora
     this.auroraActive = false;       // true when playing Moonlight Ridge
     this.auroraMultiplier = 1.0;     // score multiplier from aurora (1.0–7.5)
@@ -47,7 +47,7 @@ export class Game {
     this.nightBlend = 0;             // 0=day, 1=full night (for dawn/dusk lerp)
     this.starField = null;           // night sky stars (backcountry only)
     this.daynightPref = localStorage.getItem('shred-daynight') || 'auto'; // 'auto' | 'day' | 'night'
-    this.parkId = 'big-white';       // 'big-white', 'woodward', 'xgames'
+    this.parkId = 'big-white';       // 'big-white', 'woodward', 'xgames', 'slopestyle'
     this.selectedEquipment = 'snowboard';
     this.selectedStance = 'regular';
     this.player = new Player(this.scene, this.selectedEquipment);
@@ -2907,7 +2907,7 @@ export class Game {
   // ---- SUMMIT LEADERBOARD (backcountry, all-time) ----
 
   loadSummitLeaderboard() {
-    const chair = this.backcountryChair || 'summit';
+    const chair = this.backcountryChair || 'peak';
     try {
       const data = localStorage.getItem(`shred-summit-summit-leaderboard-${chair}`);
       if (data) return JSON.parse(data);
@@ -2916,7 +2916,7 @@ export class Game {
   }
 
   saveSummitLeaderboard() {
-    const chair = this.backcountryChair || 'summit';
+    const chair = this.backcountryChair || 'peak';
     try {
       localStorage.setItem(`shred-summit-summit-leaderboard-${chair}`, JSON.stringify(this.summitLeaderboard));
     } catch (e) { /* ignore */ }

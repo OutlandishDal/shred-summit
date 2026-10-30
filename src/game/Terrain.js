@@ -75,28 +75,6 @@ const PARK_CONFIGS = {
     railsPerChunk: [8, 12],
     heavyKinks: true,
   },
-  'street': {
-    name: 'HEAVY METAL STREET',
-    checkpointCount: 6, checkpointInterval: 600,
-    railWidthScale: 1,
-    railTypes: ['ledge', 'stairRail', 'hubbaLedge', 'flatDownFlat', 'kinkRail'],
-    isStreet: true,
-    zones: {
-      1: {
-        medium: { feet: 30, lipHeight: 2.0, lipAngle: 0.45 },
-        small:  { feet: 20, lipHeight: 1.5, lipAngle: 0.40 },
-        big:    { feet: 45, lipHeight: 2.5, lipAngle: 0.50 },
-      },
-      2: {
-        medium: { feet: 50, lipHeight: 3.0, lipAngle: 0.50 },
-        small:  { feet: 35, lipHeight: 2.0, lipAngle: 0.45 },
-        big:    { feet: 65, lipHeight: 4.0, lipAngle: 0.55 },
-      },
-    },
-    zoneThreshold: -1800,
-    booterFeet: 100, booterPositions: [-3000, -3250],
-    railsPerChunk: [8, 12],
-  },
   'slopestyle': {
     name: 'SLOPESTYLE COURSE',
     checkpointCount: 6, checkpointInterval: 600,
@@ -189,26 +167,6 @@ export class Terrain {
       color: 0xff6600, roughness: 0.6,
     });
 
-    // Street park materials
-    this.concreteMaterial = new THREE.MeshStandardMaterial({
-      color: 0x777777, roughness: 0.9, metalness: 0.0, flatShading: true,
-    });
-    this.metalRailMaterial = new THREE.MeshStandardMaterial({
-      color: 0xcccccc, roughness: 0.3, metalness: 0.6,
-    });
-    this.buildingMaterial = new THREE.MeshStandardMaterial({
-      color: 0x555555, roughness: 0.85, metalness: 0.0,
-    });
-    this.windowMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffdd88, emissive: 0xffdd88, emissiveIntensity: 0.3,
-    });
-    this.barrierMaterial = new THREE.MeshStandardMaterial({
-      color: 0xdd3333, roughness: 0.6, metalness: 0.1,
-    });
-    this.streetLightBulbMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffcc, emissive: 0xffdd88, emissiveIntensity: 0.6,
-    });
-
     // Floodlight materials (used day and night, but lights only active at night)
     this.floodlightPoleMaterial = new THREE.MeshStandardMaterial({
       color: 0x555555, roughness: 0.7, metalness: 0.3,
@@ -220,11 +178,10 @@ export class Terrain {
       roughness: 0.3, metalness: 0.5,
     });
 
-    // Night mode: slight blue tint on snow, brighter windows
+    // Night mode: slight blue tint on snow
     if (nightMode) {
       this.snowMaterial.color.set(0xc0ccdd);
       this.rampMaterial.color.set(0xb0c0d8);
-      this.windowMaterial.emissiveIntensity = 1.0;
     }
 
     for (let i = 0; i < 5; i++) {
@@ -259,21 +216,11 @@ export class Terrain {
 
       // Subtle snow color variation — whites and light blues
       const normalizedX = Math.abs(x) / (this.chunkWidth / 2);
-      if (this.config.isStreet) {
-        // Snow-on-asphalt: darker base with occasional dark pavement patches
-        const base = 0.82 + Math.sin(x * 0.1 + globalZ * 0.05) * 0.04;
-        const patch = Math.sin(x * 0.3 + globalZ * 0.2) * Math.sin(x * 0.17 + globalZ * 0.13);
-        const dark = patch > 0.6 ? 0.12 : 0;
-        colors[i * 3] = base - dark;
-        colors[i * 3 + 1] = base - dark;
-        colors[i * 3 + 2] = base - dark + 0.01;
-      } else {
-        const base = 0.92 + Math.sin(x * 0.1 + globalZ * 0.05) * 0.04;
-        const blueShift = normalizedX > 0.5 ? 0.02 : 0;
-        colors[i * 3] = base - blueShift;
-        colors[i * 3 + 1] = base + 0.01;
-        colors[i * 3 + 2] = base + blueShift * 2 + 0.02;
-      }
+      const base = 0.92 + Math.sin(x * 0.1 + globalZ * 0.05) * 0.04;
+      const blueShift = normalizedX > 0.5 ? 0.02 : 0;
+      colors[i * 3] = base - blueShift;
+      colors[i * 3 + 1] = base + 0.01;
+      colors[i * 3 + 2] = base + blueShift * 2 + 0.02;
     }
 
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -551,103 +498,47 @@ export class Terrain {
 
     // --- Phase 3: Scenery (placed AFTER features to avoid exclusion zones) ---
 
-    if (this.config.isStreet) {
-      // Urban scenery: buildings, street lights, barriers
-      const buildingCount = 8 + Math.floor(this.rand() * 6);
-      for (let i = 0; i < buildingCount; i++) {
-        const side = this.rand() > 0.5 ? 1 : -1;
-        const x = side * (30 + this.rand() * 20);
-        const z = (this.rand() - 0.5) * this.chunkLength;
-        const globalZ = zOffset + z;
-        const y = this.computeHeight(x, globalZ);
+    // Standard park scenery: trees and rocks
+    const treeCount = 25 + Math.floor(this.rand() * 15);
+    for (let i = 0; i < treeCount; i++) {
+      const side = this.rand() > 0.5 ? 1 : -1;
+      const edgeBias = this.rand() < 0.7;
+      const x = edgeBias
+        ? side * (28 + this.rand() * 25)
+        : (this.rand() - 0.5) * 50;
+      const z = (this.rand() - 0.5) * this.chunkLength;
+      const globalZ = zOffset + z;
+      const y = this.computeHeight(x, globalZ);
+      if (Math.abs(x) < 8) continue;
+      if (isInExclusionZone(x, globalZ)) continue;
 
-        const building = this.createBuilding();
-        building.position.set(x, y, globalZ);
-        this.scene.add(building);
-        chunk.objects.push(building);
-        this.obstacles.push({
-          position: new THREE.Vector3(x, y, globalZ),
-          radius: 4.0, type: 'rock', chunkId,
-        });
-      }
+      const tree = this.createPineTree();
+      tree.position.set(x, y, globalZ);
+      this.scene.add(tree);
+      chunk.objects.push(tree);
+      this.obstacles.push({
+        position: new THREE.Vector3(x, y, globalZ),
+        radius: 1.2, type: 'tree', chunkId,
+      });
+    }
 
-      // Street lights along edges
-      const lightCount = 3 + Math.floor(this.rand() * 3);
-      for (let i = 0; i < lightCount; i++) {
-        const side = this.rand() > 0.5 ? 1 : -1;
-        const x = side * (24 + this.rand() * 6);
-        const z = (this.rand() - 0.5) * this.chunkLength;
-        const globalZ = zOffset + z;
-        const y = this.computeHeight(x, globalZ);
+    const rockCount = 3 + Math.floor(this.rand() * 4);
+    for (let i = 0; i < rockCount; i++) {
+      const x = (this.rand() - 0.5) * 50;
+      const z = (this.rand() - 0.5) * this.chunkLength;
+      const globalZ = zOffset + z;
+      const y = this.computeHeight(x, globalZ);
+      if (Math.abs(x) < 6) continue;
+      if (isInExclusionZone(x, globalZ)) continue;
 
-        const light = this.createStreetLight(side);
-        light.position.set(x, y, globalZ);
-        this.scene.add(light);
-        chunk.objects.push(light);
-        this.obstacles.push({
-          position: new THREE.Vector3(x, y, globalZ),
-          radius: 0.5, type: 'tree', chunkId,
-        });
-      }
-
-      // Crowd barriers along sides
-      const barrierCount = 4 + Math.floor(this.rand() * 4);
-      for (let i = 0; i < barrierCount; i++) {
-        const side = this.rand() > 0.5 ? 1 : -1;
-        const x = side * (22 + this.rand() * 4);
-        const z = (this.rand() - 0.5) * this.chunkLength;
-        const globalZ = zOffset + z;
-        const y = this.computeHeight(x, globalZ);
-        if (isInExclusionZone(x, globalZ)) continue;
-
-        const barrier = this.createBarrier();
-        barrier.position.set(x, y, globalZ);
-        this.scene.add(barrier);
-        chunk.objects.push(barrier);
-      }
-    } else {
-      // Standard park scenery: trees and rocks
-      const treeCount = 25 + Math.floor(this.rand() * 15);
-      for (let i = 0; i < treeCount; i++) {
-        const side = this.rand() > 0.5 ? 1 : -1;
-        const edgeBias = this.rand() < 0.7;
-        const x = edgeBias
-          ? side * (28 + this.rand() * 25)
-          : (this.rand() - 0.5) * 50;
-        const z = (this.rand() - 0.5) * this.chunkLength;
-        const globalZ = zOffset + z;
-        const y = this.computeHeight(x, globalZ);
-        if (Math.abs(x) < 8) continue;
-        if (isInExclusionZone(x, globalZ)) continue;
-
-        const tree = this.createPineTree();
-        tree.position.set(x, y, globalZ);
-        this.scene.add(tree);
-        chunk.objects.push(tree);
-        this.obstacles.push({
-          position: new THREE.Vector3(x, y, globalZ),
-          radius: 1.2, type: 'tree', chunkId,
-        });
-      }
-
-      const rockCount = 3 + Math.floor(this.rand() * 4);
-      for (let i = 0; i < rockCount; i++) {
-        const x = (this.rand() - 0.5) * 50;
-        const z = (this.rand() - 0.5) * this.chunkLength;
-        const globalZ = zOffset + z;
-        const y = this.computeHeight(x, globalZ);
-        if (Math.abs(x) < 6) continue;
-        if (isInExclusionZone(x, globalZ)) continue;
-
-        const rock = this.createRock();
-        rock.position.set(x, y, globalZ);
-        this.scene.add(rock);
-        chunk.objects.push(rock);
-        this.obstacles.push({
-          position: new THREE.Vector3(x, y, globalZ),
-          radius: 2.0, type: 'rock', chunkId,
-        });
-      }
+      const rock = this.createRock();
+      rock.position.set(x, y, globalZ);
+      this.scene.add(rock);
+      chunk.objects.push(rock);
+      this.obstacles.push({
+        position: new THREE.Vector3(x, y, globalZ),
+        radius: 2.0, type: 'rock', chunkId,
+      });
     }
 
     // Floodlights along the run (always placed, but only lit at night)
@@ -1428,9 +1319,6 @@ export class Terrain {
       case 'downFlatDown': return this.createDownFlatDownRail(ls * 0.71, ws);
       case 'donkeyDick':  return this.createDonkeyDickRail(ls, ws);
       case 'waterfall':   return this.createWaterfallRail(ls, ws);
-      case 'ledge':       return this.createLedge(ls, ws);
-      case 'stairRail':   return this.createStairRail(ls, ws);
-      case 'hubbaLedge':  return this.createHubbaLedge(ls, ws);
       default:            return this.createParkRail(railLength, railHeight, 0);
     }
   }
@@ -1467,296 +1355,6 @@ export class Terrain {
     // Gap-on entry kicker at +Z (uphill) end
     this.addRailEntryLip(group, railLength / 2, railHeight);
     group.userData.surfaceHeight = railHeight;
-    return group;
-  }
-
-  // --- STREET RAIL TYPES ---
-
-  // Concrete ledge: wide flat grindable surface with snow dusting
-  createLedge(lengthScale = 1, widthScale = 1) {
-    const group = new THREE.Group();
-    const ledgeLength = 10 * lengthScale;
-    const ledgeWidth = 1.8 * widthScale;
-    const ledgeHeight = 0.5;
-
-    // Main concrete body
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(ledgeWidth, ledgeHeight, ledgeLength),
-      this.concreteMaterial
-    );
-    body.position.y = ledgeHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
-
-    // Snow dusting on top
-    const snow = new THREE.Mesh(
-      new THREE.BoxGeometry(ledgeWidth + 0.04, 0.04, ledgeLength + 0.04),
-      this.snowMaterial
-    );
-    snow.position.y = ledgeHeight + 0.02;
-    group.add(snow);
-
-    this.addRailEntryLip(group, ledgeLength / 2, ledgeHeight);
-    group.userData.surfaceHeight = ledgeHeight;
-    return group;
-  }
-
-  // Stair rail: metal handrail descending alongside concrete steps
-  createStairRail(lengthScale = 1, widthScale = 1) {
-    const group = new THREE.Group();
-    const totalLength = 10 * lengthScale;
-    const startHeight = 1.2;
-    const endHeight = 0.4;
-    const stepCount = Math.max(3, Math.round(4 * lengthScale));
-    const stepLength = totalLength / stepCount;
-    const stepDrop = (startHeight - endHeight) / stepCount;
-
-    // Concrete steps
-    for (let i = 0; i < stepCount; i++) {
-      const t = i / stepCount;
-      const stepZ = totalLength / 2 - stepLength / 2 - i * stepLength;
-      const stepY = startHeight - i * stepDrop;
-      const stepH = stepY;
-
-      const step = new THREE.Mesh(
-        new THREE.BoxGeometry(2.0 * widthScale, stepH, stepLength),
-        this.concreteMaterial
-      );
-      step.position.set(0.8 * widthScale, stepH / 2, stepZ);
-      step.castShadow = false;
-      group.add(step);
-
-      // Snow on step tread
-      const tread = new THREE.Mesh(
-        new THREE.BoxGeometry(2.0 * widthScale, 0.03, stepLength * 0.9),
-        this.snowMaterial
-      );
-      tread.position.set(0.8 * widthScale, stepH + 0.015, stepZ);
-      group.add(tread);
-    }
-
-    // Metal handrail — angled tube from high to low
-    const railLen = Math.sqrt(totalLength * totalLength + (startHeight - endHeight) * (startHeight - endHeight));
-    const rail = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, railLen, 8),
-      this.metalRailMaterial
-    );
-    const railAngle = Math.atan2(startHeight - endHeight, totalLength);
-    rail.rotation.x = Math.PI / 2 - railAngle;
-    rail.position.set(-0.3 * widthScale, (startHeight + endHeight) / 2, 0);
-    rail.castShadow = true;
-    group.add(rail);
-
-    // Support posts for handrail
-    for (const t of [0, 0.5, 1]) {
-      const pz = totalLength / 2 - t * totalLength;
-      const ph = startHeight - t * (startHeight - endHeight);
-      const post = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, ph, 6),
-        this.metalRailMaterial
-      );
-      post.position.set(-0.3 * widthScale, ph / 2, pz);
-      group.add(post);
-    }
-
-    this.addRailEntryLip(group, totalLength / 2, startHeight);
-    group.userData.surfaceHeight = startHeight;
-    group.userData.startHeight = startHeight;
-    group.userData.endHeight = endHeight;
-    return group;
-  }
-
-  // Hubba ledge: angled concrete wedge alongside stairs
-  createHubbaLedge(lengthScale = 1, widthScale = 1) {
-    const group = new THREE.Group();
-    const hubbaLength = 10 * lengthScale;
-    const startHeight = 1.0;
-    const hubbaWidth = 1.4 * widthScale;
-
-    // Wedge shape using ExtrudeGeometry
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0);
-    shape.lineTo(hubbaLength, 0);
-    shape.lineTo(hubbaLength, 0.05); // nearly flush at bottom end
-    shape.lineTo(0, startHeight);
-    shape.closePath();
-
-    const extrudeSettings = { depth: hubbaWidth, bevelEnabled: false };
-    const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    // Rotate to align: extrude goes along X, we want it along X width
-    geo.rotateY(Math.PI / 2);
-    geo.translate(hubbaWidth / 2, 0, hubbaLength / 2);
-
-    const wedge = new THREE.Mesh(geo, this.concreteMaterial);
-    wedge.castShadow = true;
-    wedge.receiveShadow = true;
-    group.add(wedge);
-
-    // Snow dusting on angled top surface
-    const snowShape = new THREE.Shape();
-    snowShape.moveTo(0, 0);
-    snowShape.lineTo(hubbaLength, 0);
-    snowShape.lineTo(0, startHeight);
-    snowShape.closePath();
-    const snowGeo = new THREE.ExtrudeGeometry(snowShape, { depth: hubbaWidth + 0.04, bevelEnabled: false });
-    snowGeo.rotateY(Math.PI / 2);
-    snowGeo.translate((hubbaWidth + 0.04) / 2, 0.03, hubbaLength / 2);
-    const snowCap = new THREE.Mesh(snowGeo, this.snowMaterial);
-    group.add(snowCap);
-
-    this.addRailEntryLip(group, hubbaLength / 2, startHeight);
-    group.userData.surfaceHeight = startHeight;
-    group.userData.startHeight = startHeight;
-    group.userData.endHeight = 0.05;
-    return group;
-  }
-
-  // --- URBAN SCENERY ---
-
-  createBuilding() {
-    const group = new THREE.Group();
-    const bw = 6 + this.rand() * 6;   // 6-12 wide
-    const bh = 8 + this.rand() * 12;  // 8-20 tall
-    const bd = 8 + this.rand() * 7;   // 8-15 deep
-
-    // Main building body
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(bw, bh, bd),
-      this.buildingMaterial
-    );
-    body.position.y = bh / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
-
-    // Snow on roof
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(bw + 0.1, 0.15, bd + 0.1),
-      this.snowMaterial
-    );
-    roof.position.y = bh + 0.075;
-    group.add(roof);
-
-    // Windows — merged into a single geometry (1 draw call instead of 60+)
-    const windowW = 0.6;
-    const windowH = 0.8;
-    const windowSpacingX = 2.0;
-    const windowSpacingY = 2.5;
-    const cols = Math.floor((bw - 1) / windowSpacingX);
-    const rows = Math.floor((bh - 2) / windowSpacingY);
-
-    const winPositions = [];
-    const winIndices = [];
-    let vi = 0;
-
-    for (const faceSign of [-1, 1]) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (this.rand() < 0.2) continue; // some windows dark
-          const wx = -((cols - 1) * windowSpacingX) / 2 + c * windowSpacingX;
-          const wy = 2 + r * windowSpacingY;
-          const wz = faceSign * (bd / 2 + 0.01);
-          const hw = windowW / 2;
-          const hh = windowH / 2;
-          // 4 corners of the window quad
-          winPositions.push(
-            wx - hw, wy - hh, wz,
-            wx + hw, wy - hh, wz,
-            wx + hw, wy + hh, wz,
-            wx - hw, wy + hh, wz
-          );
-          // Two triangles per quad
-          winIndices.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
-          vi += 4;
-        }
-      }
-    }
-
-    if (winPositions.length > 0) {
-      const winGeo = new THREE.BufferGeometry();
-      winGeo.setAttribute('position', new THREE.Float32BufferAttribute(winPositions, 3));
-      winGeo.setIndex(winIndices);
-      winGeo.computeVertexNormals();
-      const winMesh = new THREE.Mesh(winGeo, this.windowMaterial);
-      group.add(winMesh);
-    }
-
-    return group;
-  }
-
-  createStreetLight(side = 1) {
-    const group = new THREE.Group();
-    const poleHeight = 6;
-
-    // Pole
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.1, poleHeight, 6),
-      this.metalRailMaterial
-    );
-    pole.position.y = poleHeight / 2;
-    group.add(pole);
-
-    // Arm extending inward (toward the run)
-    const armLength = 2;
-    const arm = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, armLength, 6),
-      this.metalRailMaterial
-    );
-    arm.rotation.z = Math.PI / 2;
-    arm.position.set(-side * armLength / 2, poleHeight - 0.2, 0);
-    group.add(arm);
-
-    // Light fixture (bulb)
-    const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 6, 6),
-      this.streetLightBulbMaterial
-    );
-    bulb.position.set(-side * armLength, poleHeight - 0.3, 0);
-    group.add(bulb);
-
-    return group;
-  }
-
-  createBarrier() {
-    const group = new THREE.Group();
-    const barrierLength = 3;
-    const barrierHeight = 1.0;
-
-    // Horizontal bar
-    const bar = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.12, barrierLength),
-      this.barrierMaterial
-    );
-    bar.position.y = barrierHeight;
-    group.add(bar);
-
-    // Second horizontal bar
-    const bar2 = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.12, barrierLength),
-      this.barrierMaterial
-    );
-    bar2.position.y = barrierHeight * 0.5;
-    group.add(bar2);
-
-    // Two support legs
-    for (const z of [-barrierLength / 2 + 0.15, barrierLength / 2 - 0.15]) {
-      const leg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, barrierHeight + 0.15, 6),
-        this.metalRailMaterial
-      );
-      leg.position.set(0, (barrierHeight + 0.15) / 2, z);
-      group.add(leg);
-
-      // Foot
-      const foot = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, 0.05, 0.5),
-        this.metalRailMaterial
-      );
-      foot.position.set(0, 0.025, z);
-      group.add(foot);
-    }
-
     return group;
   }
 
