@@ -89,7 +89,7 @@ export class InputManager {
   }
 
   // ---- AIR CONTROLS ----
-  // W/S = flip forward/backward. Q/E = spin left/right.
+  // W/S = flip forward/backward. A/D = spin left/right (same keys as steering and boardslides).
 
   get flipForward() {
     return this.isDown('KeyW');
@@ -100,11 +100,11 @@ export class InputManager {
   }
 
   get spinLeft() {
-    return this.isDown('KeyQ');
+    return this.isDown('KeyA') || this.isDown('ArrowLeft');
   }
 
   get spinRight() {
-    return this.isDown('KeyE');
+    return this.isDown('KeyD') || this.isDown('ArrowRight');
   }
 
   // ---- GRABS (hold in air) ----

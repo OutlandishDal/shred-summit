@@ -1733,7 +1733,7 @@ export class Player {
           0.1
         );
 
-        // No spinning on the rail (Q/E do nothing here)
+        // No spinning on the rail (A/D are boardslides here)
         this.angularVelocity.y = 0;
         this.boardGroup.rotation.y = this.trickRotation.y + this.boardslideAngle;
 
@@ -1869,7 +1869,7 @@ export class Player {
           }
         }
 
-        // --- SPIN (Q/E) — ramp up while held, auto-snap on release ---
+        // --- SPIN (A/D) — ramp up while held, auto-snap on release ---
         if (spinning) {
           const spinDir = input.spinLeft ? 1 : -1;
           this.angularVelocity.y = rampOrBrake(
@@ -1899,11 +1899,7 @@ export class Player {
         }
       }
 
-      // Air steer — meaningful directional control while airborne
-      if (input.steer !== 0) {
-        this.velocity.x += input.steer * 8.0 * dt;
-        this.heading -= input.steer * 2.0 * dt;
-      }
+      // (No air steering: A/D spin you in the air)
 
       // Apply angular velocity to trick rotation
       this.trickRotation.x += this.angularVelocity.x * dt;
@@ -2479,7 +2475,7 @@ export class Player {
     // Signal to TrickSystem that we landed on a rail from air
     this.landedOnRail = true;
 
-    // Reset trickRotation so Q/E spins during grind accumulate fresh
+    // Reset trickRotation for the grind
     this.trickRotation.set(0, 0, 0);
     this.angularVelocity.set(0, 0, 0);
   }
