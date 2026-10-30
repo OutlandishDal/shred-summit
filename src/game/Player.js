@@ -34,6 +34,7 @@ export class Player {
     this.turnRateMax = 2.3;       // ~130 deg/s — smooth carving
     this.turnAccel = 16.0;        // snappy edge engagement
     this.turnDecel = 10.0;        // smooth decay on release
+    this.carveScrub = 0.003;      // speed lost per frame (at 60fps) per rad/s of turn
     this.edgeLean = 0;            // visual lean for carving (-1 to 1)
     this.edgeLeanSmooth = 0;      // smoothed lean for rendering
 
@@ -1405,8 +1406,9 @@ export class Player {
       this.velocity.x = headSinH * speed;
       this.velocity.z = headCosH * speed;
 
-      // Carving: turning at speed creates a slight speed scrub (edge friction)
-      const carveFriction = 1.0 - Math.abs(this.turnRate) * 0.012;
+      // Carving: turning at speed creates a slight speed scrub (edge friction).
+      // Per-second loss, so it doesn't depend on frame rate.
+      const carveFriction = Math.pow(1.0 - Math.abs(this.turnRate) * this.carveScrub, dt * 60);
 
       // Standard friction — modified by surface type
       let frictionMul;
