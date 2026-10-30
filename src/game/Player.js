@@ -15,8 +15,12 @@ export class Player {
     this.grounded = false;
     this.airTime = 0;
     this.visualSpeedScale = 1.2; // player moves 1.2x faster than displayed speed
-    this.baseMaxSpeed = 36.11 * 1.2;
-    this.maxSpeed = 36.11 * 1.2;
+    // Ground speed relative to the original tuning. Jumps compensate for it
+    // (see _launchSpeed / _airSpeedBoost) so air height and distance stay the same.
+    this.groundSpeedScale = 0.75;
+    this._airSpeedBoost = 1;      // horizontal speed multiplier while in the air
+    this.baseMaxSpeed = 36.11 * 1.2 * this.groundSpeedScale;
+    this.maxSpeed = this.baseMaxSpeed;
     this.gravity = -25;
     this.baseJumpForce = 8;
     this.jumpForce = 8;
@@ -1084,7 +1088,25 @@ export class Player {
     this.lerpJoint(this.headGroup, 'y', -0.6, s);
   }
 
+  // Jumps launch at the original ground speed so air height and distance are
+  // unchanged by the slower groundSpeedScale. Undone as soon as we touch down.
+  boostAirSpeed() {
+    if (this._airSpeedBoost !== 1) return;
+    this._airSpeedBoost = 1 / this.groundSpeedScale;
+    this.velocity.x *= this._airSpeedBoost;
+    this.velocity.z *= this._airSpeedBoost;
+  }
+
+  restoreGroundSpeed() {
+    if (this._airSpeedBoost === 1) return;
+    this.velocity.x /= this._airSpeedBoost;
+    this.velocity.z /= this._airSpeedBoost;
+    this._airSpeedBoost = 1;
+  }
+
   update(dt, input, terrain) {
+    if ((this.grounded || this.grinding) && !this.onKicker) this.restoreGroundSpeed();
+
     if (this.crashed) {
       this.updateDebris(dt);
       return this.getState(terrain);
@@ -1149,11 +1171,12 @@ export class Player {
         this.kickerCooldown <= 0 && this.terrainPopCooldown <= 0) {
       const pop = terrain.config?.terrainPop;
       if (pop) {
-        const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        const groundSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        const speed = groundSpeed / this.groundSpeedScale; // pop as if at original speed
         if (speed > (pop.minSpeed || 8)) {
           const eps = pop.sampleDist || 2.0;
-          const dirX = this.velocity.x / speed;
-          const dirZ = this.velocity.z / speed;
+          const dirX = this.velocity.x / groundSpeed;
+          const dirZ = this.velocity.z / groundSpeed;
           const hBehind = terrain.getHeightAt(
             this.position.x - dirX * eps, this.position.z - dirZ * eps);
           const hHere = terrain.getHeightAt(this.position.x, this.position.z);
@@ -1168,6 +1191,7 @@ export class Player {
             );
             if (popStrength > 1.5) {
               this.velocity.y = popStrength;
+              this.boostAirSpeed();
               this.grounded = false;
               this.peakHeight = 0;
               this.launchedFromKicker = true;
@@ -1327,11 +1351,11 @@ export class Player {
       const hSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
 
       // Auto-accelerate downhill
-      let slopeAccel = this.isTucking ? 16 : 11;
+      let slopeAccel = (this.isTucking ? 16 : 11) * this.groundSpeedScale;
 
       // S = brake on ground (NOT flip — that's air only)
       if (input.brake && !wasInAir) {
-        slopeAccel = 3;
+        slopeAccel = 3 * this.groundSpeedScale;
       }
 
       // ---- CARVING TURN ----
@@ -1358,7 +1382,7 @@ export class Player {
       }
 
       // Speed affects turning: slower = tighter, faster = wider arcs
-      const speedRatio = Math.max(0.2, Math.min(hSpeed / 50, 1.0));
+      const speedRatio = Math.max(0.2, Math.min(hSpeed / (50 * this.groundSpeedScale), 1.0));
       const effectiveTurnRate = this.turnRate * (1.2 - speedRatio * 0.3);
 
       // Rotate the heading (subtract so A=left, D=right from camera view)
@@ -1556,7 +1580,7 @@ export class Player {
 
         // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-        if (grindSpeed < 5.556 * this.visualSpeedScale) {
+        if (grindSpeed < 5.556 * this.visualSpeedScale * this.groundSpeedScale) {
           this.grinding = false;
           this.grindAborted = true; // signal TrickSystem to skip scoring
           this._grindedRails.add(this.grindRail);
@@ -2000,6 +2024,8 @@ export class Player {
 
     // Player has passed the lip — launch!
     if (t >= 0.95) {
+      // Launch as if riding at the original (faster) ground speed so air is unchanged
+      this.boostAirSpeed();
       const rawSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
       // Cap effective launch speed — allow fast approach to matter
       const speed = Math.min(rawSpeed, 32);
@@ -2570,6 +2596,7 @@ export class Player {
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
     this.terrainPopCooldown = 0;
+    this._airSpeedBoost = 1;
     this.launchedFromKicker = false;
     this.grounded = false;
     this.airTime = 0;

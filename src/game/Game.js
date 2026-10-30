@@ -62,12 +62,12 @@ export class Game {
 
     // Mobile: bring camera closer so snowboarder appears bigger on small screens
     if (isTouchDevice) {
-      this.cameraOffset = new THREE.Vector3(0, 6, 3.5);
+      this.cameraOffset = new THREE.Vector3(0, 4.8, 2.8);
       this.mobileLookDir = new THREE.Vector3(0, -6, -8); // fixed angle relative to camera
       this.baseFOV = 45;
     } else {
-      this.cameraOffset = new THREE.Vector3(0, 3, 4);
-      this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
+      this.cameraOffset = new THREE.Vector3(0, 2.2, 2.9);
+      this.cameraLookAhead = new THREE.Vector3(0, -1.2, -20);
       this.baseFOV = 60;
     }
     this.camera.fov = this.baseFOV;
@@ -2170,19 +2170,19 @@ export class Game {
 
     const mobile = isTouchDevice;
     const bc = this.gameMode === 'backcountry';
-    const speedZoom = Math.min(speed * 0.04, mobile ? 0.8 : 3);
+    const speedZoom = Math.min(speed * 0.04, mobile ? 0.6 : 1.8);
     const offset = this.cameraOffset.clone();
     // Backcountry: pull camera higher and further back to see the wide bowl
     if (bc && !mobile) {
-      offset.y += 4;
-      offset.z += 4;
+      offset.y += 3;
+      offset.z += 3;
     }
     if (!mobile) offset.y += speedZoom;
     offset.z += speedZoom * (mobile ? 0.5 : 1.5);
 
     // Pull camera back when airborne for epic view (minimal on mobile)
     if (playerState.isAirborne) {
-      const airPull = Math.min(playerState.airTime * 1.5, mobile ? 1.5 : 5);
+      const airPull = Math.min(playerState.airTime * 1.5, mobile ? 1.2 : 3.5);
       if (!mobile) offset.y += airPull * 0.5;
       offset.z += airPull * (mobile ? 0.3 : 1);
     }
@@ -2193,7 +2193,10 @@ export class Game {
     }
 
     const targetPos = this.player.position.clone().add(offset);
-    const lerpSpeed = mobile ? 0.25 : (playerState.crashed ? 0.02 : 0.06);
+    // Per-frame follow strength at 60fps, converted so the camera trails the same
+    // distance at any frame rate (it used to fall far behind on slow devices)
+    const lerpAt60 = mobile ? 0.25 : (playerState.crashed ? 0.02 : 0.1);
+    const lerpSpeed = 1 - Math.pow(1 - lerpAt60, dt * 60);
     this.currentCameraPos.lerp(targetPos, lerpSpeed);
     this.camera.position.copy(this.currentCameraPos);
 
