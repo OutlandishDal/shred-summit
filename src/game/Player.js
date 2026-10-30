@@ -4,6 +4,18 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // Pop on a jump lip adds this much of your ollie on top of the lip's own throw (keep in sync with Terrain)
 export const JUMP_POP_MUL = 1.4;
 
+// Scratch objects for the rider rig (IK runs every frame, so no allocations)
+const _ik = {
+  d: new THREE.Vector3(), p: new THREE.Vector3(), u: new THREE.Vector3(), v: new THREE.Vector3(),
+  w: new THREE.Vector3(), x: new THREE.Vector3(), y: new THREE.Vector3(),
+  m: new THREE.Matrix4(), e: new THREE.Euler(), qUpper: new THREE.Quaternion(), qLower: new THREE.Quaternion(),
+};
+const _rig = {
+  t: new THREE.Vector3(), pole: new THREE.Vector3(), inv: new THREE.Matrix4(),
+  qFeet: new THREE.Quaternion(), qKnee: new THREE.Quaternion(), qYaw: new THREE.Quaternion(),
+  up: new THREE.Vector3(0, 1, 0),
+};
+
 export class Player {
   constructor(scene, equipmentType = 'snowboard') {
     this.scene = scene;
@@ -101,7 +113,11 @@ export class Player {
     this.railPerfectOff = false;
     this._swapTimer = 0;         // frontswap in progress (seconds left)
     this.swapDuration = 0.25;    // a frontswap takes this long; no new swap until it finishes
-    this.swapHopHeight = 0.3;    // how high the board hops off the rail during a frontswap
+    this.swapHopHeight = 0.3;
+    // Rider rig dimensions (see _buildRig)
+    this.THIGH_LEN = 0.34; this.SHIN_LEN = 0.3;     // hip→knee, knee→ankle
+    this.UPPER_ARM_LEN = 0.3; this.FOREARM_LEN = 0.3; // shoulder→elbow, elbow→glove
+    this.ANKLE_Y = 0.1;                              // ankle height above the board (board mesh space)    // how high the board hops off the rail during a frontswap
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -767,8 +783,141 @@ export class Player {
     this.hipR.rotation.x = -0.3;
     this.kneeR.rotation.x = 0.6;
 
+    this._buildRig();
+
     this.boardGroup.add(this.riderGroup);
     this.group.add(this.boardGroup);
+  }
+
+  // Turns the procedural rider into a small rig: a spine that bends at the waist, ankles that keep
+  // the boots flat in the bindings, and two-bone IK so the feet never leave the board and a grabbing
+  // hand lands on the actual spot of the board it grabs.
+  _buildRig() {
+    // Leans are in the rider's own frame: rotation.x tips toward the toes, rotation.z toward the left foot
+    this.riderGroup.rotation.order = 'YXZ';
+
+    this.spineGroup = new THREE.Group();
+    this.spineGroup.position.set(0, 0.7, 0);
+    for (const child of [...this.riderGroup.children]) {
+      if (child === this.hipL || child === this.hipR || child.position.y < 0.7) continue;
+      this.riderGroup.remove(child);
+      child.position.y -= 0.7;
+      this.spineGroup.add(child);
+    }
+    this.riderGroup.add(this.spineGroup);
+
+    this._spinePose = { x: 0, y: 0, z: 0 };
+    this._armIK = { L: { w: 0, rate: 0.2, target: null, last: null }, R: { w: 0, rate: 0.2, target: null, last: null } };
+    this.legIK = this.equipmentType !== 'ski';
+    if (this.legIK) {
+      this.ankleL = this._makeAnkle(this.kneeL);
+      this.ankleR = this._makeAnkle(this.kneeR);
+    }
+  }
+
+  _makeAnkle(knee) {
+    const ankle = new THREE.Group();
+    ankle.position.set(0, -this.SHIN_LEN, 0);
+    for (const child of [...knee.children]) {
+      if (child.position.y > -0.29) continue; // boot and sole
+      knee.remove(child);
+      child.position.y += this.SHIN_LEN;
+      ankle.add(child);
+    }
+    knee.add(ankle);
+    return ankle;
+  }
+
+  // Which way the board's toe edge (+1 = board +x) and nose (+1 = board +z) sit for the current stance
+  _toeSign() { return Math.sign(Math.sin(this.riderGroup.rotation.y)) || 1; }
+  _frontSign() {
+    const yaw = this.riderGroup.rotation.y;
+    return Math.sign(0.14 * Math.sin(yaw) + 0.05 * Math.cos(yaw)) || 1;
+  }
+
+  // Pose requests, made each frame by the animation code and applied in _updateRig
+  _setSpine(x, y = 0, z = 0) { this._spinePose.x = x; this._spinePose.y = y; this._spinePose.z = z; }
+
+  // Put a hand ('L'/'R') on a point, in 'board' space (board mesh local) or 'rider' space (riderGroup local)
+  _reach(hand, space, x, y, z, rate = 0.2) {
+    const ik = this._armIK[hand];
+    ik.target = { space, x, y, z };
+    ik.rate = rate;
+  }
+
+  // Two-bone IK. target and pole are in the upper joint's parent space; the limb hangs along the
+  // joint's local -y. hingeSign: +1 when the lower joint bends with +x (knees), -1 for -x (elbows).
+  // Leaves the solved rotations in _ik.qUpper / _ik.qLower.
+  _solveTwoBone(upper, target, a, b, pole, hingeSign) {
+    const { d, p, u, v, w, x, y, m, e } = _ik;
+    d.copy(target).sub(upper.position);
+    const dist = THREE.MathUtils.clamp(d.length(), Math.abs(a - b) + 0.01, a + b - 0.002);
+    d.normalize();
+    p.copy(pole).addScaledVector(d, -pole.dot(d)).normalize();
+    const cosA = THREE.MathUtils.clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1);
+    u.copy(d).multiplyScalar(cosA).addScaledVector(p, Math.sqrt(1 - cosA * cosA)); // upper limb (bulges toward pole)
+    v.copy(d).multiplyScalar(dist).addScaledVector(u, -a).normalize();             // lower limb
+    const bend = Math.acos(THREE.MathUtils.clamp(u.dot(v), -1, 1));
+    w.copy(v).addScaledVector(u, -u.dot(v));
+    if (w.lengthSq() < 1e-8) w.copy(p).negate();
+    w.normalize().multiplyScalar(-hingeSign);  // local +z
+    y.copy(u).negate();                        // local +y
+    x.crossVectors(y, w);
+    m.makeBasis(x, y, w);
+    _ik.qUpper.setFromRotationMatrix(m);
+    _ik.qLower.setFromEuler(e.set(hingeSign * bend, 0, 0));
+  }
+
+  _updateRig() {
+    if (!this.spineGroup) return;
+    const lerp = THREE.MathUtils.lerp;
+    const sp = this._spinePose, sr = this.spineGroup.rotation;
+    sr.x = lerp(sr.x, sp.x, 0.15);
+    sr.y = lerp(sr.y, sp.y, 0.15);
+    sr.z = lerp(sr.z, sp.z, 0.15);
+    this.group.updateMatrixWorld(true);
+
+    // Legs: feet locked into the bindings whatever the body is doing, knees out over the toes
+    if (this.legIK) {
+      _rig.inv.copy(this.riderGroup.matrixWorld).invert();
+      this.boardMesh.getWorldQuaternion(_rig.qFeet);
+      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.riderGroup.rotation.y));
+      const front = this._frontSign();
+      for (const [hip, knee, ankle, side, bz] of [
+        [this.hipL, this.kneeL, this.ankleL, -1, front * 0.22],
+        [this.hipR, this.kneeR, this.ankleR, 1, -front * 0.22],
+      ]) {
+        _rig.t.set(0, this.ANKLE_Y, bz);
+        this.boardMesh.localToWorld(_rig.t).applyMatrix4(_rig.inv);
+        _rig.pole.set(side * 0.3, 0, 1);
+        this._solveTwoBone(hip, _rig.t, this.THIGH_LEN, this.SHIN_LEN, _rig.pole, 1);
+        hip.quaternion.copy(_ik.qUpper);
+        knee.quaternion.copy(_ik.qLower);
+        hip.updateMatrixWorld(true);
+        // Boots stay flat on the board
+        knee.getWorldQuaternion(_rig.qKnee);
+        ankle.quaternion.copy(_rig.qKnee.invert().multiply(_rig.qFeet));
+      }
+    }
+
+    // Arms: blend from the animated pose into a hand placed on a target
+    for (const hand of ['L', 'R']) {
+      const ik = this._armIK[hand];
+      if (ik.target) ik.last = ik.target;
+      ik.w = lerp(ik.w, ik.target ? 1 : 0, ik.rate);
+      ik.target = null; // poses re-request every frame
+      if (ik.w < 0.01 || !ik.last) continue;
+      const shoulder = hand === 'L' ? this.shoulderL : this.shoulderR;
+      const elbow = hand === 'L' ? this.elbowL : this.elbowR;
+      const t = ik.last;
+      _rig.t.set(t.x, t.y, t.z);
+      (t.space === 'board' ? this.boardMesh : this.riderGroup).localToWorld(_rig.t);
+      this.spineGroup.worldToLocal(_rig.t);
+      _rig.pole.set(hand === 'L' ? -1 : 1, -0.3, -0.5); // elbows out and back
+      this._solveTwoBone(shoulder, _rig.t, this.UPPER_ARM_LEN, this.FOREARM_LEN, _rig.pole, -1);
+      shoulder.quaternion.slerp(_ik.qUpper, ik.w);
+      elbow.quaternion.slerp(_ik.qLower, ik.w);
+    }
   }
 
   /**
@@ -1550,62 +1699,48 @@ export class Player {
       const lean = this.edgeLeanSmooth;
       const impactBend = this.landingImpact * 0.8;
 
-      if (this.isTucking || this.ollieCharge > 0.05) {
-        // Ground tuck / loading an ollie: deep crouch
-        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.15, 0.12);
-        this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.3, 0.12);
-        // Deep knee bend
-        this.lerpJoint(this.hipL, 'x', -0.7, 0.12);
-        this.lerpJoint(this.kneeL, 'x', 1.2, 0.12);
-        this.lerpJoint(this.hipR, 'x', -0.7, 0.12);
-        this.lerpJoint(this.kneeR, 'x', 1.2, 0.12);
-        // Arms tucked in tight for speed tuck
-        const tuckZ = 0.5;
-        this.lerpJoint(this.shoulderL, 'z', -tuckZ, 0.12);
-        this.lerpJoint(this.shoulderL, 'x', 0.5, 0.12);
-        this.lerpJoint(this.elbowL, 'x', -1.2, 0.12);
-        this.lerpJoint(this.shoulderR, 'z', tuckZ, 0.12);
-        this.lerpJoint(this.shoulderR, 'x', 0.5, 0.12);
-        this.lerpJoint(this.elbowR, 'x', -1.2, 0.12);
-      } else {
-        this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
-        // Hunch torso forward over toes via spine bones (not riderGroup — foot snap cancels that)
-        if (this._boneSpine1) this._boneSpine1.rotation.x = THREE.MathUtils.lerp(this._boneSpine1.rotation.x, 0.25, 0.1);
-        if (this._boneSpine2) this._boneSpine2.rotation.x = THREE.MathUtils.lerp(this._boneSpine2.rotation.x, 0.25, 0.1);
-        // Legs: deeper bend, knees over toes
-        const frontKnee = 0.8 + impactBend + lean * 0.2;
-        const rearKnee = 0.8 + impactBend - lean * 0.2;
-        const frontHip = -0.5 - impactBend * 0.5;
-        const rearHip = -0.5 - impactBend * 0.5;
-
-        this.lerpJoint(this.hipL, 'x', frontHip, 0.12);
-        this.lerpJoint(this.kneeL, 'x', frontKnee, 0.12);
-        this.lerpJoint(this.hipR, 'x', rearHip, 0.12);
-        this.lerpJoint(this.kneeR, 'x', rearKnee, 0.12);
-
-        // Arms: relaxed at sides, athletic snowboard stance
-        const armZ = this.equipmentType === 'ski' ? 0.75 : 0.35;
-        const armFwd = 0.15;
-        this.lerpJoint(this.shoulderL, 'z', -armZ - lean * 0.25, 0.1);
-        this.lerpJoint(this.shoulderL, 'x', armFwd - lean * 0.2 + impactBend * 0.3, 0.1);
-        this.lerpJoint(this.elbowL, 'x', -0.3 - lean * 0.25, 0.1);
-
-        this.lerpJoint(this.shoulderR, 'z', armZ - lean * 0.25, 0.1);
-        this.lerpJoint(this.shoulderR, 'x', armFwd + lean * 0.2 + impactBend * 0.3, 0.1);
-        this.lerpJoint(this.elbowR, 'x', -0.3 + lean * 0.25, 0.1);
-      }
-
-      // Rider body drop from landing impact + subtle breathing micro-motion
       if (!this._rideTime) this._rideTime = 0;
       this._rideTime += dt;
       const breathe = Math.sin(this._rideTime * 1.5) * 0.015;
-      const dropY = this.isTucking ? -0.15 : (-impactBend * 0.15 + breathe);
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, dropY, 0.12);
+      const rg = this.riderGroup;
+      // The body leans with the board on edge; counter a little so the rider angulates instead of toppling
+      rg.rotation.x = THREE.MathUtils.lerp(rg.rotation.x, -lean * 0.3, 0.15);
+      rg.rotation.z = THREE.MathUtils.lerp(rg.rotation.z, 0, 0.15);
 
-      // Rider leans into carves
-      this.riderGroup.rotation.z = THREE.MathUtils.lerp(
-        this.riderGroup.rotation.z, this.edgeLeanSmooth * 0.3, 0.15
-      );
+      if (this.isTucking || this.ollieCharge > 0.05) {
+        // Speed tuck / loading an ollie: knees deep, chest folded over the board, hands in front of the knees
+        const crouch = this.isTucking ? 1 : Math.min(1, this.ollieCharge * 1.5);
+        rg.position.y = THREE.MathUtils.lerp(rg.position.y, -0.08 - 0.22 * crouch, 0.15);
+        this._setSpine(0.3 + 0.4 * crouch, -lean * 0.2, 0);
+        this._reach('L', 'rider', -0.17, 0.5 + rg.position.y, 0.34, 0.2);
+        this._reach('R', 'rider', 0.17, 0.5 + rg.position.y, 0.34, 0.2);
+      } else {
+        // Carving. Toeside (lean > 0): knees drive over the toes, chest stays fairly tall.
+        // Heelside (lean < 0): sit down low, fold at the waist, arms reach forward for balance.
+        const toe = Math.max(0, lean), heel = Math.max(0, -lean);
+        rg.position.y = THREE.MathUtils.lerp(rg.position.y,
+          -0.06 - 0.08 * toe - 0.16 * heel - impactBend * 0.15 + breathe, 0.12);
+        this._setSpine(0.22 + 0.08 * toe + 0.15 * heel + impactBend * 0.3, -lean * 0.3, 0);
+
+        // Arms: relaxed and athletic; the leading arm points into the turn
+        const armZ = this.equipmentType === 'ski' ? 0.75 : 0.4;
+        const armFwd = 0.15 + heel * 0.7 + impactBend * 0.3;
+        this.lerpJoint(this.shoulderL, 'z', -armZ - toe * 0.35, 0.1);
+        this.lerpJoint(this.shoulderL, 'x', armFwd - toe * 0.2, 0.1);
+        this.lerpJoint(this.elbowL, 'x', -0.35 - heel * 0.3, 0.1);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.1);
+        this.lerpJoint(this.shoulderR, 'z', armZ + heel * 0.2, 0.1);
+        this.lerpJoint(this.shoulderR, 'x', armFwd + toe * 0.3, 0.1);
+        this.lerpJoint(this.elbowR, 'x', -0.35 - toe * 0.3, 0.1);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.1);
+
+        if (!this.legIK) {
+          this.lerpJoint(this.hipL, 'x', -0.5 - impactBend * 0.5, 0.12);
+          this.lerpJoint(this.kneeL, 'x', 0.8 + impactBend + lean * 0.2, 0.12);
+          this.lerpJoint(this.hipR, 'x', -0.5 - impactBend * 0.5, 0.12);
+          this.lerpJoint(this.kneeR, 'x', 0.8 + impactBend - lean * 0.2, 0.12);
+        }
+      }
 
       // Head looks into turns more aggressively + dips on landing impact
       const headLookY = -0.6 - lean * 0.35;
@@ -1749,16 +1884,15 @@ export class Player {
         this.lerpJoint(this.shoulderR, 'x', 0, 0.12);
         this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
 
-        // Legs: slight crouch
-        this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
-        this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
-        this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
-        this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
+        // Slight crouch, chest over the rail; tuck the knees up for the frontswap hop
+        const hopping = this._swapTimer > 0 ? Math.sin(Math.PI * (1 - this._swapTimer / this.swapDuration)) : 0;
+        this._setSpine(0.2 + hopping * 0.2, 0, 0);
 
         // Maintain stance yaw
         this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
-        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
+        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.1 - hopping * 0.12, 0.2);
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
+        this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, 0, 0.1);
 
         // Timing meter for popping off the end of the rail
         this._updateRailOffTiming();
@@ -1999,61 +2133,61 @@ export class Player {
     if (this.grabWindup > 0) this.grabWindup -= dt;
     this.wasGrabbing = this.isGrabbing;
 
-    // Grab & tuck & default air animations
-    if (this.isGrabbing && !this.grounded && this.grabWindup > 0) {
-      // Wind-up phase — reaching toward grab, half-speed
-      this.applyGrabPose(this.grabType, true);
-    } else if (this.isGrabbing && !this.grounded) {
-      this.applyGrabPose(this.grabType, false);
-    } else if (this.isLayingOut && !this.grounded && !this.grinding) {
-      // Layout: body straight and long, arms out wide
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0.1, 0.12);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, -0.15, 0.12);
-      this.lerpJoint(this.shoulderL, 'z', -1.4, 0.12);
-      this.lerpJoint(this.shoulderL, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowL, 'x', -0.05, 0.12);
-      this.lerpJoint(this.shoulderR, 'z', 1.4, 0.12);
-      this.lerpJoint(this.shoulderR, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowR, 'x', -0.05, 0.12);
-      this.lerpJoint(this.hipL, 'x', -0.05, 0.12);
-      this.lerpJoint(this.kneeL, 'x', 0.1, 0.12);
-      this.lerpJoint(this.hipR, 'x', -0.05, 0.12);
-      this.lerpJoint(this.kneeR, 'x', 0.1, 0.12);
-    } else if (this.isTucking && !this.grounded && !this.grinding) {
-      // Air tuck — crouched tight for faster rotation
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.2, 0.15);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.4, 0.15);
-      // Arms fold in tight (but clear of body)
-      this.lerpJoint(this.shoulderL, 'z', -0.6, 0.15);
-      this.lerpJoint(this.shoulderL, 'x', 0.4, 0.15);
-      this.lerpJoint(this.elbowL, 'x', -1.1, 0.15);
-      this.lerpJoint(this.shoulderR, 'z', 0.6, 0.15);
-      this.lerpJoint(this.shoulderR, 'x', 0.4, 0.15);
-      this.lerpJoint(this.elbowR, 'x', -1.1, 0.15);
-      // Legs tuck up
-      this.lerpJoint(this.hipL, 'x', -0.8, 0.15);
-      this.lerpJoint(this.kneeL, 'x', 1.4, 0.15);
-      this.lerpJoint(this.hipR, 'x', -0.8, 0.15);
-      this.lerpJoint(this.kneeR, 'x', 1.4, 0.15);
-    } else if (!this.grounded && !this.grinding) {
-      // Default air pose: arms spread WIDE for balance/style
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.1, 0.1);
-      this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, 0, 0.1);
-      // Arms spread wide out to sides — one slightly higher for style
-      this.lerpJoint(this.shoulderL, 'z', -1.05, 0.12);
-      this.lerpJoint(this.shoulderL, 'x', 0.1, 0.12);
-      this.lerpJoint(this.elbowL, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowL, 'z', 0, 0.12);
-      this.lerpJoint(this.shoulderR, 'z', 0.95, 0.12);
-      this.lerpJoint(this.shoulderR, 'x', -0.1, 0.12);
-      this.lerpJoint(this.elbowR, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowR, 'z', 0, 0.12);
-      // Legs slightly tucked
-      this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
-      this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
-      this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
-      this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
+    // Grab, layout, tuck and default air animations
+    if (!this.grounded && !this.grinding) {
+      const rg = this.riderGroup;
+      const L = THREE.MathUtils.lerp;
+      // Spins: the upper body leads the rotation and the arms come in
+      const spinRate = this.angularVelocity.y;
+      const spinTwist = THREE.MathUtils.clamp(spinRate * 0.1, -0.5, 0.5);
+      const spinIn = Math.min(1, Math.abs(spinRate) / 4);
+      const flipping = Math.abs(this.angularVelocity.x) + Math.abs(this.angularVelocity.z) > 2.5;
+      this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + spinTwist * 0.8, 0.1);
+
+      if (this.isGrabbing) {
+        // Wind-up: reaching toward the grab before it connects
+        this.applyGrabPose(this.grabType, this.grabWindup > 0, spinTwist);
+        this.lerpJoint(this.headGroup, 'x', 0.25, 0.1);
+      } else if (this.isLayingOut) {
+        // Layout: legs long, body straight with a slight arch, arms stretched wide, head back
+        rg.position.y = L(rg.position.y, 0.02, 0.15);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(-0.35, 0, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.3, 0.15);
+        this.lerpJoint(this.shoulderL, 'x', -0.1, 0.15);
+        this.lerpJoint(this.elbowL, 'x', -0.05, 0.15);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.15);
+        this.lerpJoint(this.shoulderR, 'z', 1.3, 0.15);
+        this.lerpJoint(this.shoulderR, 'x', -0.1, 0.15);
+        this.lerpJoint(this.elbowR, 'x', -0.05, 0.15);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.15);
+        this.lerpJoint(this.headGroup, 'x', -0.35, 0.12);
+      } else if (this.isTucking || flipping) {
+        // Tuck: knees pulled up to the chest, hands holding the shins, compact so it rotates fast
+        rg.position.y = L(rg.position.y, -0.34, 0.18);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(0.6, spinTwist, 0);
+        this._reach('L', 'rider', -0.16, 0.56 + rg.position.y, 0.36, 0.25);
+        this._reach('R', 'rider', 0.16, 0.56 + rg.position.y, 0.36, 0.25);
+        this.lerpJoint(this.headGroup, 'x', 0.2, 0.12);
+      } else {
+        // Default air: knees soft, arms out for balance (pulled in while spinning)
+        rg.position.y = L(rg.position.y, -0.12 - spinIn * 0.06, 0.12);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.1);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.1);
+        this._setSpine(0.2 + spinIn * 0.1, spinTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.05 + spinIn * 0.5, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0.1 + spinIn * 0.3, 0.12);
+        this.lerpJoint(this.elbowL, 'x', -0.25 - spinIn * 0.8, 0.12);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', 0.95 - spinIn * 0.45, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', -0.1 + spinIn * 0.4, 0.12);
+        this.lerpJoint(this.elbowR, 'x', -0.25 - spinIn * 0.8, 0.12);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.12);
+        this.lerpJoint(this.headGroup, 'x', 0, 0.1);
+      }
     }
 
     // Ponytail physics
@@ -2079,6 +2213,8 @@ export class Player {
     this.visualYaw += yawDiff * yawSpeed;
 
     this.group.rotation.y = this.visualYaw;
+
+    this._updateRig();
 
     // Snap GLB feet onto bindings every frame
     this._snapFeetToBindings();
@@ -2484,127 +2620,57 @@ export class Player {
     this.angularVelocity.set(0, 0, 0);
   }
 
-  applyGrabPose(type, windUp = false) {
-    const L = windUp ? 0.08 : 0.18; // slower lerp during wind-up
-    let crouchY = -0.35;
-    let leanX = 0.3;
-    let leanZ = 0; // body counter-rotation (roll)
+  // Grabs: the grabbing hand is IK'd onto the real spot on the board, the body folds down to reach it,
+  // and the free arm styles it out. All spots are in board space so they work in either stance.
+  applyGrabPose(type, windUp = false, twist = 0) {
+    const rate = windUp ? 0.1 : 0.25;
+    const toe = this._toeSign() * 0.16;   // board x of the toe edge
+    const heel = -toe;
+    const nose = this._frontSign();       // +1: the nose (board +z) is on the rider's left-hand side
+    const frontHand = nose > 0 ? 'L' : 'R';
+    const rearHand = nose > 0 ? 'R' : 'L';
+    const edgeY = 0.09;
 
-    // Per-grab leg differentiation
-    let hipLX = -0.6, kneeLX = 1.2;
-    let hipRX = -0.6, kneeRX = 1.2;
-
+    // hand, board spot [x, z], crouch, body lean (x toes, z nose side), spine bend (x fwd, y twist, z side), free arm
+    let g;
     switch (type) {
+      case 'method':  // front hand, heel edge; board tweaked up behind, chest arched open
+        g = { hand: frontHand, x: heel, z: 0.02, drop: -0.4, lx: -0.6, lz: 0, sx: 0.7, sy: 0.35, sz: 0.1 * nose, free: [1.5, -0.3] };
+        break;
+      case 'stalefish':  // rear hand reaches behind the legs to the heel edge
+        g = { hand: rearHand, x: heel, z: -0.06, drop: -0.4, lx: -0.35, lz: 0, sx: 0.8, sy: -0.35, sz: -0.15 * nose, free: [1.3, -0.2] };
+        break;
+      case 'melon':  // front hand, heel edge between the feet
+        g = { hand: frontHand, x: heel, z: 0.06, drop: -0.38, lx: -0.35, lz: 0, sx: 0.7, sy: 0.35, sz: 0.15 * nose, free: [1.25, 0.2] };
+        break;
+      case 'nosegrab':  // front hand to the nose, body leaning over the front foot
+        g = { hand: frontHand, x: 0, z: 0.68, drop: -0.3, lx: 0, lz: 0.3 * nose, sx: 0.35, sy: 0, sz: 0.5 * nose, free: [1.3, -0.4] };
+        break;
+      case 'tailgrab':  // rear hand to the tail, body over the back foot
+        g = { hand: rearHand, x: 0, z: -0.68, drop: -0.3, lx: 0, lz: -0.3 * nose, sx: 0.35, sy: 0, sz: -0.5 * nose, free: [1.3, 0.4] };
+        break;
       case 'indy':
-        // Right hand grabs toe edge between feet — slight frontside lean
-        this.lerpJoint(this.shoulderR, 'z', 1.2, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.2, L);
-        this.lerpJoint(this.elbowR, 'x', -1.3, L);
-        // Trailing arm — up high with style
-        this.lerpJoint(this.shoulderL, 'z', -1.2, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.3, L);
-        this.lerpJoint(this.elbowL, 'x', -0.15, L);
-        this.lerpJoint(this.elbowL, 'z', 0.3, L); // style wrist angle
-        leanZ = -0.15; // slight frontside lean
-        break;
-
-      case 'method':
-        // Classic tweaked method — arch back, body counter-rotation
-        this.lerpJoint(this.shoulderL, 'z', -1.1, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.8, L);
-        this.lerpJoint(this.elbowL, 'x', -1.4, L);
-        // Right arm forward and up for balance/style
-        this.lerpJoint(this.shoulderR, 'z', 0.5, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.5, L);
-        this.lerpJoint(this.elbowR, 'x', -0.2, L);
-        this.lerpJoint(this.elbowR, 'z', -0.25, L);
-        leanX = 0.5;
-        leanZ = 0.3; // arch back heelside
-        hipLX = -0.4; // front leg extends more
-        hipRX = -0.8; // rear leg tucks harder
-        kneeRX = 1.5;
-        break;
-
-      case 'stalefish':
-        // Right hand crosses body to heel edge — body twist
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.3, L);
-        this.lerpJoint(this.elbowR, 'x', -1.4, L);
-        // Trailing left arm with style
-        this.lerpJoint(this.shoulderL, 'z', -1.0, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.1, L);
-        this.lerpJoint(this.elbowL, 'x', -0.2, L);
-        this.lerpJoint(this.elbowL, 'z', 0.25, L);
-        crouchY = -0.4;
-        leanZ = 0.2; // body twist into grab
-        hipLX = -0.5; // front leg slightly extended
-        break;
-
-      case 'melon':
-        // Left hand grabs heel edge
-        this.lerpJoint(this.shoulderL, 'z', -1.2, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.2, L);
-        this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        // Trailing right arm — raised for style
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.2, L);
-        this.lerpJoint(this.elbowR, 'x', -0.15, L);
-        this.lerpJoint(this.elbowR, 'z', -0.3, L);
-        leanZ = 0.15;
-        break;
-
-      case 'nosegrab':
-        // Deep forward lean — right hand reaches for nose
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.9, L);
-        this.lerpJoint(this.elbowR, 'x', -1.2, L);
-        // Left arm swept back high
-        this.lerpJoint(this.shoulderL, 'z', -0.8, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.5, L);
-        this.lerpJoint(this.elbowL, 'x', -0.1, L);
-        this.lerpJoint(this.elbowL, 'z', 0.3, L);
-        leanX = 0.7; // deep forward lean
-        crouchY = -0.3;
-        hipRX = -0.3; // rear leg extends back
-        kneeRX = 0.8;
-        break;
-
-      case 'tailgrab':
-        // Lean back — right hand reaches for tail
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.9, L);
-        this.lerpJoint(this.elbowR, 'x', -1.2, L);
-        // Left arm forward and up
-        this.lerpJoint(this.shoulderL, 'z', -0.8, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.5, L);
-        this.lerpJoint(this.elbowL, 'x', -0.15, L);
-        this.lerpJoint(this.elbowL, 'z', 0.25, L);
-        leanX = -0.2; // lean back
-        crouchY = -0.3;
-        hipLX = -0.3; // front leg extends forward
-        kneeLX = 0.8;
-        break;
-
-      default:
-        // Generic grab
-        this.lerpJoint(this.shoulderL, 'z', -1.05, L);
-        this.lerpJoint(this.shoulderL, 'x', 0, L);
-        this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        this.lerpJoint(this.shoulderR, 'z', 1.05, L);
-        this.lerpJoint(this.shoulderR, 'x', 0, L);
-        this.lerpJoint(this.elbowR, 'x', -1.3, L);
+      default:  // rear hand, toe edge between the feet
+        g = { hand: rearHand, x: toe, z: -0.03, drop: -0.4, lx: 0.1, lz: 0, sx: 0.8, sy: -0.2, sz: 0, free: [1.3, -0.3] };
     }
 
-    // Per-grab leg positions
-    this.lerpJoint(this.hipL, 'x', hipLX, L);
-    this.lerpJoint(this.kneeL, 'x', kneeLX, L);
-    this.lerpJoint(this.hipR, 'x', hipRX, L);
-    this.lerpJoint(this.kneeR, 'x', kneeRX, L);
+    this._reach(g.hand, 'board', g.x, edgeY, g.z, rate);
+    this._setSpine(g.sx, g.sy * nose + twist, g.sz);
 
-    // Crouch body down, lean forward/back, and counter-rotate
-    this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, crouchY, 0.15);
-    this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, leanX, 0.15);
-    this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, leanZ, 0.12);
+    // Free arm out to the side for style (FK)
+    const free = g.hand === 'L' ? 'R' : 'L';
+    const side = free === 'L' ? -1 : 1;
+    const sh = free === 'L' ? this.shoulderL : this.shoulderR;
+    const el = free === 'L' ? this.elbowL : this.elbowR;
+    this.lerpJoint(sh, 'z', side * g.free[0], 0.15);
+    this.lerpJoint(sh, 'x', g.free[1], 0.15);
+    this.lerpJoint(el, 'x', -0.3, 0.15);
+    this.lerpJoint(el, 'z', 0, 0.15);
+
+    const L = windUp ? 0.1 : 0.18;
+    this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, g.drop, L);
+    this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, g.lx, L);
+    this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, g.lz, L);
   }
 
   setColor(part, colorHex) {
@@ -2943,6 +3009,7 @@ export class Player {
     this.boardGroup.rotation.set(0, 0, 0);
     this.riderGroup.position.set(0, 0, 0);
     this.riderGroup.rotation.set(0, this.STANCE_YAW, 0);
+    if (this.spineGroup) this.spineGroup.rotation.set(0, 0, 0);
 
     // Reset all joints to default riding pose — arms spread outward
     if (this.equipmentType === 'ski') {
