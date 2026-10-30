@@ -34,6 +34,7 @@ export class Player {
     this.turnRateMax = 2.3;       // ~130 deg/s — smooth carving
     this.turnAccel = 16.0;        // snappy edge engagement
     this.turnDecel = 10.0;        // smooth decay on release
+    this.railSlopeAccel = 12;     // speed gain on down rails per unit of slope beyond the hill
     this.carveScrub = 0.003;      // speed lost per frame (at 60fps) per rad/s of turn
     this.edgeLean = 0;            // visual lean for carving (-1 to 1)
     this.edgeLeanSmooth = 0;      // smoothed lean for rendering
@@ -1590,6 +1591,18 @@ export class Player {
         // Maintain forward speed — very light friction so momentum carries
         this.velocity.z *= Math.pow(0.9998, dt * 60);
 
+        // Rails steeper than the hill (down rails) speed you up a little
+        if (terrain.getRailTopAt) {
+          const railDir = this.velocity.z <= 0 ? -1 : 1;
+          const railDrop = this._getRailTop(this.grindRail, terrain) - terrain.getRailTopAt(
+            this.grindRail, this.position.x, this.position.z + railDir * 0.5);
+          const extraSlope = railDrop / 0.5 - terrain.slopeAngle;
+          const railMax = this.baseMaxSpeed / this.groundSpeedScale;
+          if (extraSlope > 0 && Math.abs(this.velocity.z) < railMax) {
+            this.velocity.z += railDir * extraSlope * this.railSlopeAccel * dt;
+          }
+        }
+
         // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
         if (grindSpeed < 5.556 * this.visualSpeedScale * this.groundSpeedScale) {
@@ -2047,7 +2060,7 @@ export class Player {
   // Launch off a lip (kicker, kinked rail end, up rail end) at the given angle
   // Gap-on lip in front of a rail: a small pop that just clears onto the rail at any speed
   _popOntoRail(ramp, terrain) {
-    this.boostAirSpeed(); // rails keep takeoff speed
+    // No air-speed boost here: you start the rail at your riding speed and down rails speed you up gradually
     // Follow the slope (otherwise the hill drops away under you at speed), then pop just enough to clear the rail
     const hSpeed = Math.hypot(this.velocity.x, this.velocity.z) || 1;
     const dirX = this.velocity.x / hSpeed, dirZ = this.velocity.z / hSpeed;
