@@ -1106,7 +1106,8 @@ export class Player {
   }
 
   update(dt, input, terrain) {
-    if ((this.grounded || this.grinding) && !this.onKicker) this.restoreGroundSpeed();
+    // Rails keep air speed; it's restored to ground speed on the next landing
+    if (this.grounded && !this.grinding && !this.onKicker) this.restoreGroundSpeed();
 
     if (this.crashed) {
       this.updateDebris(dt);
@@ -1569,7 +1570,10 @@ export class Player {
         // Lock X position to rail center (smooth lerp so it feels natural)
         const railX = this.grindRail.position.x;
         this.position.x = THREE.MathUtils.lerp(this.position.x, railX, 0.15);
-        this.velocity.x *= 0.8; // dampen lateral drift
+        // Dampen lateral drift, but turn it into speed along the rail instead of losing it
+        const railHSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        this.velocity.x *= 0.8;
+        this.velocity.z = (this.velocity.z <= 0 ? -1 : 1) * Math.sqrt(Math.max(0, railHSpeed ** 2 - this.velocity.x ** 2));
 
         // Lock Y to rail surface height at player's Z (follows terrain slope)
         const terrainAtPlayer = terrain.computeHeight(this.position.x, this.position.z);
@@ -1578,7 +1582,7 @@ export class Player {
         this.velocity.y = 0;
 
         // Maintain forward speed — very light friction so momentum carries
-        this.velocity.z *= 0.9995;
+        this.velocity.z *= Math.pow(0.9998, dt * 60);
 
         // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
