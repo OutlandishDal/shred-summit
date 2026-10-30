@@ -1218,6 +1218,25 @@ export class Player {
 
       if (wasInAir && this.airTime > 0.4) {
         for (const ramp of terrain.ramps) {
+          if (!ramp.jump) continue;
+          const j = ramp.jump;
+          const d = j.zStart - this.position.z;
+          const part = terrain.jumpPart(j, d);
+          if (!part || terrain.jumpSurfaceAt(ramp, this.position.x, this.position.z) === null) continue;
+          if (part === 'landing') {
+            // Landing slope soaks up the drop; middle of it is the sweet spot
+            const worldSlope = j.landSlope + terrain.slopeAngle;
+            this.landingZoneSlopeAbsorb = Math.min(worldSlope * 0.8, 0.7);
+            const t = (d - j.landStart) / (j.landEnd - j.landStart);
+            this.landingQuality = (t >= 0.15 && t <= 0.7) ? 'perfect' : 'clean';
+          } else if (part !== 'kicker') {
+            // Deck or knuckle: flat and harsh — you came up short
+            this.landingZoneSlopeAbsorb = 0;
+            this.landingQuality = 'clean';
+          }
+          break;
+        }
+        for (const ramp of terrain.ramps) {
           if (ramp.type !== 'kicker' || ramp.landingZoneStartZ === undefined) continue;
           if (this.position.z > ramp.position.z + 50) continue;
           if (this.position.z < ramp.landingZoneEndZ - 5) continue;
@@ -1334,6 +1353,7 @@ export class Player {
     // ===== KICKER RIDE-UP =====
     // Check if we're on a kicker and adjust position/velocity to follow ramp surface
     this.updateKickerRide(terrain, dt);
+    if (this.grounded && !this.grinding) this._inrunSpeedCheck(terrain, dt);
 
     // ===== RAIL GRIND CHECK =====
     this.updateRailGrind(terrain, dt);
@@ -1980,6 +2000,21 @@ export class Player {
 
     for (const ramp of terrain.ramps) {
       if (ramp.type !== 'kicker') continue;
+      if (ramp.jump) {
+        const j = ramp.jump;
+        const d = j.zStart - this.position.z;
+        if (d < 0 || d > j.total) continue;
+        const onKickerPart = d <= j.transLen;
+        if (onKickerPart && this.kickerCooldown > 0) continue; // just launched
+        const y = terrain.jumpSurfaceAt(ramp, this.position.x, this.position.z);
+        if (y === null) continue;
+        boost = Math.max(boost, y - baseH);
+        if (onKickerPart && this.grounded && d > j.transLen * 0.1) {
+          this.onKicker = ramp;
+          this.kickerProgress = d / j.transLen;
+        }
+        continue;
+      }
       // Asymmetric cull: 50 uphill is plenty; downhill must reach landing zone end
       if (this.position.z > ramp.position.z + 50) continue;
       const downhillLimit = ramp.landingZoneEndZ !== undefined
@@ -2043,6 +2078,13 @@ export class Player {
     }
 
     const ramp = this.onKicker;
+    if (ramp.jump) {
+      if (ramp.jump.zStart - this.position.z >= ramp.jump.transLen - 0.05) {
+        this._launchOffJump(ramp.jump, terrain);
+        this.kickerCooldown = 1.0;
+      }
+      return;
+    }
     const dz = this.position.z - ramp.position.z;
     const halfL = ramp.length / 2;
     const t = 1.0 - (dz + halfL) / ramp.length;
@@ -2058,6 +2100,44 @@ export class Player {
   }
 
   // Launch off a lip (kicker, kinked rail end, up rail end) at the given angle
+  // Leave the lip moving along it: speed is kept and pointed up the lip angle.
+  // Popping (jump on the kicker) uses the full lip angle plus your ollie; without it you
+  // soak up the lip and only get about half the angle, so you land on the deck.
+  _launchOffJump(j, terrain) {
+    this.boostAirSpeed();
+    const s = Math.hypot(this.velocity.x, this.velocity.z) || 1;
+    const dirX = this.velocity.x / s, dirZ = this.velocity.z / s;
+    const popped = this.kickerPopBoost > 0;
+    this.kickerPopBoost = 0;
+    const angle = (popped ? j.lipAngle : j.lipAngle * 0.5) - Math.atan(terrain.slopeAngle);
+    this.velocity.x = dirX * s * Math.cos(angle);
+    this.velocity.z = dirZ * s * Math.cos(angle);
+    this.velocity.y = s * Math.sin(angle) + (popped ? this.ollieForce : 0);
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+    this.lastJumpPopped = popped;
+  }
+
+  // Speed check on the in-run: riders scrub down toward the jump's speed before the kicker
+  _inrunSpeedCheck(terrain, dt) {
+    for (const ramp of terrain.ramps) {
+      const j = ramp.jump;
+      if (!j) continue;
+      const before = this.position.z - j.zStart; // distance uphill of the transition
+      if (before < -j.transLen || before > 40) continue;
+      if (Math.abs(this.position.x - j.x) > j.width / 2 + 2) continue;
+      const target = j.designSpeed * this.groundSpeedScale;
+      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      if (hSpeed <= target) return;
+      const newSpeed = Math.max(target, hSpeed - 14 * dt);
+      this.velocity.x *= newSpeed / hSpeed;
+      this.velocity.z *= newSpeed / hSpeed;
+      return;
+    }
+  }
+
   // Gap-on lip in front of a rail: a small pop that just clears onto the rail at any speed
   _popOntoRail(ramp, terrain) {
     // No air-speed boost here: you start the rail at your riding speed and down rails speed you up gradually

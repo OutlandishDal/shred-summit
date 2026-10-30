@@ -18,14 +18,14 @@ const PARK_CONFIGS = {
     railTypes: ['parkRail', 'parkRail', 'endKink'],
     zones: {
       1: {
-        medium: { feet: 40, lipHeight: 2.7, lipAngle: 0.55 },
-        small:  { feet: 30, lipHeight: 2.0, lipAngle: 0.45 },
-        big:    { feet: 60, lipHeight: 4.0, lipAngle: 0.65 },
+        medium: { feet: 40 },
+        small:  { feet: 30 },
+        big:    { feet: 60 },
       },
       2: {
-        medium: { feet: 100, lipHeight: 6.75, lipAngle: 0.55 },
+        medium: { feet: 100 },
         small:  { feet: 75,  lipHeight: 5.0,  lipAngle: 0.45 },
-        big:    { feet: 150, lipHeight: 10.0, lipAngle: 0.65 },
+        big:    { feet: 150 },
       },
     },
     zoneThreshold: -2400,
@@ -40,14 +40,14 @@ const PARK_CONFIGS = {
     railTypes: ['kinkRail', 'downFlatDown', 'down', 'donkeyDick', 'waterfall', 'endKink'],
     zones: {
       1: {
-        medium: { feet: 150, lipHeight: 10.0, lipAngle: 0.60 },
+        medium: { feet: 150 },
         small:  { feet: 125, lipHeight: 8.5,  lipAngle: 0.55 },
-        big:    { feet: 200, lipHeight: 13.5, lipAngle: 0.65 },
+        big:    { feet: 200 },
       },
       2: {
-        medium: { feet: 200, lipHeight: 13.5, lipAngle: 0.65 },
-        small:  { feet: 150, lipHeight: 10.0, lipAngle: 0.60 },
-        big:    { feet: 200, lipHeight: 13.5, lipAngle: 0.65 },
+        medium: { feet: 200 },
+        small:  { feet: 150 },
+        big:    { feet: 200 },
       },
     },
     zoneThreshold: -1800,
@@ -67,14 +67,14 @@ const PARK_CONFIGS = {
         big:    { feet: 80,  lipHeight: 5.5,  lipAngle: 0.60 },
       },
       2: {
-        medium: { feet: 100, lipHeight: 6.75, lipAngle: 0.60 },
+        medium: { feet: 100 },
         small:  { feet: 75,  lipHeight: 5.0,  lipAngle: 0.55 },
         big:    { feet: 125, lipHeight: 8.5,  lipAngle: 0.65 },
       },
       3: {
-        medium: { feet: 150, lipHeight: 10.0, lipAngle: 0.65 },
+        medium: { feet: 150 },
         small:  { feet: 125, lipHeight: 8.5,  lipAngle: 0.60 },
-        big:    { feet: 200, lipHeight: 13.5, lipAngle: 0.65 },
+        big:    { feet: 200 },
       },
     },
     zoneThreshold: -1200,
@@ -263,119 +263,14 @@ export class Terrain {
       ];
 
       for (const { def, x } of pair) {
-        const feature = this.createJump(def.feet);
-        const type = 'kicker';
-        const scale = def.feet / 30;
-        const width = 4.0 * scale;   // match createJump's rampWidth
-        const length = 5.0 * scale;  // match createJump's rampLength
-        const { size, lipHeight, lipAngle } = def;
-
-        // Embed in terrain
-        const halfW = width / 2;
-        const halfL = length / 2;
-        let minY = Infinity;
-        for (const sx of [-halfW, 0, halfW]) {
-          for (const sz of [-halfL, -halfL / 2, 0, halfL / 2, halfL]) {
-            const h = this.computeHeight(x + sx, featureGlobalZ + sz);
-            if (h < minY) minY = h;
-          }
-        }
-        minY -= 0.3;
-
-        feature.position.set(x, minY, featureGlobalZ);
-        this.scene.add(feature);
-        chunk.objects.push(feature);
-        const rampData = {
-          mesh: feature,
-          position: new THREE.Vector3(x, minY, featureGlobalZ),
-          type, width, length, size, lipHeight, lipAngle, surfaceHeight: 0, chunkId,
-        };
-
-        if (feature.userData.landing) {
-          const ld = feature.userData.landing;
-          const lipZ = featureGlobalZ - length / 2;
-          // Landing starts after the air gap (space between lip and landing surface)
-          rampData.landingZoneStartZ = lipZ - (ld.airGap || 0);
-          rampData.landingZoneEndZ = lipZ - (ld.airGap || 0) - ld.gap - ld.length;
-          // Landing hitbox heights from the visual mesh's local coordinates + ramp world Y
-          // This ensures collision surface matches the visible landing surface exactly
-          rampData.landingTopHeight = minY + ld.topLocalY;
-          rampData.landingBottomHeight = minY + ld.endLocalY;
-          rampData.landingWidth = ld.width;
-          rampData.landingGap = ld.gap;
-          rampData.landingLength = ld.length;
-        }
-
-        this.ramps.push(rampData);
-
-        // Exclusion zone: ramp body + landing zone + 6 unit buffer (~20ft)
-        const buffer = 6;
-        const zTop = featureGlobalZ + length / 2 + buffer; // uphill of ramp
-        let zBottom = featureGlobalZ - length / 2 - buffer; // downhill of ramp
-        if (rampData.landingZoneEndZ) {
-          zBottom = rampData.landingZoneEndZ - buffer; // extend through landing
-        }
-        this.exclusionZones.push({ x, zStart: zBottom, zEnd: zTop, halfWidth: width / 2 + buffer });
+        this.placeJump(def.feet, def.size, x, featureGlobalZ, chunk);
       }
     }
 
     // --- FINAL BOOTERS: massive jumps back to back before finish line ---
     for (const booterGlobalZ of this.config.booterPositions) {
       if (booterGlobalZ < zOffset - this.chunkLength || booterGlobalZ >= zOffset) continue;
-
-      const booterFeet = this.config.booterFeet;
-      const feature = this.createJump(booterFeet);
-      const bScale = booterFeet / 30;
-      const bWidth = 4.0 * bScale;
-      const bLength = 5.0 * bScale;
-      const bx = 0; // centered on the run
-
-      // Embed in terrain
-      const bHalfW = bWidth / 2;
-      const bHalfL = bLength / 2;
-      let bMinY = Infinity;
-      for (const sx of [-bHalfW, 0, bHalfW]) {
-        for (const sz of [-bHalfL, -bHalfL / 2, 0, bHalfL / 2, bHalfL]) {
-          const h = this.computeHeight(bx + sx, booterGlobalZ + sz);
-          if (h < bMinY) bMinY = h;
-        }
-      }
-      bMinY -= 0.3;
-
-      feature.position.set(bx, bMinY, booterGlobalZ);
-      this.scene.add(feature);
-      chunk.objects.push(feature);
-
-      const booterData = {
-        mesh: feature,
-        position: new THREE.Vector3(bx, bMinY, booterGlobalZ),
-        type: 'kicker', width: bWidth, length: bLength, size: 'massive',
-        lipHeight: 2.0 * bScale, lipAngle: 0.65, surfaceHeight: 0, chunkId,
-      };
-
-      if (feature.userData.landing) {
-        const ld = feature.userData.landing;
-        const lipZ = booterGlobalZ - bLength / 2;
-        booterData.landingZoneStartZ = lipZ - (ld.airGap || 0);
-        booterData.landingZoneEndZ = lipZ - (ld.airGap || 0) - ld.gap - ld.length;
-        // Landing hitbox heights from the visual mesh's local coordinates + ramp world Y
-        booterData.landingTopHeight = bMinY + ld.topLocalY;
-        booterData.landingBottomHeight = bMinY + ld.endLocalY;
-        booterData.landingWidth = ld.width;
-        booterData.landingGap = ld.gap;
-        booterData.landingLength = ld.length;
-      }
-
-      this.ramps.push(booterData);
-
-      // Big exclusion zone around the entire booter
-      const bBuffer = 12;
-      const bZTop = booterGlobalZ + bLength / 2 + bBuffer;
-      let bZBottom = booterGlobalZ - bLength / 2 - bBuffer;
-      if (booterData.landingZoneEndZ) {
-        bZBottom = booterData.landingZoneEndZ - bBuffer;
-      }
-      this.exclusionZones.push({ x: bx, zStart: bZBottom, zEnd: bZTop, halfWidth: bWidth / 2 + bBuffer });
+      this.placeJump(this.config.booterFeet, 'massive', 0, booterGlobalZ, chunk);
     }
 
     // --- Phase 1.5: Big rollers with an up rail onto the deck and a down rail off it ---
@@ -621,174 +516,180 @@ export class Terrain {
 
   // --- JUMPS (sized by "feet" — 30, 40, 50, 60, 75, 100, 125, 150) ---
 
-  createJump(feet) {
-    const group = new THREE.Group();
-    const scale = feet / 30;
-    const rampHeight = 2.0 * scale;
-    const rampLength = 5.0 * scale;
-    const rampWidth = 4.0 * scale;
-    const halfW = rampWidth / 2;
-    const lipThick = 0.3 * scale;
+  // A table-top kicker built from one profile that both the mesh and the physics use:
+  // circular transition up to the lip -> flat deck (the gap) -> rounded knuckle -> landing -> hill.
+  // Heights are measured from the hill plane; d is the distance downhill from where the transition starts.
+  designJump(feet, size) {
+    const lipAngles = { small: 0.45, medium: 0.52, big: 0.58, massive: 0.62 };
+    const lipAngle = lipAngles[size] || 0.52;      // takeoff angle relative to the hill
+    const lipHeight = 2.5 + feet * 0.04;           // 30ft -> 3.7m, 150ft -> 8.5m
+    const radius = lipHeight / (1 - Math.cos(lipAngle));
+    const transLen = radius * Math.sin(lipAngle);
+    const deckHeight = lipHeight * 0.9;
+    const deckLen = feet * 0.3048;                 // the jump's size is its gap, lip to knuckle
+    const knuckleLen = 3;
+    const landSlope = Math.tan(0.36);              // landing is ~20 deg steeper than the hill
+    const knuckleDrop = landSlope * knuckleLen / 2;
+    const landStart = transLen + deckLen + knuckleLen;
+    const landEnd = landStart + (deckHeight - knuckleDrop) / landSlope;
+    const width = 6 + feet * 0.03;
+    const j = {
+      feet, size, lipAngle, lipHeight, radius, transLen, deckHeight, deckLen, knuckleLen,
+      landSlope, knuckleDrop, landStart, landEnd, total: landEnd + 1,
+      width, landingWidth: width * 1.5,
+    };
+    // Sweet spot: 40% of the way down the landing
+    j.sweetSpot = landStart + (landEnd - landStart) * 0.4;
+    j.designSpeed = this._solveJumpSpeed(j);
+    return j;
+  }
 
-    // Curved ramp profile — smooth transition like a real kicker
-    const segments = 10;
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0);
-    shape.lineTo(rampLength * 0.15, 0); // flat approach
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const px = rampLength * 0.15 + t * rampLength * 0.85;
-      const py = rampHeight * Math.pow(t, 0.65); // smooth ease-in curve
-      shape.lineTo(px, py);
+  // Height above the hill plane at distance d along the jump
+  jumpRel(j, d) {
+    if (d <= 0) return 0;
+    if (d <= j.transLen) return j.radius - Math.sqrt(j.radius * j.radius - d * d);
+    if (d <= j.transLen + 1) return j.lipHeight + (j.deckHeight - j.lipHeight) * (d - j.transLen);
+    const kStart = j.transLen + j.deckLen;
+    if (d <= kStart) return j.deckHeight;
+    if (d <= j.landStart) {
+      const u = d - kStart;
+      return j.deckHeight - j.landSlope * u * u / (2 * j.knuckleLen);
     }
-    shape.lineTo(rampLength + lipThick, rampHeight); // flat lip
-    shape.lineTo(rampLength + lipThick, rampHeight * 0.3); // back drops down
-    shape.lineTo(rampLength * 0.85, 0);
-    shape.lineTo(0, 0);
+    return Math.max(0, j.deckHeight - j.knuckleDrop - j.landSlope * (d - j.landStart));
+  }
 
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth: rampWidth, bevelEnabled: false,
+  // Which part of the jump d is on: 'kicker' | 'deck' | 'knuckle' | 'landing' | null
+  jumpPart(j, d) {
+    if (d < 0 || d > j.landEnd) return null;
+    if (d <= j.transLen) return 'kicker';
+    if (d <= j.transLen + j.deckLen) return 'deck';
+    if (d <= j.landStart) return 'knuckle';
+    return 'landing';
+  }
+
+  // Approach speed at which a popped launch lands on the sweet spot
+  _solveJumpSpeed(j) {
+    const hill = Math.atan(this.slopeAngle);
+    const pop = 5;      // baseline ollie
+    const g = 25;
+    const landAt = (s) => {
+      const a = j.lipAngle - hill;
+      const vx = s * Math.cos(a);
+      let vy = s * Math.sin(a) + pop;
+      let d = j.transLen, y = j.lipHeight; // y is height above the hill plane
+      const dt = 1 / 120;
+      for (let i = 0; i < 2400; i++) {
+        d += vx * dt;
+        y += (vy + this.slopeAngle * vx) * dt;
+        vy -= g * dt;
+        if (d > j.transLen + 1 && y <= this.jumpRel(j, d)) return d;
+      }
+      return d;
+    };
+    let lo = 4, hi = 80;
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (landAt(mid) < j.sweetSpot) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  // Build, place and register a jump with its uphill transition start at zStart
+  placeJump(feet, size, x, zCenter, chunk) {
+    const j = this.designJump(feet, size);
+    const zStart = zCenter + j.transLen / 2;
+    // Hill plane through the lowest snow under the jump, so it never floats above a dip
+    let y0 = Infinity;
+    for (let d = 0; d <= j.total; d += 2) {
+      for (const sx of [-j.width / 2, 0, j.width / 2]) {
+        y0 = Math.min(y0, this.computeHeight(x + sx, zStart - d) + this.slopeAngle * d);
+      }
+    }
+    Object.assign(j, { x, zStart, y0 });
+
+    const group = this.createJumpMesh(j);
+    group.position.set(x, y0, zStart);
+    this.scene.add(group);
+    chunk.objects.push(group);
+
+    this.ramps.push({
+      mesh: group,
+      position: new THREE.Vector3(x, y0, zStart - j.transLen / 2),
+      type: 'kicker', width: j.width, length: j.transLen, size,
+      lipHeight: j.lipHeight, lipAngle: j.lipAngle, surfaceHeight: 0,
+      jump: j, chunkId: chunk.chunkId,
     });
-    geometry.rotateY(Math.PI / 2);
-    geometry.translate(-halfW, 0, rampLength / 2);
-    geometry.computeVertexNormals();
+    const buffer = 6;
+    this.exclusionZones.push({
+      x, zStart: zStart - j.total - buffer, zEnd: zStart + buffer,
+      halfWidth: j.landingWidth / 2 + buffer,
+    });
+  }
 
-    const mesh = new THREE.Mesh(geometry, this.rampMaterial);
+  // World-space snow height of the jump at (x, z), or null when off it
+  jumpSurfaceAt(ramp, x, z) {
+    const j = ramp.jump;
+    const d = j.zStart - z;
+    if (d < 0 || d > j.total) return null;
+    const halfW = this._jumpHalfWidth(j, d);
+    if (Math.abs(x - j.x) > halfW) return null;
+    return j.y0 - this.slopeAngle * d + this.jumpRel(j, d);
+  }
+
+  _jumpHalfWidth(j, d) {
+    if (d <= j.transLen) return j.width / 2;
+    const k = Math.min(1, (d - j.transLen) / Math.max(1, j.deckLen));
+    return (j.width + (j.landingWidth - j.width) * k) / 2;
+  }
+
+  createJumpMesh(j) {
+    const group = new THREE.Group();
+    // Sample densely on the transition and knuckle, coarser on the deck and landing
+    const ds = [];
+    for (let d = 0; d < j.transLen; d += 0.4) ds.push(d);
+    for (let d = j.transLen; d < j.transLen + 1; d += 0.25) ds.push(d);
+    for (let d = j.transLen + 1; d < j.transLen + j.deckLen; d += 2) ds.push(d);
+    for (let d = j.transLen + j.deckLen; d < j.landStart; d += 0.3) ds.push(d);
+    for (let d = j.landStart; d < j.total; d += 1) ds.push(d);
+    ds.push(j.total);
+
+    const depth = 6;
+    const pos = [];
+    const idx = [];
+    // Per sample: 0 left-bottom, 1 left-top, 2 right-top, 3 right-bottom
+    for (const d of ds) {
+      const hw = this._jumpHalfWidth(j, d);
+      const y = -this.slopeAngle * d + this.jumpRel(j, d);
+      pos.push(-hw, y - depth, -d, -hw, y, -d, hw, y, -d, hw, y - depth, -d);
+    }
+    for (let i = 0; i < ds.length - 1; i++) {
+      const a = i * 4, b = (i + 1) * 4;
+      idx.push(a + 1, b + 1, b + 2, a + 1, b + 2, a + 2); // top
+      idx.push(a, b, b + 1, a, b + 1, a + 1);             // left side
+      idx.push(a + 3, a + 2, b + 2, a + 3, b + 2, b + 3); // right side
+    }
+    // Back face of the kicker start and the end
+    idx.push(0, 1, 2, 0, 2, 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, this.rampMaterial);
+    mesh.material.side = THREE.DoubleSide;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
 
-    // Snow side walls for ramp
-    for (const side of [-1, 1]) {
-      const wallShape = new THREE.Shape();
-      wallShape.moveTo(0, 0);
-      for (let i = 0; i <= segments; i++) {
-        const t = i / segments;
-        const wz = -rampLength / 2 + t * rampLength;
-        const wy = rampHeight * Math.pow(t, 0.65) + 0.2 * scale;
-        wallShape.lineTo(wz + rampLength / 2, wy);
-      }
-      wallShape.lineTo(rampLength, 0);
-      wallShape.lineTo(0, 0);
-
-      const wallGeo = new THREE.ExtrudeGeometry(wallShape, {
-        depth: 0.3 * scale, bevelEnabled: false,
-      });
-      wallGeo.rotateY(Math.PI / 2);
-      wallGeo.translate(side * (halfW + 0.15 * scale), 0, rampLength / 2);
-      const wall = new THREE.Mesh(wallGeo, this.snowMaterial);
-      wall.castShadow = true;
-      group.add(wall);
+    // Marker poles at the lip and the knuckle
+    for (const [d, side] of [[j.transLen, 1], [j.landStart - j.knuckleLen, -1]]) {
+      const h = 2.5;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, h, 6), this.poleMaterial);
+      pole.position.set(side * (this._jumpHalfWidth(j, d) + 0.6), -this.slopeAngle * d + this.jumpRel(j, d) + h / 2 - 0.5, -d);
+      group.add(pole);
     }
-
-    // === LANDING ZONE ===
-    // Real park jump: ramp → lip → air gap → knuckle → linear landing slope → runout
-    const airGap = 3.0 * scale;           // air space between lip and landing start
-    const landingGap = 2.0 * scale;       // flat table after air gap (knuckle)
-    const landingLen = 8.0 + 22.0 * scale;  // long downhill landing slope (base + scaled)
-    const landingWidth = rampWidth * 1.4;  // wider than ramp
-    const landingHalfW = landingWidth / 2;
-    const totalLandingDist = landingGap + landingLen;
-    // Landing top starts near lip height, adjusted for air gap terrain drop
-    const landingTopY = rampHeight * 0.92 - (airGap * this.slopeAngle);
-    // Landing end must reach actual terrain level at that Z distance from group center
-    const distToLandingEnd = rampLength / 2 + airGap + totalLandingDist;
-    // Extra depth keeps visual landing surface above terrain for full length
-    const landingEndY = -(distToLandingEnd * this.slopeAngle) - 2.0 * scale;
-
-    // Landing profile: flat table then straight slope (like real park jumps)
-    const landingSegs = 20;
-    const tableFrac = landingGap / totalLandingDist;
-    const landingShape = new THREE.Shape();
-    landingShape.moveTo(0, landingTopY);
-    for (let i = 0; i <= landingSegs; i++) {
-      const t = i / landingSegs;
-      const x = t * totalLandingDist;
-      let y;
-      if (t <= tableFrac) {
-        // Flat table / knuckle section
-        y = landingTopY;
-      } else {
-        // Linear slope from table height down to bottom
-        const slopeT = (t - tableFrac) / (1 - tableFrac);
-        y = landingTopY * (1 - slopeT) + landingEndY * slopeT;
-      }
-      landingShape.lineTo(x, y);
-    }
-    // Smooth runout that blends into terrain at the correct height
-    const runoutLen = 4.0 * scale;
-    const distToRunoutEnd = rampLength / 2 + airGap + totalLandingDist + runoutLen;
-    const runoutEndY = -(distToRunoutEnd * this.slopeAngle);
-    landingShape.lineTo(totalLandingDist + runoutLen, runoutEndY);
-    // Fill deep underneath so landing always sinks into terrain
-    const fillDepth = runoutEndY - rampHeight - 5 * scale;
-    landingShape.lineTo(totalLandingDist + runoutLen, fillDepth);
-    landingShape.lineTo(0, fillDepth);
-    landingShape.lineTo(0, landingTopY);
-
-    const landingGeo = new THREE.ExtrudeGeometry(landingShape, {
-      depth: landingWidth, bevelEnabled: false,
-    });
-    landingGeo.rotateY(Math.PI / 2);
-    landingGeo.translate(-landingHalfW, 0, -rampLength / 2 - airGap);
-    landingGeo.computeVertexNormals();
-
-    const landingMesh = new THREE.Mesh(landingGeo, this.rampMaterial);
-    landingMesh.castShadow = true;
-    landingMesh.receiveShadow = true;
-    group.add(landingMesh);
-
-    // Landing snow sidewalls
-    for (const side of [-1, 1]) {
-      const lWallShape = new THREE.Shape();
-      lWallShape.moveTo(0, landingTopY + 0.15 * scale);
-      for (let i = 0; i <= landingSegs; i++) {
-        const t = i / landingSegs;
-        const x = t * totalLandingDist;
-        let y;
-        if (t <= tableFrac) {
-          y = landingTopY + 0.15 * scale;
-        } else {
-          const slopeT = (t - tableFrac) / (1 - tableFrac);
-          y = landingTopY * (1 - slopeT) + landingEndY * slopeT + 0.15 * scale;
-        }
-        lWallShape.lineTo(x, y);
-      }
-      lWallShape.lineTo(totalLandingDist + runoutLen, runoutEndY + 0.15 * scale);
-      lWallShape.lineTo(totalLandingDist + runoutLen, fillDepth);
-      lWallShape.lineTo(0, fillDepth);
-      lWallShape.lineTo(0, landingTopY + 0.15 * scale);
-
-      const lWallGeo = new THREE.ExtrudeGeometry(lWallShape, {
-        depth: 0.25 * scale, bevelEnabled: false,
-      });
-      lWallGeo.rotateY(Math.PI / 2);
-      lWallGeo.translate(side * (landingHalfW + 0.12 * scale), 0, -rampLength / 2 - airGap);
-      const lWall = new THREE.Mesh(lWallGeo, this.snowMaterial);
-      lWall.castShadow = true;
-      group.add(lWall);
-    }
-
-    // Store landing metadata for physics
-    group.userData.landing = {
-      airGap: airGap,
-      gap: landingGap,
-      length: landingLen,
-      width: landingWidth,
-      topLocalY: landingTopY,
-      endLocalY: landingEndY,
-    };
-
-    // Size label pole
-    const labelPole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.06, rampHeight + 2, 6),
-      this.poleMaterial
-    );
-    labelPole.position.set(halfW + 0.8, (rampHeight + 2) / 2, -rampLength * 0.4);
-    group.add(labelPole);
-
     return group;
   }
+
 
   // --- RAIL TYPES ---
 
