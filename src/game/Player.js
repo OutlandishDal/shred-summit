@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Pop on a jump lip adds this much of your ollie on top of the lip's own throw (keep in sync with Terrain)
+export const JUMP_POP_MUL = 1.4;
+
 export class Player {
   constructor(scene, equipmentType = 'snowboard') {
     this.scene = scene;
@@ -68,7 +71,6 @@ export class Player {
     this.lastJumpLayout = false;
     this._backflipTime = 0;
     this._layoutTime = 0;
-    this._ignoreHeldJump = false;
     this.grindExitTimer = 0;       // cooldown after jumping off rail
     this._grindedRails = new Set(); // rails already grinded this run — no re-snap
     this.grindAborted = false;     // true when fell off rail due to low speed (no points)
@@ -1474,7 +1476,6 @@ export class Player {
       // Ollie / Pop: hold jump to load (rider crouches), release to pop. Longer hold = bigger pop.
       // Riding at a rail lip, the meter fills by itself instead: tap jump when it's in the gold.
       const jumpHeld = input.jumpHeld ?? input.jump;
-      if (!jumpHeld) this._ignoreHeldJump = false; // space held from the air must be released first
       this._updateRailOnTiming(terrain);
       if (this.railTiming) {
         this.ollieCharge = 0;
@@ -1483,7 +1484,7 @@ export class Player {
           this._pendingPerfectOn = this.lastPopPerfect;
           this._railOnLocked = true;
         }
-      } else if (jumpHeld && !this._ignoreHeldJump) {
+      } else if (jumpHeld) {
         this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
       } else if (this.ollieCharge > 0) {
         if (this.onKicker) {
@@ -1793,13 +1794,12 @@ export class Player {
       // Flat ground ollie → 1.5x slower rotation (no flip-worthy air without a kicker)
       // Holding jump in the air opens you up: rotation slows down, and a backflip is laid out
       const openUp = !!(input.jumpHeld ?? false);
-      this._ignoreHeldJump = this._ignoreHeldJump || openUp; // don't load an ollie on landing until released
       const tuckMul = (input.tuck || input.grab) ? 1.5 : 1.0;
       const flatMul = this.launchedFromKicker ? 1.0 : 0.83;
       // Open up: spins slow right down; a backflip stays the same speed but is laid out
-      const spinOpenMul = openUp ? 0.6 : tuckMul;
+      const spinOpenMul = openUp ? 0.8 : tuckMul;
       const flipOpenMul = openUp ? 1.0 : tuckMul; // a layout flips as fast as a normal backflip
-      const flipTarget = 6.0 * flipOpenMul * flatMul; // target flip angular vel
+      const flipTarget = 6.5 * flipOpenMul * flatMul; // target flip angular vel
       const spinTarget = 4.8 * spinOpenMul * flatMul; // target spin angular vel (was 6.5: too fast)
       const rampUp = 20.0 * flipOpenMul * flatMul; // how fast rotation builds (rad/s²)
       // Layout backflip: backflip (S) with jump held for most of the flip
@@ -2199,10 +2199,11 @@ export class Player {
     const dirX = this.velocity.x / s, dirZ = this.velocity.z / s;
     const charge = this._takePopCharge();
     const popped = charge > 0;
-    const angle = j.lipAngle * (0.5 + 0.5 * charge) - Math.atan(terrain.slopeAngle);
+    // The lip always throws you up at its angle; the pop adds your ollie on top
+    const angle = j.lipAngle - Math.atan(terrain.slopeAngle);
     this.velocity.x = dirX * s * Math.cos(angle);
     this.velocity.z = dirZ * s * Math.cos(angle);
-    this.velocity.y = s * Math.sin(angle) + this.ollieForce * charge;
+    this.velocity.y = s * Math.sin(angle) + this.ollieForce * JUMP_POP_MUL * charge;
     this.grounded = false;
     this.onKicker = null;
     this.peakHeight = 0;

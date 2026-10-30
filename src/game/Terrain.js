@@ -1,3 +1,4 @@
+import { JUMP_POP_MUL } from './Player.js';
 import * as THREE from 'three';
 
 // Deterministic pseudo-random number generator (mulberry32)
@@ -523,7 +524,7 @@ export class Terrain {
   // circular transition up to the lip -> flat deck (the gap) -> rounded knuckle -> landing -> hill.
   // Heights are measured from the hill plane; d is the distance downhill from where the transition starts.
   designJump(feet, size) {
-    const lipAngles = { small: 0.45, medium: 0.52, big: 0.58, massive: 0.62 };
+    const lipAngles = { small: 0.55, medium: 0.62, big: 0.68, massive: 0.72 };
     // Speed you hit each jump at, as a share of top speed (riders barely need to scrub)
     const speedShare = { small: 0.82, medium: 0.86, big: 0.9, massive: 0.94 };
     const lipAngle = lipAngles[size] || 0.52;      // takeoff angle relative to the hill
@@ -584,7 +585,7 @@ export class Terrain {
   // Where a full pop at speed s first touches the jump (distance from the transition start)
   _popLandingAt(j, s) {
     const a = j.lipAngle - Math.atan(this.slopeAngle);
-    const pop = 5;      // full ollie
+    const pop = 5 * JUMP_POP_MUL; // full ollie on the lip
     const g = 25;
     const vx = s * Math.cos(a);
     let vy = s * Math.sin(a) + pop;
