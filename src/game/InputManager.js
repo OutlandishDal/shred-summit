@@ -4,6 +4,7 @@ export class InputManager {
   constructor() {
     this.keys = {};
     this.justPressed = {};
+    this.justReleased = {};
     this._previousKeys = {};
     this.disabled = false; // Set true to let text inputs work (nickname prompt)
     this._virtualJump = false; // one-shot for touch jump
@@ -29,6 +30,7 @@ export class InputManager {
   update() {
     for (const key in this.keys) {
       this.justPressed[key] = this.keys[key] && !this._previousKeys[key];
+      this.justReleased[key] = !this.keys[key] && !!this._previousKeys[key];
     }
     this._previousKeys = { ...this.keys };
 
@@ -60,7 +62,7 @@ export class InputManager {
   }
 
   // ---- GROUND CONTROLS ----
-  // A/D = steer. Auto-accelerate downhill. S = brake. Space = ollie. Shift = tuck.
+  // A/D = steer. Auto-accelerate downhill. S = brake. Hold Space to load an ollie, release to pop. Shift = tuck.
 
   get steer() {
     let val = 0;
@@ -75,6 +77,11 @@ export class InputManager {
 
   get jump() {
     return this.wasPressed('Space');
+  }
+
+  // Ollie: hold to load, release to pop
+  get jumpHeld() {
+    return this.isDown('Space');
   }
 
   get tuck() {

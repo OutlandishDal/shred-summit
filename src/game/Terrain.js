@@ -10,6 +10,9 @@ function mulberry32(seed) {
   };
 }
 
+// Top speed in the air (ground top speed before the 25% ground slowdown); see Player.baseMaxSpeed
+const RIDER_TOP_AIR_SPEED = 36.11 * 1.2;
+
 const PARK_CONFIGS = {
   'big-white': {
     name: 'BIG WHITE TELUS PARK',
@@ -521,27 +524,37 @@ export class Terrain {
   // Heights are measured from the hill plane; d is the distance downhill from where the transition starts.
   designJump(feet, size) {
     const lipAngles = { small: 0.45, medium: 0.52, big: 0.58, massive: 0.62 };
+    // Speed you hit each jump at, as a share of top speed (riders barely need to scrub)
+    const speedShare = { small: 0.82, medium: 0.86, big: 0.9, massive: 0.94 };
     const lipAngle = lipAngles[size] || 0.52;      // takeoff angle relative to the hill
     const lipHeight = 2.5 + feet * 0.04;           // 30ft -> 3.7m, 150ft -> 8.5m
+    const designSpeed = RIDER_TOP_AIR_SPEED * (speedShare[size] || 0.86);
+    // Gap is sized so a full pop at the design speed lands in the sweet spot
+    let lo = 5, hi = 200, j = null;
+    for (let i = 0; i < 25; i++) {
+      j = this._buildJump(feet, size, lipAngle, lipHeight, (lo + hi) / 2);
+      if (this._popLandingAt(j, designSpeed) > j.sweetSpot) lo = j.deckLen; else hi = j.deckLen;
+    }
+    j.designSpeed = designSpeed;
+    return j;
+  }
+
+  _buildJump(feet, size, lipAngle, lipHeight, deckLen) {
     const radius = lipHeight / (1 - Math.cos(lipAngle));
     const transLen = radius * Math.sin(lipAngle);
     const deckHeight = lipHeight * 0.9;
-    const deckLen = feet * 0.3048;                 // the jump's size is its gap, lip to knuckle
     const knuckleLen = 3;
-    const landSlope = Math.tan(0.36);              // landing is ~20 deg steeper than the hill
+    const landSlope = Math.tan(0.14);              // landing is ~8 deg steeper than the hill (~24 deg)
     const knuckleDrop = landSlope * knuckleLen / 2;
     const landStart = transLen + deckLen + knuckleLen;
     const landEnd = landStart + (deckHeight - knuckleDrop) / landSlope;
     const width = 6 + feet * 0.03;
-    const j = {
+    return {
       feet, size, lipAngle, lipHeight, radius, transLen, deckHeight, deckLen, knuckleLen,
       landSlope, knuckleDrop, landStart, landEnd, total: landEnd + 1,
       width, landingWidth: width * 1.5,
+      sweetSpot: landStart + (landEnd - landStart) * 0.4, // 40% of the way down the landing
     };
-    // Sweet spot: 40% of the way down the landing
-    j.sweetSpot = landStart + (landEnd - landStart) * 0.4;
-    j.designSpeed = this._solveJumpSpeed(j);
-    return j;
   }
 
   // Height above the hill plane at distance d along the jump
@@ -567,31 +580,22 @@ export class Terrain {
     return 'landing';
   }
 
-  // Approach speed at which a popped launch lands on the sweet spot
-  _solveJumpSpeed(j) {
-    const hill = Math.atan(this.slopeAngle);
-    const pop = 5;      // baseline ollie
+  // Where a full pop at speed s first touches the jump (distance from the transition start)
+  _popLandingAt(j, s) {
+    const a = j.lipAngle - Math.atan(this.slopeAngle);
+    const pop = 5;      // full ollie
     const g = 25;
-    const landAt = (s) => {
-      const a = j.lipAngle - hill;
-      const vx = s * Math.cos(a);
-      let vy = s * Math.sin(a) + pop;
-      let d = j.transLen, y = j.lipHeight; // y is height above the hill plane
-      const dt = 1 / 120;
-      for (let i = 0; i < 2400; i++) {
-        d += vx * dt;
-        y += (vy + this.slopeAngle * vx) * dt;
-        vy -= g * dt;
-        if (d > j.transLen + 1 && y <= this.jumpRel(j, d)) return d;
-      }
-      return d;
-    };
-    let lo = 4, hi = 80;
-    for (let i = 0; i < 30; i++) {
-      const mid = (lo + hi) / 2;
-      if (landAt(mid) < j.sweetSpot) lo = mid; else hi = mid;
+    const vx = s * Math.cos(a);
+    let vy = s * Math.sin(a) + pop;
+    let d = j.transLen, y = j.lipHeight; // y is height above the hill plane
+    const dt = 1 / 120;
+    for (let i = 0; i < 2400; i++) {
+      d += vx * dt;
+      y += (vy + this.slopeAngle * vx) * dt;
+      vy -= g * dt;
+      if (d > j.transLen + 1 && y <= this.jumpRel(j, d)) return d;
     }
-    return (lo + hi) / 2;
+    return d;
   }
 
   // Build, place and register a jump with its uphill transition start at zStart

@@ -46,7 +46,7 @@ export class TouchControls {
 
     // --- Jump ---
     const jump = this.createButton('JUMP', 'jump-btn', 'touch-btn jump-btn-size');
-    this.setupTapButton(jump, 'jump');
+    this.setupHoldButton(jump, 'Space', 'jump'); // hold to load the ollie, release to pop
     this.groundGroup.appendChild(jump);
 
     // --- Tuck ---

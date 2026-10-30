@@ -79,7 +79,9 @@ export class Player {
 
     // Kicker launch cooldown — prevents re-launch when landing back on same kicker
     this.kickerCooldown = 0;
-    this.kickerPopBoost = 0; // extra air from pressing space on a kicker
+    this.kickerPopBoost = 0; // ollie charge (0..1) released on a kicker, used at the lip
+    this.ollieCharge = 0;    // 0..1 while jump is held on the ground
+    this.ollieChargeTime = 0.45; // seconds of holding for a full pop
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -1207,6 +1209,7 @@ export class Player {
 
     // ===== GROUND / SURFACE COLLISION =====
     const wasInAir = !this.grounded && !this.grinding;
+    if (this.grounded) this._rolledRailLip = false;
     const nextY = this.position.y + this.velocity.y * dt;
 
     if (nextY <= surfaceH + groundOffset) {
@@ -1448,15 +1451,21 @@ export class Player {
       this.velocity.x *= frictionMul * carveFriction;
       this.velocity.z *= frictionMul * carveFriction;
 
-      // Ollie / Pop
-      if (input.jump) {
+      // Ollie / Pop: hold jump to load (rider crouches), release to pop. Longer hold = bigger pop.
+      const jumpHeld = input.jumpHeld ?? input.jump;
+      if (jumpHeld) {
+        this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
+      } else if (this.ollieCharge > 0) {
+        const charge = this.ollieCharge;
+        this.ollieCharge = 0;
         if (this.onKicker) {
-          // On a kicker: store pop boost — applied at lip for extra air
-          this.kickerPopBoost = this.jumpForce * 0.6;
-        } else {
+          // Released on a kicker or rail lip: used when you reach the lip
+          this.kickerPopBoost = charge;
+        } else if (charge >= 0.15) {
           // Backcountry: full jump (pillows, bumps, drops need big air)
           // Park flat ground: reduced ollie (~6 feet)
-          this.velocity.y = this.backcountryMode ? this.jumpForce : this.ollieForce;
+          const force = this.backcountryMode ? this.jumpForce : this.ollieForce;
+          this.velocity.y = force * (0.35 + 0.65 * charge);
           this.grounded = false;
           this.peakHeight = 0;
           this.launchedFromKicker = this.backcountryMode;
@@ -1499,8 +1508,8 @@ export class Player {
       const lean = this.edgeLeanSmooth;
       const impactBend = this.landingImpact * 0.8;
 
-      if (this.isTucking) {
-        // Ground tuck: deep crouch
+      if (this.isTucking || this.ollieCharge > 0.05) {
+        // Ground tuck / loading an ollie: deep crouch
         this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.15, 0.12);
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.3, 0.12);
         // Deep knee bend
@@ -2107,12 +2116,12 @@ export class Player {
     this.boostAirSpeed();
     const s = Math.hypot(this.velocity.x, this.velocity.z) || 1;
     const dirX = this.velocity.x / s, dirZ = this.velocity.z / s;
-    const popped = this.kickerPopBoost > 0;
-    this.kickerPopBoost = 0;
-    const angle = (popped ? j.lipAngle : j.lipAngle * 0.5) - Math.atan(terrain.slopeAngle);
+    const charge = this._takePopCharge();
+    const popped = charge > 0;
+    const angle = j.lipAngle * (0.5 + 0.5 * charge) - Math.atan(terrain.slopeAngle);
     this.velocity.x = dirX * s * Math.cos(angle);
     this.velocity.z = dirZ * s * Math.cos(angle);
-    this.velocity.y = s * Math.sin(angle) + (popped ? this.ollieForce : 0);
+    this.velocity.y = s * Math.sin(angle) + this.ollieForce * charge;
     this.grounded = false;
     this.onKicker = null;
     this.peakHeight = 0;
@@ -2120,18 +2129,27 @@ export class Player {
     this.lastJumpPopped = popped;
   }
 
-  // Speed check on the in-run: riders scrub down toward the jump's speed before the kicker
+  // Pop strength at a lip: an ollie released on the kicker, or one still being held (0 = no pop)
+  _takePopCharge() {
+    let charge = this.kickerPopBoost;
+    if (this.ollieCharge >= 0.15) charge = Math.max(charge, this.ollieCharge);
+    this.kickerPopBoost = 0;
+    this.ollieCharge = 0;
+    return charge >= 0.15 ? charge : 0;
+  }
+
+  // Speed check on the in-run: riders gently scrub any extra speed before the kicker
   _inrunSpeedCheck(terrain, dt) {
     for (const ramp of terrain.ramps) {
       const j = ramp.jump;
       if (!j) continue;
       const before = this.position.z - j.zStart; // distance uphill of the transition
-      if (before < -j.transLen || before > 40) continue;
+      if (before < -j.transLen || before > 70) continue;
       if (Math.abs(this.position.x - j.x) > j.width / 2 + 2) continue;
       const target = j.designSpeed * this.groundSpeedScale;
       const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
       if (hSpeed <= target) return;
-      const newSpeed = Math.max(target, hSpeed - 14 * dt);
+      const newSpeed = Math.max(target, hSpeed - 5 * dt);
       this.velocity.x *= newSpeed / hSpeed;
       this.velocity.z *= newSpeed / hSpeed;
       return;
@@ -2146,13 +2164,11 @@ export class Player {
     const dirX = this.velocity.x / hSpeed, dirZ = this.velocity.z / hSpeed;
     const slopeDrop = terrain.getHeightAt(this.position.x + dirX, this.position.z + dirZ)
       - terrain.getHeightAt(this.position.x, this.position.z);
-    const rise = Math.max(0.3, (ramp.railClear || 0.5) + 0.5);
+    // You have to ollie to get onto the rail; without one you just roll off the lip
+    const charge = this._takePopCharge();
+    const rise = charge > 0 ? Math.max(0.3, (ramp.railClear || 0.5) + 0.3 + 0.4 * charge) : 0.1;
+    this._rolledRailLip = charge === 0; // no ollie: can't lock onto the rail
     this.velocity.y = slopeDrop * hSpeed + Math.sqrt(2 * -this.gravity * rise);
-    // Pressing jump on the lip adds a little, not a full ollie
-    if (this.kickerPopBoost > 0) {
-      this.velocity.y += 1.5;
-      this.kickerPopBoost = 0;
-    }
     this.grounded = false;
     this.onKicker = null;
     this.peakHeight = 0;
@@ -2182,11 +2198,9 @@ export class Player {
     // Pop bonus from speed
     this.velocity.y += Math.min(speed * 0.05, 3);
 
-    // Apply ollie pop boost if player pressed space on the kicker
-    if (this.kickerPopBoost > 0) {
-      this.velocity.y += this.kickerPopBoost;
-      this.kickerPopBoost = 0;
-    }
+    // Ollie pop if the player loaded one on the kicker
+    const charge = this._takePopCharge();
+    if (charge > 0) this.velocity.y += this.jumpForce * 0.6 * charge;
 
     this.grounded = false;
     this.onKicker = null;
@@ -2247,6 +2261,7 @@ export class Player {
           const flipDev = Math.min(flipAbs, Math.PI * 2 - flipAbs);
           const rollDev = Math.min(rollAbs, Math.PI * 2 - rollAbs);
           if (flipDev > 0.349 || rollDev > 0.349) break; // too tilted — skip lock-on
+          if (this._rolledRailLip) break; // rolled the gap-on lip without an ollie
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
@@ -2733,6 +2748,7 @@ export class Player {
     this.updateStanceYaw();
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
+    this.ollieCharge = 0;
     this.terrainPopCooldown = 0;
     this._airSpeedBoost = 1;
     this.launchedFromKicker = false;
