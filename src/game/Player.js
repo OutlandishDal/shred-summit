@@ -1604,7 +1604,8 @@ export class Player {
         if (this._set.amt === 0) { this._set.spin = 0; this._set.flip = 0; }
       }
       const settingTrick = !!(setSpin || setFlip);
-      this._backOpen = 0;
+      this._didStraightBack = false;
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, 0, 0.1);
       this._fromRail = false;
       this._launched = false;
       this._rotMulLocked = false;
@@ -2142,7 +2143,16 @@ export class Player {
       // the flip axis stays across the direction of travel because x is the outer Euler rotation.
       this._straightBack = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
         (input.flipBackward || this.angularVelocity.x > 2.5);
-      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, this._straightBack ? 1 : 0, 0.15);
+      if (this._straightBack) this._didStraightBack = true;
+      // Turning back is tied to the flip finishing: it unwinds over the last ~100° of rotation,
+      // eased, so the board comes back around in one flowing move instead of whipping after.
+      let openTarget = this._straightBack ? 1 : 0;
+      if (!this._straightBack && this._didStraightBack) {
+        const toClean = Math.abs(Math.round(this.trickRotation.x / (Math.PI * 2)) * Math.PI * 2 - this.trickRotation.x);
+        const k = THREE.MathUtils.clamp(toClean / 1.75, 0, 1);
+        openTarget = k * k * (3 - 2 * k); // smoothstep
+      }
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, openTarget, 0.08);
       const openDir = Math.sign(this.STANCE_YAW) || 1;
       this.boardGroup.rotation.y = this.trickRotation.y + openDir * THREE.MathUtils.degToRad(65) * this._backOpen;
     }
