@@ -14,6 +14,8 @@ const _rig = {
   t: new THREE.Vector3(), pole: new THREE.Vector3(), inv: new THREE.Matrix4(),
   qFeet: new THREE.Quaternion(), qKnee: new THREE.Quaternion(), qYaw: new THREE.Quaternion(),
   up: new THREE.Vector3(0, 1, 0),
+  tw: new THREE.Vector3(), hw: new THREE.Vector3(), sw: new THREE.Vector3(), pw: new THREE.Vector3(),
+  qa: new THREE.Quaternion(), qb: new THREE.Quaternion(),
 };
 
 export class Player {
@@ -920,13 +922,36 @@ export class Player {
       const shoulder = hand === 'L' ? this.shoulderL : this.shoulderR;
       const elbow = hand === 'L' ? this.elbowL : this.elbowR;
       const t = ik.last;
-      _rig.t.set(t.x, t.y, t.z);
-      (t.space === 'board' ? this.boardMesh : this.riderGroup).localToWorld(_rig.t);
-      this.spineGroup.worldToLocal(_rig.t);
-      _rig.pole.set(hand === 'L' ? -1 : 1, -0.3, -0.5); // elbows out and back
-      this._solveTwoBone(shoulder, _rig.t, this.UPPER_ARM_LEN, this.FOREARM_LEN, _rig.pole, -1);
-      shoulder.quaternion.slerp(_ik.qUpper, ik.w);
-      elbow.quaternion.slerp(_ik.qLower, ik.w);
+      _rig.tw.set(t.x, t.y, t.z);
+      (t.space === 'board' ? this.boardMesh : this.riderGroup).localToWorld(_rig.tw);
+      if (ik.w > 0.97) ik.w = 1;
+      // A grab locks the hand on: if the spot is out of arm's reach (spins twist the shoulders
+      // away), fold the torso toward it until the hand gets there.
+      const lock = t.space === 'board' && ik.w === 1;
+      for (let pass = 0; pass < (lock ? 4 : 1); pass++) {
+        _rig.t.copy(_rig.tw);
+        this.spineGroup.worldToLocal(_rig.t);
+        _rig.pole.set(hand === 'L' ? -1 : 1, -0.3, -0.5); // elbows out and back
+        this._solveTwoBone(shoulder, _rig.t, this.UPPER_ARM_LEN, this.FOREARM_LEN, _rig.pole, -1);
+        shoulder.quaternion.slerp(_ik.qUpper, ik.w);
+        elbow.quaternion.slerp(_ik.qLower, ik.w);
+        if (!lock) break;
+        const reach = (this.UPPER_ARM_LEN + this.FOREARM_LEN) * 0.97;
+        shoulder.getWorldPosition(_rig.sw);
+        const gap = _rig.sw.distanceTo(_rig.tw) - reach;
+        if (gap <= 0.003) break;
+        // Swing the spine about its base so the shoulder moves toward the spot by the missing distance
+        this.spineGroup.getWorldPosition(_rig.pw);
+        const vs = _rig.hw.copy(_rig.sw).sub(_rig.pw);
+        const vt = _rig.sw.copy(_rig.tw).sub(_rig.pw);
+        const ang = Math.min(vs.angleTo(vt), gap / vs.length() * 1.3);
+        const axis = vs.cross(vt).normalize();
+        if (axis.lengthSq() < 1e-6) break;
+        this.riderGroup.getWorldQuaternion(_rig.qa);
+        axis.applyQuaternion(_rig.qb.copy(_rig.qa).invert()); // into the spine's parent frame
+        this.spineGroup.quaternion.premultiply(_rig.qb.setFromAxisAngle(axis, ang));
+        this.spineGroup.updateMatrixWorld(true);
+      }
     }
   }
 
