@@ -114,6 +114,16 @@ export class Player {
     this._swapTimer = 0;         // frontswap in progress (seconds left)
     this.swapDuration = 0.25;    // a frontswap takes this long; no new swap until it finishes
     this.swapHopHeight = 0.3;
+    // Setting a trick: holding a spin/flip key while loading the pop winds the shoulders up.
+    // Hucking off the lip with it set starts the rotation right away and faster; starting a
+    // rotation later in the air spins slower (see _launchRotation)
+    this._set = { spin: 0, flip: 0, amt: 0 };  // wound-up direction (-1/0/1) and how far (0..1)
+    this._rotMul = 1;           // rotation speed for this jump
+    this._rotMulLocked = false; // decided at takeoff (set) or at the first rotation input (late)
+    this._launched = false;     // takeoff handled for this airtime
+    this._huckT = 0;            // time left in the takeoff huck animation
+    this._huck = { spin: 0, flip: 0 };
+    this._fromRail = false;    // this airtime started off a rail
     // Rider rig dimensions (see _buildRig)
     this.THIGH_LEN = 0.34; this.SHIN_LEN = 0.3;     // hip→knee, knee→ankle
     this.UPPER_ARM_LEN = 0.3; this.FOREARM_LEN = 0.3; // shoulder→elbow, elbow→glove
@@ -1555,14 +1565,33 @@ export class Player {
       // Auto-accelerate downhill
       let slopeAccel = (this.isTucking ? 16 : 11) * this.groundSpeedScale;
 
-      // S = brake on ground (NOT flip — that's air only)
-      if (input.brake && !wasInAir) {
+      // Setting a trick while loading the pop (holding jump, or a pop saved for the lip)
+      const loadingPop = this.ollieCharge > 0 || this.kickerPopBoost > 0 || this.onKicker;
+      const setSpin = loadingPop ? (input.spinLeft ? 1 : input.spinRight ? -1 : 0) : 0;
+      const setFlip = loadingPop ? (input.flipForward ? -1 : input.flipBackward ? 1 : 0) : 0;
+      if (setSpin || setFlip) {
+        if (setSpin !== this._set.spin || setFlip !== this._set.flip) this._set.amt = 0;
+        this._set.spin = setSpin;
+        this._set.flip = setFlip;
+        this._set.amt = Math.min(1, this._set.amt + dt / 0.35); // full wind-up in 0.35 s
+      } else {
+        this._set.amt = Math.max(0, this._set.amt - dt * 3);
+        if (this._set.amt === 0) { this._set.spin = 0; this._set.flip = 0; }
+      }
+      const settingTrick = !!(setSpin || setFlip);
+      this._fromRail = false;
+      this._launched = false;
+      this._rotMulLocked = false;
+
+      // S = brake on ground (NOT flip — that's air only). While setting a backflip it's the set instead.
+      if (input.brake && !wasInAir && !settingTrick) {
         slopeAccel = 3 * this.groundSpeedScale;
       }
 
       // ---- CARVING TURN ----
       // Smoothly ramp the turn rate up/down (like digging in an edge)
-      const steerInput = input.steer; // -1, 0, +1
+      // Setting a spin stops the carve: A/D wind up the shoulders instead
+      const steerInput = setSpin ? 0 : input.steer; // -1..+1
 
       if (steerInput !== 0) {
         // Ramp toward target turn rate
@@ -1613,7 +1642,7 @@ export class Player {
 
       // Standard friction — modified by surface type
       let frictionMul;
-      if (input.brake) {
+      if (input.brake && !settingTrick) {
         frictionMul = 0.94;
         this.turnRate *= 0.90;
       } else {
@@ -1712,9 +1741,23 @@ export class Player {
         const crouch = this.isTucking ? 1 : Math.min(1, this.ollieCharge * 1.5);
         // (hand spots are in riderGroup space, which already drops with the crouch)
         rg.position.y = THREE.MathUtils.lerp(rg.position.y, -0.06 - 0.16 * crouch, 0.15);
-        this._setSpine(0.3 + 0.45 * crouch, -lean * 0.2, 0);
-        this._reach('L', 'rider', -0.09, 0.62, 0.42, 0.2);
-        this._reach('R', 'rider', 0.09, 0.6, 0.4, 0.2);
+        // Setting a trick: shoulders wind up against the spin, the chest loads for a flip
+        const set = this._set;
+        const windUp = -set.spin * 0.6 * set.amt;
+        const flipLoad = set.flip * 0.25 * set.amt;  // backflip: chest drops to load; frontflip: chest up
+        this._setSpine(0.3 + 0.45 * crouch + flipLoad, -lean * 0.2 + windUp, 0);
+        if (set.spin) {
+          // Arms open out so the wind-up reads, ready to throw
+          this.lerpJoint(this.shoulderL, 'z', -0.7, 0.15);
+          this.lerpJoint(this.shoulderL, 'x', 0.3, 0.15);
+          this.lerpJoint(this.elbowL, 'x', -0.5, 0.15);
+          this.lerpJoint(this.shoulderR, 'z', 0.7, 0.15);
+          this.lerpJoint(this.shoulderR, 'x', 0.3, 0.15);
+          this.lerpJoint(this.elbowR, 'x', -0.5, 0.15);
+        } else {
+          this._reach('L', 'rider', -0.09, 0.62, 0.42, 0.2);
+          this._reach('R', 'rider', 0.09, 0.6, 0.4, 0.2);
+        }
         this.lerpJoint(this.headGroup, 'x', -0.35 * crouch, 0.12); // chin up, eyes down the hill
       } else {
         // Carving. Toeside (lean > 0): knees drive over the toes, chest stays fairly tall.
@@ -1831,6 +1874,9 @@ export class Player {
 
         // Track grind duration
         this.grindTime += dt;
+        this._fromRail = true;
+        this._launched = false;
+        this._rotMulLocked = false;
 
         // A/D for boardslide tricks while grinding.
         // Switching sides is a frontswap: it takes swapDuration and can't be interrupted, so it can't be spammed.
@@ -1939,14 +1985,16 @@ export class Player {
       // Flat ground ollie → 1.5x slower rotation (no flip-worthy air without a kicker)
       // Holding jump in the air opens you up: rotation slows down, and a backflip is laid out
       const openUp = !!(input.jumpHeld ?? false);
+      this._launchRotation(input);
+      const setMul = this._rotMul;
       const tuckMul = (input.tuck || input.grab) ? 1.5 : 1.0;
       const flatMul = this.launchedFromKicker ? 1.0 : 0.83;
       // Open up: spins slow right down; a backflip stays the same speed but is laid out
       const spinOpenMul = openUp ? 0.8 : tuckMul;
       const flipOpenMul = openUp ? 1.0 : tuckMul; // a layout flips as fast as a normal backflip
-      const flipTarget = 6.5 * flipOpenMul * flatMul; // target flip angular vel
-      const spinTarget = 4.8 * spinOpenMul * flatMul; // target spin angular vel (was 6.5: too fast)
-      const rampUp = 20.0 * flipOpenMul * flatMul; // how fast rotation builds (rad/s²)
+      const flipTarget = 6.5 * flipOpenMul * flatMul * setMul; // target flip angular vel
+      const spinTarget = 4.8 * spinOpenMul * flatMul * setMul; // target spin angular vel (was 6.5: too fast)
+      const rampUp = 20.0 * flipOpenMul * flatMul * setMul; // how fast rotation builds (rad/s²)
       // Layout backflip: backflip (S) with jump held for most of the flip
       this.isLayingOut = openUp && input.flipBackward && !(input.spinLeft || input.spinRight);
       if (input.flipBackward) this._backflipTime += dt;
@@ -2141,7 +2189,11 @@ export class Player {
       const L = THREE.MathUtils.lerp;
       // Spins: the upper body leads the rotation and the arms come in
       const spinRate = this.angularVelocity.y;
-      const spinTwist = THREE.MathUtils.clamp(spinRate * 0.1, -0.5, 0.5);
+      // Huck off the takeoff: shoulders and arms throw hard into the set rotation, then settle
+      this._huckT = Math.max(0, this._huckT - dt);
+      const huck = this._huckT / 0.3;
+      const spinTwist = THREE.MathUtils.clamp(spinRate * 0.1 + this._huck.spin * 0.6 * huck, -0.9, 0.9);
+      const flipThrow = -this._huck.flip * 0.5 * huck; // backflip: head and chest thrown back
       const spinIn = Math.min(1, Math.abs(spinRate) / 4);
       const flipping = Math.abs(this.angularVelocity.x) + Math.abs(this.angularVelocity.z) > 2.5;
       this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + spinTwist * 0.8, 0.1);
@@ -2170,7 +2222,7 @@ export class Player {
         rg.position.y = L(rg.position.y, -0.34, 0.18);
         rg.rotation.x = L(rg.rotation.x, 0, 0.12);
         rg.rotation.z = L(rg.rotation.z, 0, 0.12);
-        this._setSpine(0.6, spinTwist, 0);
+        this._setSpine(0.6 + flipThrow, spinTwist, 0);
         this._reach('L', 'rider', -0.15, 0.58, 0.36, 0.25);
         this._reach('R', 'rider', 0.15, 0.58, 0.36, 0.25);
         this.lerpJoint(this.headGroup, 'x', 0.2, 0.12);
@@ -2179,7 +2231,7 @@ export class Player {
         rg.position.y = L(rg.position.y, -0.12 - spinIn * 0.06, 0.12);
         rg.rotation.x = L(rg.rotation.x, 0, 0.1);
         rg.rotation.z = L(rg.rotation.z, 0, 0.1);
-        this._setSpine(0.2 + spinIn * 0.1, spinTwist, 0);
+        this._setSpine(0.2 + spinIn * 0.1 + flipThrow, spinTwist, 0);
         this.lerpJoint(this.shoulderL, 'z', -1.05 + spinIn * 0.5, 0.12);
         this.lerpJoint(this.shoulderL, 'x', 0.1 + spinIn * 0.3, 0.12);
         this.lerpJoint(this.elbowL, 'x', -0.25 - spinIn * 0.8, 0.12);
@@ -2620,6 +2672,39 @@ export class Player {
     // Reset trickRotation for the grind
     this.trickRotation.set(0, 0, 0);
     this.angularVelocity.set(0, 0, 0);
+  }
+
+  // Takeoff and rotation speed for this jump.
+  // A trick set during the pop (key held while loading, still held at takeoff) is hucked: the
+  // rotation starts at once and runs up to 30% faster. Starting a rotation later in the air,
+  // without a set, only gets 95% down to 70% the later it starts. Real life: the takeoff sets the spin.
+  _launchRotation(input) {
+    const spinKey = input.spinLeft ? 1 : input.spinRight ? -1 : 0;
+    const flipKey = input.flipForward ? -1 : input.flipBackward ? 1 : 0;
+    if (!this._launched) {
+      this._launched = true;
+      const set = this._set;
+      // Still holding the set direction at takeoff (or holding a key off a rail) counts as a set
+      const heldSpin = spinKey && (spinKey === set.spin || this._fromRail) ? spinKey : 0;
+      const heldFlip = flipKey && (flipKey === set.flip || this._fromRail) ? flipKey : 0;
+      const amt = Math.max(set.amt, this._fromRail ? 0.5 : 0);
+      if ((heldSpin || heldFlip) && amt > 0.15) {
+        this._rotMul = 1 + 0.3 * amt;
+        this._rotMulLocked = true;
+        this._huck.spin = heldSpin;
+        this._huck.flip = heldFlip;
+        this._huckT = 0.3;
+        // The huck: rotation is already going as you leave the lip
+        if (heldSpin) this.angularVelocity.y = heldSpin * 4.8 * this._rotMul * (0.5 + 0.4 * amt);
+        if (heldFlip) this.angularVelocity.x = heldFlip * 6.5 * this._rotMul * (0.5 + 0.4 * amt);
+      }
+      set.spin = 0; set.flip = 0; set.amt = 0;
+    }
+    if (!this._rotMulLocked && (spinKey || flipKey)) {
+      this._rotMulLocked = true;
+      this._rotMul = THREE.MathUtils.clamp(0.95 - 0.4 * this.airTime, 0.7, 0.95);
+    }
+    if (!this._rotMulLocked) this._rotMul = 1;
   }
 
   // Grabs: the grabbing hand is IK'd onto the real spot on the board, the body folds down to reach it,
