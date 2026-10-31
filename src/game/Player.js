@@ -891,7 +891,7 @@ export class Player {
     if (this.legIK) {
       _rig.inv.copy(this.riderGroup.matrixWorld).invert();
       this.boardMesh.getWorldQuaternion(_rig.qFeet);
-      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.riderGroup.rotation.y));
+      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.STANCE_YAW)); // boots stay across the board
       const front = this._frontSign();
       for (const [hip, knee, ankle, side, bz] of [
         [this.hipL, this.kneeL, this.ankleL, -1, front * 0.22],
@@ -1579,6 +1579,7 @@ export class Player {
         if (this._set.amt === 0) { this._set.spin = 0; this._set.flip = 0; }
       }
       const settingTrick = !!(setSpin || setFlip);
+      this._backOpen = 0;
       this._fromRail = false;
       this._launched = false;
       this._rotMulLocked = false;
@@ -2106,8 +2107,14 @@ export class Player {
       this.grabType = input.grabType;
 
       // --- AIRBORNE RIDER ANIMATIONS ---
-      // Maintain sideways stance in air
-      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
+      // Maintain sideways stance in air. A straight backflip opens the hips and shoulders toward
+      // the way you're going, so it's a true back flip for the body instead of a sideways one.
+      this._straightBack = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
+        (input.flipBackward || this.angularVelocity.x > 2.5);
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, this._straightBack ? 1 : 0, 0.12);
+      const openDir = Math.sign(this.STANCE_YAW) || 1;
+      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y,
+        this.STANCE_YAW + openDir * 0.45 * this._backOpen, 0.15);
     }
 
     // ===== OBSTACLE COLLISIONS (capsule vs cylinder/sphere) =====
@@ -2203,20 +2210,37 @@ export class Player {
         this.applyGrabPose(this.grabType, this.grabWindup > 0, spinTwist);
         this.lerpJoint(this.headGroup, 'x', 0.25, 0.1);
       } else if (this.isLayingOut) {
-        // Layout: legs long, body straight with a slight arch, arms stretched wide, head back
+        // Layout: legs long, hips driven forward, back arched hard, shoulders and arms thrown back, head back
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.3 * this._backOpen;
         rg.position.y = L(rg.position.y, 0.02, 0.15);
-        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.x = L(rg.rotation.x, -0.15, 0.12);
         rg.rotation.z = L(rg.rotation.z, 0, 0.12);
-        this._setSpine(-0.35, 0, 0);
-        this.lerpJoint(this.shoulderL, 'z', -1.3, 0.15);
-        this.lerpJoint(this.shoulderL, 'x', -0.1, 0.15);
-        this.lerpJoint(this.elbowL, 'x', -0.05, 0.15);
+        this._setSpine(-0.6 + flipThrow * 0.5, openTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.35, 0.15);
+        this.lerpJoint(this.shoulderL, 'x', -0.75, 0.15);
+        this.lerpJoint(this.elbowL, 'x', -0.1, 0.15);
         this.lerpJoint(this.elbowL, 'z', 0, 0.15);
-        this.lerpJoint(this.shoulderR, 'z', 1.3, 0.15);
-        this.lerpJoint(this.shoulderR, 'x', -0.1, 0.15);
-        this.lerpJoint(this.elbowR, 'x', -0.05, 0.15);
+        this.lerpJoint(this.shoulderR, 'z', 1.35, 0.15);
+        this.lerpJoint(this.shoulderR, 'x', -0.75, 0.15);
+        this.lerpJoint(this.elbowR, 'x', -0.1, 0.15);
         this.lerpJoint(this.elbowR, 'z', 0, 0.15);
-        this.lerpJoint(this.headGroup, 'x', -0.35, 0.12);
+        this.lerpJoint(this.headGroup, 'x', -0.5, 0.12);
+      } else if (this._straightBack && !this.isTucking) {
+        // Backflip: chest open to the sky, shoulders back, knees soft (layout it by holding jump)
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.3 * this._backOpen;
+        rg.position.y = L(rg.position.y, -0.16, 0.15);
+        rg.rotation.x = L(rg.rotation.x, -0.05, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(-0.3 + flipThrow, openTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.1, 0.15);
+        this.lerpJoint(this.shoulderL, 'x', -0.55, 0.15);
+        this.lerpJoint(this.elbowL, 'x', -0.4, 0.15);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.15);
+        this.lerpJoint(this.shoulderR, 'z', 1.1, 0.15);
+        this.lerpJoint(this.shoulderR, 'x', -0.55, 0.15);
+        this.lerpJoint(this.elbowR, 'x', -0.4, 0.15);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.15);
+        this.lerpJoint(this.headGroup, 'x', -0.4, 0.12);
       } else if (this.isTucking || flipping) {
         // Tuck: knees pulled up to the chest, hands holding the shins, compact so it rotates fast
         rg.position.y = L(rg.position.y, -0.34, 0.18);
