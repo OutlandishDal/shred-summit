@@ -1814,6 +1814,7 @@ export class Player {
       }
 
       // Head looks into turns more aggressively + dips on landing impact
+      this.lerpJoint(this.headGroup, 'z', 0, 0.1);
       const headLookY = -0.6 - lean * 0.35;
       this.lerpJoint(this.headGroup, 'y', headLookY, 0.1);
       const headRestX = this._boneRest(this.headGroup, 'x');
@@ -2033,6 +2034,7 @@ export class Player {
       // --- CORK DETECTION ---
       // Cork = flip + spin pressed simultaneously. Off-axis diagonal rotation.
       const isCork = flipping && spinning;
+      this._corking = isCork;
       this.isCorkingThisJump = this.isCorkingThisJump || isCork;
       if (isCork && this.corkFlipDirection === 0) {
         // W = frontflip (-1), S = backflip (+1)
@@ -2232,6 +2234,7 @@ export class Player {
       const spinIn = Math.min(1, Math.abs(spinRate) / 4);
       const flipping = Math.abs(this.angularVelocity.x) + Math.abs(this.angularVelocity.z) > 2.5;
       this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + spinTwist * 0.8, 0.1);
+      this.lerpJoint(this.headGroup, 'z', 0, 0.1);
 
       if (this.isGrabbing) {
         // Wind-up: reaching toward the grab before it connects
@@ -2269,6 +2272,21 @@ export class Player {
         this.lerpJoint(this.elbowR, 'x', -0.4, 0.15);
         this.lerpJoint(this.elbowR, 'z', 0, 0.15);
         this.lerpJoint(this.headGroup, 'x', -0.4, 0.12);
+      } else if (this._corking) {
+        // Cork: compact and off-axis. The lead shoulder drops into the spin and the head turns to spot
+        // over it, knees pulled up, lead arm wrapped low across the shins, back hand hugging its knee.
+        const dir = this.corkSpinDirection || Math.sign(spinRate) || 1; // +1 turns toward the rider's right
+        const lead = dir > 0 ? 'R' : 'L', back = dir > 0 ? 'L' : 'R';
+        const side = dir > 0 ? 1 : -1;
+        rg.position.y = L(rg.position.y, -0.32, 0.18);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.z = L(rg.rotation.z, -dir * 0.12, 0.12);
+        this._setSpine(0.4, THREE.MathUtils.clamp(spinTwist + dir * 0.3, -1, 1), -dir * 0.35);
+        this._reach(lead, 'rider', -side * 0.05, 0.5, 0.42, 0.25);
+        this._reach(back, 'rider', -side * 0.17, 0.66, 0.36, 0.25);
+        this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + dir * 0.9, 0.12);
+        this.lerpJoint(this.headGroup, 'x', 0.15, 0.12);
+        this.lerpJoint(this.headGroup, 'z', -dir * 0.25, 0.12);
       } else if (this.isTucking || flipping) {
         // Tuck: knees pulled up to the chest, hands holding the shins, compact so it rotates fast
         rg.position.y = L(rg.position.y, -0.34, 0.18);
