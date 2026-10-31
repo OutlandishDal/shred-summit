@@ -121,6 +121,12 @@ export class Player {
     this._landReady = false;       // rotation finished, rider set up for the landing
     this._jumpFreshInAir = false;  // jump released since takeoff, so the pop's hold doesn't count
     this._prepHold = 0;            // how long jump has been held in the air
+    // Stuck rescue: standing still this long unstraps the back foot (snowboard) or both skis, so the
+    // rider can push/walk clear of the feature, then straps back in and rides on
+    this.stuckTime = 0;
+    this.stuckLimit = 5.0;
+    this.walking = null;           // { phase, dist, strap } while unstrapped
+    this._walkFeet = null;         // per-foot IK targets that replace the bindings while unstrapped
     this.prepCommitTime = 1.0;     // hold this long to commit to the landing
     this.grindExitTimer = 0;       // cooldown after jumping off rail
     this._grindedRails = new Set(); // rails already grinded this run — no re-snap
@@ -993,7 +999,9 @@ export class Player {
         [this.hipR, this.kneeR, this.ankleR, 1, -front * 0.22],
       ]) {
         // Snowboard: one binding at each end. Skis: each foot on its own ski (hip side, mapped by stance yaw)
-        if (ski) _rig.t.set(side * 0.14 * Math.cos(this.STANCE_YAW), this.ANKLE_Y, -0.05 * Math.cos(this.STANCE_YAW));
+        const free = this._walkFeet && this._walkFeet[side < 0 ? 'L' : 'R'];
+        if (free) _rig.t.copy(free); // unstrapped: foot on the snow (same frame as the bindings)
+        else if (ski) _rig.t.set(side * 0.14 * Math.cos(this.STANCE_YAW), this.ANKLE_Y, -0.05 * Math.cos(this.STANCE_YAW));
         else _rig.t.set(0, this.ANKLE_Y, bz);
         base.localToWorld(_rig.t).applyMatrix4(_rig.inv);
         _rig.pole.set(side * 0.12, 0, 1);
@@ -1335,6 +1343,7 @@ export class Player {
       bind.position.set(0, 0.05, -0.05); ski.add(bind);
 
       this.boardGroup.add(ski);
+      (this.skiMeshes = this.skiMeshes || []).push(ski);
     }
   }
 
@@ -1422,6 +1431,13 @@ export class Player {
       this.updateTomahawk(dt, terrain);
       return this.getState(terrain);
     }
+
+    // Stuck (e.g. stopped sideways against a jump): after a few seconds, unstrap and walk it out
+    if (this.walking) return this._updateWalk(dt, input, terrain);
+    const still = this.grounded && !this.grinding && !this.inRiver &&
+      Math.hypot(this.velocity.x, this.velocity.z) < 0.8;
+    this.stuckTime = still ? this.stuckTime + dt : 0;
+    if (this.stuckTime >= this.stuckLimit) this._startWalk(terrain);
 
     this.wasGrounded = this.grounded;
     this.wasGrinding = this.grinding;
@@ -2504,41 +2520,228 @@ export class Player {
     return this.getState(terrain);
   }
 
+  // ===== UNSTRAPPED: PUSHING / WALKING OUT OF A STUCK SPOT =====
+  _startWalk(terrain) {
+    this.stuckTime = 0;
+    this.walking = { phase: 0, dist: 0, strap: 0, clear: false, exitX: 0, backZ: 0, backSide: 'R', toe: 1 };
+    // Head for the nearer side of whatever we're stuck on
+    // (somewhere with room to strap in, not a gap between two jumps)
+    for (let d = 1; d <= 40 && terrain; d++) {
+      const x = this.position.x, z = this.position.z;
+      if (!this._nearFeature(terrain, x + d, z, 3)) { this.walking.exitX = 1; break; }
+      if (!this._nearFeature(terrain, x - d, z, 3)) { this.walking.exitX = -1; break; }
+    }
+    this.velocity.set(0, 0, 0);
+    this.onKicker = null;
+    this.ollieCharge = 0;
+    this.kickerPopBoost = 0;
+    this._walkFeet = {};
+    if (this.equipmentType !== 'ski') {
+      // Work out, in the bindings' frame, which binding trails the direction of travel and which
+      // side of the board the toes face: the back foot comes out and pushes on the toe side
+      const base = this.boardMesh || this.boardGroup;
+      this.group.updateMatrixWorld(true);
+      const travel = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
+      const inv = new THREE.Matrix4().copy(base.matrixWorld).invert();
+      const tl = travel.transformDirection(inv);
+      const fwd = new THREE.Vector3(0, 0, 1).transformDirection(this.riderGroup.matrixWorld).transformDirection(inv);
+      const backZ = tl.z > 0 ? -0.22 : 0.22;
+      const frontSign = this._frontSign();
+      this.walking.backZ = backZ;
+      this.walking.backSide = backZ === frontSign * 0.22 ? 'L' : 'R'; // hipL sits on +front*0.22
+      this.walking.toe = Math.sign(fwd.x) || 1;
+    }
+    if (this.equipmentType === 'ski' && this.skiMeshes) {
+      // Step out of both skis and shoulder them: they ride on the right shoulder, tips forward
+      for (const [i, ski] of this.skiMeshes.entries()) {
+        ski.userData.rest = { p: ski.position.clone(), r: ski.rotation.clone() };
+        this.spineGroup.add(ski);
+        ski.position.set(0.2 + i * 0.07, 0.6, -0.1);
+        ski.rotation.set(-0.35, 0, 0);
+      }
+    }
+  }
+
+  _strapIn() {
+    if (this.skiMeshes) {
+      for (const ski of this.skiMeshes) {
+        if (!ski.userData.rest) continue;
+        this.boardGroup.add(ski);
+        ski.position.copy(ski.userData.rest.p);
+        ski.rotation.copy(ski.userData.rest.r);
+        ski.userData.rest = null;
+      }
+    }
+    this.walking = null;
+    this._walkFeet = null;
+  }
+
+  _featureAt(terrain, x, z) {
+    return this.getSurfaceHeight(terrain, x, z, true) - terrain.getHeightAt(x, z) > 0.05;
+  }
+
+  // Is there a jump, kicker or landing anywhere within r of (x, z)?
+  _nearFeature(terrain, x, z, r) {
+    if (this._featureAt(terrain, x, z)) return true;
+    for (let a = 0; a < 8; a++) {
+      for (const d of [r * 0.5, r]) {
+        if (this._featureAt(terrain, x + Math.cos(a * Math.PI / 4) * d, z + Math.sin(a * Math.PI / 4) * d)) return true;
+      }
+    }
+    return false;
+  }
+
+  _updateWalk(dt, input, terrain) {
+    const w = this.walking;
+    const ski = this.equipmentType === 'ski';
+    this.railTiming = null;
+    const L = THREE.MathUtils.lerp;
+    const rg = this.riderGroup;
+    let speed = 0;
+
+    if (w.strap > 0) {
+      // Strapping back in: crouch down to the bindings, then ride away
+      w.strap += dt;
+      const k = Math.min(1, w.strap / 0.9);
+      if (ski && k > 0.45 && this.skiMeshes && this.skiMeshes[0].userData.rest) {
+        // Skis go back down on the snow and the boots click in
+        for (const s of this.skiMeshes) {
+          if (!s.userData.rest) continue;
+          this.boardGroup.add(s); s.position.copy(s.userData.rest.p); s.rotation.copy(s.userData.rest.r); s.userData.rest = null;
+        }
+        this._walkFeet = {};
+      }
+      if (!ski && k > 0.6) this._walkFeet = {}; // back foot into the binding
+      rg.position.y = L(rg.position.y, -0.3 * Math.sin(k * Math.PI), 0.2);
+      this._setSpine(0.6 * Math.sin(k * Math.PI), 0, 0);
+      this._reach('R', 'rider', 0.05, 0.45, 0.3, 0.2); // hand down to the strap
+      if (k >= 1) {
+        this._strapIn();
+        const v = 4 * this.groundSpeedScale;
+        this.velocity.set(Math.sin(this.heading) * v, 0, Math.cos(this.heading) * v);
+      }
+    } else {
+      // Steer with A/D. With no input the rider heads out the side of the feature, then turns
+      // to face down the hill once clear of it.
+      w.clear = !this._nearFeature(terrain, this.position.x, this.position.z, 3);
+      const steer = input.steer || 0;
+      if (steer) this.heading -= steer * 2.2 * dt;
+      else {
+        const want = w.clear || !w.exitX ? Math.PI : w.exitX * Math.PI / 2;
+        let diff = want - this.heading;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        this.heading += THREE.MathUtils.clamp(diff, -1.2 * dt, 1.2 * dt);
+      }
+      // Ski walk / snowboard skate. W walks or pushes harder.
+      const base = (ski ? 1.8 : 2.6) * (input.flipForward ? 1.5 : 1);
+      const cadence = ski ? 1.6 : 1.1; // steps (or pushes) per second
+      w.phase = (w.phase + dt * cadence) % 1;
+      if (ski) speed = base;
+      else speed = base * (w.phase < 0.55 ? 1.25 : 0.7); // surge on each push
+
+      const bob = Math.sin(w.phase * Math.PI * 2 * (ski ? 2 : 1));
+      const front = this._frontSign();
+      if (ski) {
+        // Walking: legs stride under the body (board frame: travel is -z)
+        const c = Math.cos(this.STANCE_YAW);
+        for (const [side, off] of [[-1, 0], [1, 0.5]]) {
+          const ph = (w.phase + off) % 1;
+          const swing = ph > 0.5;
+          const t = swing ? (ph - 0.5) * 2 : ph * 2; // 0..1 through stance or swing
+          const z = swing ? L(0.22, -0.22, t) : L(-0.22, 0.22, t);
+          const y = this.ANKLE_Y - 0.06 + (swing ? Math.sin(t * Math.PI) * 0.1 : 0);
+          (this._walkFeet[side < 0 ? 'L' : 'R'] ||= new THREE.Vector3()).set(side * 0.11 * c, y, z);
+        }
+        rg.position.y = L(rg.position.y, 0.06 + bob * 0.015, 0.2);
+        this._setSpine(0.08, 0, 0);
+        // Right hand steadies the skis on the shoulder, left arm swings
+        this._reach('R', 'rider', 0.24, 1.38, 0.12, 0.2);
+        this.lerpJoint(this.shoulderL, 'x', Math.sin(w.phase * Math.PI * 2) * 0.4, 0.2);
+        this.lerpJoint(this.shoulderL, 'z', -0.2, 0.2);
+        this.lerpJoint(this.elbowL, 'x', -0.35, 0.2);
+      } else {
+        // Skating: front foot stays strapped, back foot plants beside the board and pushes back
+        const backZ = w.backZ, ahead = -Math.sign(backZ); // toward the front binding
+        const ph = w.phase;
+        const plant = ph < 0.55;
+        const t = plant ? ph / 0.55 : (ph - 0.55) / 0.45;
+        const zA = backZ + ahead * 0.3, zB = backZ - ahead * 0.25; // plant up by the front foot, push to behind the tail binding
+        const z = plant ? L(zA, zB, t) : L(zB, zA, t);
+        const y = this.ANKLE_Y - 0.05 + (plant ? 0 : Math.sin(t * Math.PI) * 0.12);
+        const foot = this._walkFeet[w.backSide] ||= new THREE.Vector3();
+        foot.set(w.toe * 0.24, y, z);
+        rg.position.y = L(rg.position.y, -0.1 + bob * 0.03, 0.2);
+        rg.rotation.x = L(rg.rotation.x, 0.05, 0.1);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.1);
+        this._setSpine(0.25, front * 0.35, 0); // shoulders open toward the nose
+        this.resetJointsToRiding(0.1);
+      }
+      this.lerpJoint(this.headGroup, 'x', 0.1, 0.1);
+
+      // Far enough from the jump? Strap back in.
+      w.dist += speed * dt;
+      const facingDown = Math.cos(this.heading) < -0.96;
+      if (w.dist > 2 && facingDown && w.clear) w.strap = dt;
+    }
+
+    // Move along the heading, following the snow (and any feature we're walking over)
+    this.velocity.set(Math.sin(this.heading) * speed, 0, Math.cos(this.heading) * speed);
+    this.position.x += this.velocity.x * dt;
+    this.position.z += this.velocity.z * dt;
+    const xBound = terrain.chunkWidth ? (terrain.chunkWidth / 2 - 10) : 50;
+    this.position.x = THREE.MathUtils.clamp(this.position.x, -xBound, xBound);
+    this.position.y = this.getSurfaceHeight(terrain, this.position.x, this.position.z, true) + 0.08;
+    this.grounded = true;
+    this.onKicker = null;
+    this.turnRate = 0;
+    this.edgeLeanSmooth = L(this.edgeLeanSmooth || 0, 0, 0.2);
+
+    this.boardGroup.rotation.set(L(this.boardGroup.rotation.x, 0, 0.2), 0, L(this.boardGroup.rotation.z, 0, 0.2));
+    this.group.position.copy(this.position);
+    let yawDiff = this.heading + Math.PI - this.visualYaw;
+    yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff));
+    this.visualYaw += yawDiff * 0.25;
+    this.group.rotation.y = this.visualYaw;
+    this._updateRig();
+    return this.getState(terrain);
+  }
+
   // ===== KICKER SURFACE RIDE =====
   // Instead of instant launch, the player RIDES UP the kicker surface.
   // The ramp raises them gradually. When they exit the lip, gravity takes over.
-  getSurfaceHeight(terrain) {
-    const baseH = terrain.getHeightAt(this.position.x, this.position.z);
+  getSurfaceHeight(terrain, px = this.position.x, pz = this.position.z, probe = false) {
+    const pos = { x: px, z: pz }; // probe = just look (no kicker state changes)
+    const baseH = terrain.getHeightAt(pos.x, pos.z);
     let boost = 0;
 
     for (const ramp of terrain.ramps) {
       if (ramp.type !== 'kicker') continue;
       if (ramp.jump) {
         const j = ramp.jump;
-        const d = j.zStart - this.position.z;
+        const d = j.zStart - pos.z;
         if (d < 0 || d > j.total) continue;
         const onKickerPart = d <= j.transLen;
         if (onKickerPart && this.kickerCooldown > 0) continue; // just launched
-        const y = terrain.jumpSurfaceAt(ramp, this.position.x, this.position.z);
+        const y = terrain.jumpSurfaceAt(ramp, pos.x, pos.z);
         if (y === null) continue;
         boost = Math.max(boost, y - baseH);
-        if (onKickerPart && this.grounded && d > j.transLen * 0.1) {
+        if (!probe && onKickerPart && this.grounded && d > j.transLen * 0.1) {
           this.onKicker = ramp;
           this.kickerProgress = d / j.transLen;
         }
         continue;
       }
       // Asymmetric cull: 50 uphill is plenty; downhill must reach landing zone end
-      if (this.position.z > ramp.position.z + 50) continue;
+      if (pos.z > ramp.position.z + 50) continue;
       const downhillLimit = ramp.landingZoneEndZ !== undefined
         ? ramp.landingZoneEndZ - 5
         : ramp.position.z - 50;
-      if (this.position.z < downhillLimit) continue;
+      if (pos.z < downhillLimit) continue;
 
       // Check kicker ramp surface (skip during cooldown to prevent re-launch)
-      if (this.kickerCooldown <= 0) {
-        const dx = this.position.x - ramp.position.x;
-        const dz = this.position.z - ramp.position.z;
+      if (probe || this.kickerCooldown <= 0) {
+        const dx = pos.x - ramp.position.x;
+        const dz = pos.z - ramp.position.z;
 
         const halfW = ramp.width / 2;
         const halfL = ramp.length / 2;
@@ -2548,7 +2751,7 @@ export class Player {
           const rampH = ramp.lipHeight * Math.pow(clampedT, 0.65);
           boost = Math.max(boost, rampH);
 
-          if (this.grounded && clampedT > 0.1) {
+          if (!probe && this.grounded && clampedT > 0.1) {
             this.onKicker = ramp;
             this.kickerProgress = clampedT;
           }
@@ -2557,8 +2760,8 @@ export class Player {
 
       // Check landing zone surface (always active, even during cooldown)
       if (ramp.landingZoneStartZ !== undefined) {
-        const dx = this.position.x - ramp.position.x;
-        const z = this.position.z;
+        const dx = pos.x - ramp.position.x;
+        const z = pos.z;
 
         if (Math.abs(dx) < ramp.landingWidth / 2 &&
             z < ramp.landingZoneStartZ && z > ramp.landingZoneEndZ) {
@@ -3378,6 +3581,8 @@ export class Player {
     this.daveWaypoints = [];
     this.daveWaypointIndex = 0;
 
+    this.stuckTime = 0;
+    if (this.walking) this._strapIn();
     this.boardGroup.rotation.set(0, 0, 0);
     this.riderGroup.position.set(0, 0, 0);
     this.riderGroup.rotation.set(0, this.STANCE_YAW, 0);
