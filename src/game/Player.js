@@ -116,6 +116,8 @@ export class Player {
     this._swapTimer = 0;         // frontswap in progress (seconds left)
     this.swapDuration = 0.25;    // a frontswap takes this long; no new swap until it finishes
     this.swapHopHeight = 0.3;
+    this.railExitMaxSpeed = 17;  // m/s of horizontal speed you can carry off the end of a rail
+    this.railExitMaxPop = 8;     // m/s of upward speed off a rail (kinks and perfect pops included)
     // Setting a trick: holding a spin/flip key while loading the pop winds the shoulders up.
     // Hucking off the lip with it set starts the rotation right away and faster; starting a
     // rotation later in the air spins slower (see _launchRotation)
@@ -1851,6 +1853,7 @@ export class Player {
             // Exit kicker pop — launch ~3-5 feet upward (about character height)
             this.velocity.y = 4.5;
           }
+          this._capRailExit();
         }
       }
 
@@ -1992,6 +1995,7 @@ export class Player {
             this.velocity.y = 0;
           }
           this.velocity.y += this.jumpForce * pop;
+          this._capRailExit();
           this.grinding = false;
           this._grindedRails.add(this.grindRail);
           this.grindRail = null;
@@ -2598,6 +2602,17 @@ export class Player {
     this.onKicker = null;
     this.peakHeight = 0;
     this.launchedFromKicker = true;
+  }
+
+  // Leaving a rail you only fly a manageable distance, however fast you were grinding:
+  // horizontal speed and pop are capped so the landing never comes in hard enough to slam you
+  _capRailExit() {
+    const h = Math.hypot(this.velocity.x, this.velocity.z);
+    if (h > this.railExitMaxSpeed) {
+      this.velocity.x *= this.railExitMaxSpeed / h;
+      this.velocity.z *= this.railExitMaxSpeed / h;
+    }
+    this.velocity.y = Math.min(this.velocity.y, this.railExitMaxPop);
   }
 
   // keepSpeed: rail kicks keep their horizontal speed instead of the kicker's landing-zone damping
