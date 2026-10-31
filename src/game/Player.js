@@ -2107,14 +2107,17 @@ export class Player {
       this.grabType = input.grabType;
 
       // --- AIRBORNE RIDER ANIMATIONS ---
-      // Maintain sideways stance in air. A straight backflip opens the hips and shoulders toward
-      // the way you're going, so it's a true back flip for the body instead of a sideways one.
+      // Maintain sideways stance in air
+      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
+
+      // A straight backflip: the rider turns board and body 90° to face where they're going, flips
+      // straight over their back (not a sideways wildcat), then turns back to land. Visual only:
+      // the flip axis stays across the direction of travel because x is the outer Euler rotation.
       this._straightBack = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
         (input.flipBackward || this.angularVelocity.x > 2.5);
-      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, this._straightBack ? 1 : 0, 0.12);
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, this._straightBack ? 1 : 0, 0.15);
       const openDir = Math.sign(this.STANCE_YAW) || 1;
-      this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y,
-        this.STANCE_YAW + openDir * 0.45 * this._backOpen, 0.15);
+      this.boardGroup.rotation.y = this.trickRotation.y + openDir * (Math.PI / 2) * this._backOpen;
     }
 
     // ===== OBSTACLE COLLISIONS (capsule vs cylinder/sphere) =====
@@ -2211,7 +2214,7 @@ export class Player {
         this.lerpJoint(this.headGroup, 'x', 0.25, 0.1);
       } else if (this.isLayingOut) {
         // Layout: legs long, hips driven forward, back arched hard, shoulders and arms thrown back, head back
-        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.3 * this._backOpen;
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.2 * this._backOpen; // square the shoulders up
         rg.position.y = L(rg.position.y, 0.02, 0.15);
         rg.rotation.x = L(rg.rotation.x, -0.15, 0.12);
         rg.rotation.z = L(rg.rotation.z, 0, 0.12);
@@ -2227,7 +2230,7 @@ export class Player {
         this.lerpJoint(this.headGroup, 'x', -0.5, 0.12);
       } else if (this._straightBack && !this.isTucking) {
         // Backflip: chest open to the sky, shoulders back, knees soft (layout it by holding jump)
-        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.3 * this._backOpen;
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.2 * this._backOpen; // square the shoulders up
         rg.position.y = L(rg.position.y, -0.16, 0.15);
         rg.rotation.x = L(rg.rotation.x, -0.05, 0.12);
         rg.rotation.z = L(rg.rotation.z, 0, 0.12);
