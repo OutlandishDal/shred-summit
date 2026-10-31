@@ -117,6 +117,8 @@ export class RemotePlayer {
     this.boardslideType = data.bs || null;
     this.boardslideAngle = data.ba || 0;
     this.trickName = data.trick || null;
+    this.score = data.sc || 0;
+    this.checkpoint = data.cp || 0;
     this.lastUpdateTime = performance.now();
   }
 

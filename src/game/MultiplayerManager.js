@@ -15,6 +15,9 @@ const DEFAULT_MAP = { mode: 'park', chair: null, parkId: 'big-white', seed: 1 };
 //     runId:   number                          — bumped by the leader to start a run for everyone
 //     members/{uid}: { nickname, cosmetics, joinedAt, status: 'lobby' | 'riding' }
 //     players/{uid}: live rider state, only while riding
+//     duel:    { id, challenger, opponent, seed, state, scores: { uid: score }, forfeit }
+//              — a 1v1: the challenger rides the 1v1 course while the opponent watches, then
+//                they swap; state goes pending → run1 → run2 → done (or declined)
 //
 // The leader is whoever joined first and is still connected, so if the leader
 // leaves or loses connection the next player takes over automatically.
@@ -43,6 +46,8 @@ export class MultiplayerManager {
     this._connected = false;
     this._seenRunId = null;
     this._wasLeader = false;
+    this.duel = null;           // the party's current 1v1, if any
+    this.duelKey = null;        // set while we're riding or watching a 1v1 (separates it from free riding)
   }
 
   init() {
@@ -176,6 +181,8 @@ export class MultiplayerManager {
     this.status = 'lobby';
     this.map = { ...DEFAULT_MAP };
     this._joinedAt = null;
+    this.duel = null;
+    this.duelKey = null;
   }
 
   // ---- PRESENCE ----
@@ -307,6 +314,70 @@ export class MultiplayerManager {
     this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/players`), (snap) => {
       this.receivePlayers(snap.val() || {});
     }));
+
+    this.listeners.push(onValue(rtdbRef(this.rtdb, `${base}/duel`), (snap) => {
+      this.duel = snap.val();
+      this.game.onDuelChanged(this.duel);
+    }));
+  }
+
+  // ---- 1V1 CHALLENGES ----
+
+  /** Is this duel ours (we're the challenger or the opponent)? */
+  inDuel(duel = this.duel) {
+    return !!duel && (duel.challenger === this.uid || duel.opponent === this.uid);
+  }
+
+  /** Challenge a party member to a 1v1. Replaces any finished or declined duel. */
+  async challenge(opponentUid) {
+    if (!this.active || !this.members[opponentUid] || opponentUid === this.uid) return { error: 'PICK A FRIEND IN YOUR PARTY' };
+    const d = this.duel;
+    if (d && ['pending', 'run1', 'run2'].includes(d.state)) return { error: 'A 1V1 IS ALREADY GOING IN THIS PARTY' };
+    await rtdbSet(rtdbRef(this.rtdb, `parties/${this.partyCode}/duel`), {
+      id: Date.now(),
+      challenger: this.uid,
+      opponent: opponentUid,
+      seed: Math.floor(Math.random() * 999999) + 1,
+      state: 'pending',
+    });
+    return {};
+  }
+
+  respondToDuel(accept) {
+    if (!this.duel || this.duel.opponent !== this.uid || this.duel.state !== 'pending') return;
+    rtdbUpdate(rtdbRef(this.rtdb, `parties/${this.partyCode}/duel`), { state: accept ? 'run1' : 'declined' });
+  }
+
+  cancelDuel() {
+    if (!this.inDuel()) return;
+    rtdbRemove(rtdbRef(this.rtdb, `parties/${this.partyCode}/duel`));
+  }
+
+  /** Our run on the 1v1 course is over: hand over to the other rider, or settle it. */
+  submitDuelScore(score) {
+    const d = this.duel;
+    if (!this.inDuel(d)) return;
+    const mine = (d.state === 'run1' && d.challenger === this.uid) || (d.state === 'run2' && d.opponent === this.uid);
+    if (!mine) return;
+    rtdbUpdate(rtdbRef(this.rtdb, `parties/${this.partyCode}/duel`), {
+      [`scores/${this.uid}`]: score,
+      state: d.state === 'run1' ? 'run2' : 'done',
+    });
+  }
+
+  forfeitDuel() {
+    const d = this.duel;
+    if (!this.inDuel(d) || d.state === 'done') return;
+    rtdbUpdate(rtdbRef(this.rtdb, `parties/${this.partyCode}/duel`), { state: 'done', forfeit: this.uid });
+  }
+
+  /** Watch the other rider's 1v1 run live (we don't send our own position). */
+  startWatching() {
+    if (!this.active) return;
+    this.setStatus('watching');
+    this._myMapKey = this.duelKey;
+    this.clearRemotePlayers();
+    rtdbRemove(rtdbRef(this.rtdb, `parties/${this.partyCode}/players/${this.uid}`));
   }
 
   // ---- MAP / RUNS (leader) ----
@@ -352,7 +423,7 @@ export class MultiplayerManager {
   onLocalRunStarted() {
     if (!this.active) return;
     this.setStatus('riding');
-    this._myMapKey = mapKey(this.map);
+    this._myMapKey = this.duelKey || mapKey(this.map);
     this.lastSendTime = 0;
     this.sendState(true);
   }
@@ -368,8 +439,8 @@ export class MultiplayerManager {
   // ---- STATE SYNC ----
 
   update(dt, camera) {
-    if (!this.active || this.status !== 'riding') return;
-    this.sendState();
+    if (!this.active || (this.status !== 'riding' && this.status !== 'watching')) return;
+    if (this.status === 'riding') this.sendState();
     for (const remote of Object.values(this.remotePlayers)) {
       remote.update(dt, camera);
     }
@@ -403,11 +474,13 @@ export class MultiplayerManager {
       bs: p.boardslideType || null,
       ba: +(p.boardslideAngle || 0).toFixed(3),
       trick: this.game.tricks.lastTrickName || null,
+      sc: this.game.tricks.totalScore || 0,
+      cp: this.game.currentCheckpoint || 0,
     }).catch(() => { /* dropped frame, next one will follow */ });
   }
 
   receivePlayers(allPlayers) {
-    const myKey = this.status === 'riding' ? this._myMapKey : null;
+    const myKey = (this.status === 'riding' || this.status === 'watching') ? this._myMapKey : null;
 
     for (const [uid, data] of Object.entries(allPlayers)) {
       if (uid === this.uid) continue;

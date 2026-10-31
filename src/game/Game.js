@@ -62,6 +62,7 @@ export class Game {
     this.shop = new ShopSystem(this.ridePass);
     this.particles = new SnowParticles(this.scene);
     this.multiplayer = new MultiplayerManager(this);
+    this.duel = null; // our 1v1, while we're in one
 
     // Mobile: bring camera closer so snowboarder appears bigger on small screens
     if (isTouchDevice) {
@@ -179,6 +180,23 @@ export class Game {
       authForgot: document.getElementById('auth-forgot'),
       // Multiplayer party
       lobbyMultiplayer: document.getElementById('lobby-multiplayer'),
+      lobbyCreateParty: document.getElementById('lobby-create-party'),
+      lobbyJoinParty: document.getElementById('lobby-join-party'),
+      lobbyDuel: document.getElementById('lobby-duel'),
+      duelPanel: document.getElementById('duel-panel'),
+      duelList: document.getElementById('duel-list'),
+      duelError: document.getElementById('duel-error'),
+      duelBack: document.getElementById('duel-back'),
+      duelInvite: document.getElementById('duel-invite'),
+      duelInviteText: document.getElementById('duel-invite-text'),
+      duelAccept: document.getElementById('duel-accept'),
+      duelDecline: document.getElementById('duel-decline'),
+      duelHud: document.getElementById('duel-hud'),
+      duelResult: document.getElementById('duel-result'),
+      duelResultTitle: document.getElementById('duel-result-title'),
+      duelResultScores: document.getElementById('duel-result-scores'),
+      duelResultNote: document.getElementById('duel-result-note'),
+      duelResultDone: document.getElementById('duel-result-done'),
       startMultiplayerBtn: document.getElementById('start-multiplayer-btn'),
       partyPanel: document.getElementById('party-panel'),
       partyJoinView: document.getElementById('party-join-view'),
@@ -245,6 +263,8 @@ export class Game {
         } else if (this.state === 'lobby') {
           if (this.ui.partyPanel.classList.contains('active')) {
             this.ui.partyPanel.classList.remove('active');
+          } else if (this.ui.duelPanel.classList.contains('active')) {
+            this.ui.duelPanel.classList.remove('active');
           } else {
             this.dropIn();
           }
@@ -1159,9 +1179,25 @@ export class Game {
 
     // Multiplayer needs Firebase (accounts + Realtime Database)
     ui.startMultiplayerBtn.style.display = isFirebaseConfigured() ? '' : 'none';
-    ui.lobbyMultiplayer.style.display = isFirebaseConfigured() ? '' : 'none';
 
     ui.lobbyMultiplayer.addEventListener('click', () => this.openPartyPanel());
+    ui.lobbyCreateParty.addEventListener('click', () => {
+      this.openPartyPanel();
+      if (mp.available) this.runPartyAction('CREATING PARTY...', () => mp.createParty());
+    });
+    ui.lobbyJoinParty.addEventListener('click', () => {
+      this.openPartyPanel();
+      setTimeout(() => ui.partyJoinInput.focus(), 50);
+    });
+
+    // 1v1 challenges
+    ui.lobbyDuel.addEventListener('click', () => this.openDuelPanel());
+    ui.duelPanel.addEventListener('click', (e) => e.stopPropagation());
+    ui.duelBack.addEventListener('click', () => ui.duelPanel.classList.remove('active'));
+    ui.duelAccept.addEventListener('click', (e) => { e.stopPropagation(); mp.respondToDuel(true); });
+    ui.duelDecline.addEventListener('click', (e) => { e.stopPropagation(); mp.respondToDuel(false); ui.duelInvite.classList.remove('active'); });
+    ui.duelResultDone.addEventListener('click', (e) => { e.stopPropagation(); this.finishDuel(); });
+    for (const el of [ui.duelInvite, ui.duelResult]) el.addEventListener('click', (e) => e.stopPropagation());
     ui.partyBanner.addEventListener('click', () => this.openPartyPanel());
     ui.partyPanel.addEventListener('click', (e) => e.stopPropagation());
     ui.partyBack.addEventListener('click', () => ui.partyPanel.classList.remove('active'));
@@ -1248,6 +1284,7 @@ export class Game {
     this.ui.mapPanel.classList.remove('active');
     this.ui.customizePanel.classList.remove('active');
     this.ui.accountPanel.classList.remove('active');
+    this.ui.duelPanel.classList.remove('active');
     this.ui.partyPanel.classList.add('active');
     if (!this.multiplayer.available) this.setPartyError('SIGN IN TO PLAY ONLINE');
   }
@@ -1273,6 +1310,297 @@ export class Game {
       this.openPartyPanel();
       this.runPartyAction('JOINING...', () => this.multiplayer.joinParty(code));
     });
+  }
+
+  // ---- 1V1 CHALLENGES ----
+  // The challenger rides the 1v1 course while the opponent watches live, then they swap.
+  // this.duel is our local copy while we're in one: { id, seed, challenger, opponent, phase }.
+
+  memberName(uid) {
+    if (uid === this.multiplayer.uid) return 'YOU';
+    return (this.multiplayer.members[uid]?.nickname || 'YOUR FRIEND').toUpperCase();
+  }
+
+  setDuelError(text, ok = false) {
+    this.ui.duelError.textContent = text;
+    this.ui.duelError.classList.toggle('ok', ok);
+  }
+
+  openDuelPanel() {
+    this.ui.mapPanel.classList.remove('active');
+    this.ui.customizePanel.classList.remove('active');
+    this.ui.accountPanel.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
+    this.setDuelError('');
+    this.renderDuelPanel();
+    this.ui.duelPanel.classList.add('active');
+  }
+
+  renderDuelPanel() {
+    const mp = this.multiplayer;
+    const list = this.ui.duelList;
+    if (!list) return;
+    list.innerHTML = '';
+    const note = (text) => {
+      const el = document.createElement('div');
+      el.className = 'duel-empty';
+      el.textContent = text;
+      list.appendChild(el);
+    };
+    const button = (label, cls, onClick) => {
+      const b = document.createElement('button');
+      b.className = `party-btn ${cls}`;
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+
+    if (!mp.available) {
+      note(isFirebaseConfigured() ? 'SIGN IN TO PLAY ONLINE' : 'ONLINE PLAY NEEDS AN ACCOUNT, SO IT ONLY WORKS ON THE LIVE GAME');
+      return;
+    }
+    if (!mp.active) {
+      note('CREATE OR JOIN A PARTY WITH YOUR FRIEND FIRST');
+      const row = document.createElement('div');
+      row.className = 'party-row';
+      row.append(
+        button('CREATE PARTY', 'primary', () => this.ui.lobbyCreateParty.click()),
+        button('JOIN PARTY', '', () => this.ui.lobbyJoinParty.click()),
+      );
+      list.appendChild(row);
+      return;
+    }
+    const d = mp.duel;
+    if (d && d.state === 'pending' && d.challenger === mp.uid) {
+      note(`WAITING FOR ${this.memberName(d.opponent)} TO ACCEPT...`);
+      const row = document.createElement('div');
+      row.className = 'party-row';
+      row.append(button('CANCEL', 'danger', () => mp.cancelDuel()));
+      list.appendChild(row);
+      return;
+    }
+    const others = Object.keys(mp.members).filter((uid) => uid !== mp.uid);
+    if (others.length === 0) {
+      note(`NOBODY ELSE IS HERE YET. SEND YOUR FRIEND THE CODE ${mp.partyCode}`);
+      return;
+    }
+    const busy = d && ['pending', 'run1', 'run2'].includes(d.state);
+    if (busy) note(`${this.memberName(d.challenger)} AND ${this.memberName(d.opponent)} ARE IN A 1V1 RIGHT NOW`);
+    for (const uid of others) {
+      const row = document.createElement('div');
+      row.className = 'party-member';
+      const name = document.createElement('span');
+      name.textContent = mp.members[uid].nickname || 'Player';
+      const b = button('CHALLENGE', 'primary', async () => {
+        b.disabled = true;
+        this.setDuelError('SENDING...', true);
+        try {
+          const res = await mp.challenge(uid);
+          this.setDuelError(res.error || '');
+        } catch (e) {
+          console.warn('[1v1]', e);
+          this.setDuelError(/permission/i.test(e.message || '') ? '1V1 IS NOT SET UP ON THE SERVER YET' : 'CONNECTION FAILED');
+        }
+        this.renderDuelPanel();
+      });
+      b.disabled = !!busy;
+      row.append(name, b);
+      list.appendChild(row);
+    }
+  }
+
+  onDuelChanged(d) {
+    const mp = this.multiplayer;
+    this.renderDuelPanel();
+    const mine = mp.inDuel(d);
+
+    // Our duel was cancelled, or someone started a new one we're not in
+    if (!mine) {
+      this.ui.duelInvite.classList.remove('active');
+      if (this.duel && this.duel.phase !== 'done') this.endDuel('THE 1V1 WAS CANCELLED');
+      return;
+    }
+
+    const key = `${d.id}:${d.state}`;
+    if (this._duelSeen === key) return;
+    this._duelSeen = key;
+    const me = mp.uid;
+    const other = d.challenger === me ? d.opponent : d.challenger;
+
+    if (d.state === 'pending') {
+      if (d.opponent === me) {
+        this.ui.duelInviteText.textContent = `${this.memberName(d.challenger)} CHALLENGED YOU TO A 1V1`;
+        this.ui.duelInvite.classList.add('active');
+      }
+      return;
+    }
+    this.ui.duelInvite.classList.remove('active');
+
+    if (d.state === 'declined') {
+      if (d.challenger === me) this.setDuelError(`${this.memberName(d.opponent)} DECLINED`);
+      if (this.duel) this.endDuel();
+      return;
+    }
+
+    if (!this.duel) this._preDuelParkId = this.parkId; // put the map back afterwards
+    this.duel = { id: d.id, seed: d.seed, challenger: d.challenger, opponent: d.opponent, phase: d.state, scores: d.scores || {} };
+    mp.duelKey = `duel:${d.id}`;
+
+    if (d.state === 'run1') {
+      if (d.challenger === me) this.beginDuelRide(); else this.beginDuelWatch(other);
+    } else if (d.state === 'run2') {
+      if (d.opponent === me) this.beginDuelRide(); else this.beginDuelWatch(other);
+    } else if (d.state === 'done') {
+      this.showDuelResult(d);
+    }
+  }
+
+  // If the other rider leaves the party mid-1v1, it's ours
+  checkDuelPartners() {
+    const d = this.duel;
+    if (!d || d.phase === 'done') return;
+    const mp = this.multiplayer;
+    if (!mp.active) { this.endDuel(); return; }
+    const other = d.challenger === mp.uid ? d.opponent : d.challenger;
+    if (!mp.members[other]) {
+      this.showDuelResult({ ...d, state: 'done', forfeit: other, left: true });
+    }
+  }
+
+  // Go back to the lobby from wherever we are without forfeiting
+  _duelToLobby() {
+    if (this.state === 'lobby') return;
+    this._duelTransition = true;
+    try { this.openLobby(); } finally { this._duelTransition = false; }
+  }
+
+  beginDuelRide() {
+    this._duelToLobby();
+    this.ui.duelResult.classList.remove('active');
+    this.duel.riding = true;
+    this.duel.watching = null;
+    this.player.group.visible = true;
+    this.closeLobby();
+  }
+
+  beginDuelWatch(uid) {
+    this._duelToLobby();
+    this.duel.riding = false;
+    this.duel.watching = uid;
+    const ui = this.ui;
+    ui.lobbyScreen.classList.remove('active');
+    for (const panel of [ui.partyPanel, ui.duelPanel, ui.mapPanel, ui.customizePanel, ui.accountPanel]) panel.classList.remove('active');
+    this.teardownLobbyScene();
+    this.gameMode = 'park';
+    this.parkId = 'duel';
+    this.backcountryChair = null;
+    this.applyDaynightPref();
+    this.swapTerrain();
+    this.fullReset();
+    if (this.touchControls) this.touchControls.hide();
+    this.player.group.visible = false;
+    this.state = 'watching';
+    this._watchPos = new THREE.Vector3(0, this.terrain.getHeightAt(0, 0) + 1, 0);
+    this.multiplayer.startWatching();
+  }
+
+  updateWatching(dt) {
+    const remote = this.multiplayer.remotePlayers[this.duel?.watching];
+    if (remote) this._watchPos.copy(remote.currentPos);
+    this.terrain.update(this._watchPos.z);
+    this.particles.update(dt);
+    this.multiplayer.update(dt, this.camera);
+
+    const lerp = 1 - Math.pow(1 - 0.1, dt * 60);
+    this.currentCameraPos.lerp(this._watchPos.clone().add(this.cameraOffset), lerp);
+    this.camera.position.copy(this.currentCameraPos);
+    this.camera.lookAt(this._watchPos.clone().add(this.cameraLookAhead));
+  }
+
+  onDuelRunFinished() {
+    const score = this.tricks.totalScore;
+    this.state = 'duelwait';
+    if (this.touchControls) this.touchControls.hide();
+    this.duel.myScore = score;
+    this.multiplayer.submitDuelScore(score);
+  }
+
+  updateDuelHud() {
+    const d = this.duel;
+    const mp = this.multiplayer;
+    let big = '', small = '';
+    if (d && d.phase !== 'done') {
+      const total = this.terrain?.checkpointCount || 3;
+      const theirFirst = d.phase === 'run2' ? (d.scores || {})[d.challenger] : null;
+      if (this.state === 'watching') {
+        const r = mp.remotePlayers[d.watching];
+        big = `WATCHING ${this.memberName(d.watching)} · ${r ? r.score.toLocaleString() : 0} PTS`;
+        small = r ? `CHECKPOINT ${r.checkpoint} / ${total}` : 'WAITING FOR THEM TO DROP IN...';
+        small += theirFirst != null ? ` · THEY NEED ${(theirFirst + 1).toLocaleString()} TO BEAT YOU` : ' · YOU RIDE NEXT';
+      } else if (this.state === 'duelwait') {
+        big = `FINISHED · ${(d.myScore || 0).toLocaleString()} PTS`;
+        small = 'WAITING FOR THE RESULT...';
+      } else if (d.riding) {
+        big = `1V1 · YOUR RUN · ${this.tricks.totalScore.toLocaleString()} PTS`;
+        small = theirFirst != null ? `BEAT ${theirFirst.toLocaleString()} FROM ${this.memberName(d.challenger)}` : `YOU GO FIRST · SET THE SCORE FOR ${this.memberName(d.opponent)}`;
+      }
+    }
+    const html = big ? `<div class="big">${big}</div><div class="small">${small}</div>` : '';
+    if (html !== this._duelHudHtml) {
+      this._duelHudHtml = html;
+      this.ui.duelHud.innerHTML = html;
+      this.ui.duelHud.style.display = html ? 'block' : 'none';
+    }
+  }
+
+  showDuelResult(d) {
+    const mp = this.multiplayer;
+    const me = mp.uid;
+    const other = d.challenger === me ? d.opponent : d.challenger;
+    const scores = d.scores || {};
+    const mine = scores[me] ?? 0, theirs = scores[other] ?? 0;
+    let winner = null;
+    if (d.forfeit) winner = d.forfeit === me ? other : me;
+    else if (mine !== theirs) winner = mine > theirs ? me : other;
+
+    if (this.duel) this.duel.phase = 'done';
+    if (this.state === 'watching' || this.state === 'duelwait') this.player.group.visible = true;
+    this.ui.duelResultTitle.textContent = winner === me ? 'YOU WIN!' : winner ? `${this.memberName(other)} WINS` : "IT'S A TIE";
+    const rows = this.ui.duelResultScores;
+    rows.innerHTML = '';
+    for (const uid of [me, other]) {
+      const row = document.createElement('div');
+      row.className = 'row' + (uid === winner ? ' win' : '');
+      const name = document.createElement('span');
+      name.textContent = uid === me ? 'YOU' : this.memberName(uid);
+      const pts = document.createElement('span');
+      pts.textContent = scores[uid] != null ? `${scores[uid].toLocaleString()} PTS` : '—';
+      row.append(name, pts);
+      rows.appendChild(row);
+    }
+    this.ui.duelResultNote.textContent = d.left ? `${this.memberName(other)} LEFT THE PARTY`
+      : d.forfeit ? `${d.forfeit === me ? 'YOU' : this.memberName(d.forfeit)} QUIT THE 1V1` : '';
+    this.ui.duelInvite.classList.remove('active');
+    this.ui.duelResult.classList.add('active');
+    this.updateDuelHud();
+  }
+
+  // Result dismissed: back to the lobby
+  finishDuel() {
+    this.ui.duelResult.classList.remove('active');
+    this.endDuel();
+  }
+
+  endDuel(message) {
+    const wasIn = !!this.duel;
+    if (this.duel) this.duel.phase = 'done'; // no forfeit when we tidy up
+    this._duelToLobby();
+    this.duel = null;
+    this.multiplayer.duelKey = null;
+    if (this.parkId === 'duel') this.parkId = this._preDuelParkId || 'big-white';
+    this.player.group.visible = true;
+    this.updateDuelHud();
+    if (wasIn && message) this.showPartyHint(message);
   }
 
   /** Leave the lobby and start riding. In a party, the leader brings everyone waiting along. */
@@ -1310,7 +1638,9 @@ export class Game {
   // Called by MultiplayerManager whenever members or connection state change
   onPartyChanged() {
     this.renderPartyPanel();
+    this.renderDuelPanel();
     this.updatePartyHud();
+    this.checkDuelPartners();
     if (this.state === 'lobby' && this.lobbyGroup) this.syncLobbyRemotePlayers();
   }
 
@@ -1324,6 +1654,7 @@ export class Game {
 
   // The leader started a run: anyone waiting drops in with them
   onPartyRunStarted() {
+    if (this.duel) return; // in a 1v1: the party's free run goes on without us
     if (this.state === 'lobby') {
       this.closeLobby();
     } else if (this.state === 'dead' || this.state === 'finished') {
@@ -1340,7 +1671,10 @@ export class Game {
     ui.partyJoinView.style.display = inParty ? 'none' : 'flex';
     ui.partyActiveView.style.display = inParty ? 'flex' : 'none';
     ui.partyCreate.disabled = ui.partyCreate.disabled || !mp.available;
-    ui.lobbyMultiplayer.textContent = inParty ? `PARTY (${mp.memberCount})` : 'MULTIPLAYER';
+    ui.lobbyMultiplayer.textContent = `PARTY (${mp.memberCount})`;
+    ui.lobbyMultiplayer.style.display = inParty ? '' : 'none';
+    ui.lobbyCreateParty.style.display = inParty ? 'none' : '';
+    ui.lobbyJoinParty.style.display = inParty ? 'none' : '';
 
     // Lobby banner
     ui.partyBanner.style.display = inParty ? '' : 'none';
@@ -1389,6 +1723,12 @@ export class Game {
   }
 
   openLobby() {
+    // Leaving a 1v1 on your own (ESC from a crash etc.) forfeits it
+    if (this.duel && !this._duelTransition && this.duel.phase !== 'done') {
+      this.multiplayer.forfeitDuel();
+    }
+    if (this.state === 'watching' || this.state === 'duelwait') this.player.group.visible = true;
+    this.ui.duelPanel.classList.remove('active');
     this.state = 'lobby';
     // Reset to park mode when returning to lobby
     if (this.gameMode === 'backcountry') {
@@ -1434,26 +1774,20 @@ export class Game {
     // Guard against double-calling (e.g. click handler + Firebase callback)
     if (this.state !== 'lobby') return;
 
-    // In a party everyone rides the party's map
-    if (this.multiplayer.active) this.applyPartyMap(this.multiplayer.map);
+    // In a party everyone rides the party's map (a 1v1 rides its own course)
+    if (this.duel) {
+      this.gameMode = 'park';
+      this.parkId = 'duel';
+      this.backcountryChair = null;
+    } else if (this.multiplayer.active) this.applyPartyMap(this.multiplayer.map);
 
     // Hide lobby UI immediately so it disappears even if teardown errors
     this.ui.lobbyScreen.classList.remove('active');
     this.ui.partyPanel.classList.remove('active');
+    this.ui.duelPanel.classList.remove('active');
     this.teardownLobbyScene();
     this.applyEquippedItems();
-    // Evaluate day/night: preference overrides real clock
-    if (this.daynightPref === 'day') {
-      this.nightBlend = 0;
-      this.nightMode = false;
-    } else if (this.daynightPref === 'night') {
-      this.nightBlend = 1.0;
-      this.nightMode = true;
-    } else {
-      // Auto: use real clock
-      this.nightBlend = this.getTimeOfDay();
-      this.nightMode = this.nightBlend > 0.1;
-    }
+    this.applyDaynightPref();
     console.log('[closeLobby] gameMode:', this.gameMode, 'chair:', this.backcountryChair, 'nightBlend:', this.nightBlend.toFixed(2));
     this.swapTerrain();
     this.player.backcountryMode = this.gameMode === 'backcountry';
@@ -1468,6 +1802,21 @@ export class Game {
     // Multiplayer: start sharing our position
     this.multiplayer.onLocalRunStarted();
     this.onPartyChanged();
+  }
+
+  applyDaynightPref() {
+    // Evaluate day/night: preference overrides real clock
+    if (this.daynightPref === 'day') {
+      this.nightBlend = 0;
+      this.nightMode = false;
+    } else if (this.daynightPref === 'night') {
+      this.nightBlend = 1.0;
+      this.nightMode = true;
+    } else {
+      // Auto: use real clock
+      this.nightBlend = this.getTimeOfDay();
+      this.nightMode = this.nightBlend > 0.1;
+    }
   }
 
   swapTerrain() {
@@ -1503,7 +1852,7 @@ export class Game {
     } else {
       console.log('[swapTerrain] Creating Park Terrain, parkId:', this.parkId, 'night:', useNight);
       // Party members share the park layout via a common seed
-      const seed = this.multiplayer.active ? this.multiplayer.map.seed : null;
+      const seed = this.duel ? this.duel.seed : (this.multiplayer.active ? this.multiplayer.map.seed : null);
       this.terrain = new Terrain(this.scene, seed, this.parkId, useNight);
       this.parkTerrain = this.terrain;
     }
@@ -2172,14 +2521,17 @@ export class Game {
 
       // UI
       this.updateUI(trickState, playerState);
-    } else if (this.state === 'dead' || this.state === 'finished') {
+    } else if (this.state === 'dead' || this.state === 'finished' || this.state === 'duelwait') {
       this.particles.update(dt);
       this.updateSkiPatrol(dt);
       this.multiplayer.update(dt, this.camera);
+    } else if (this.state === 'watching') {
+      this.updateWatching(dt);
     } else if (this.state === 'lobby') {
       this.updateLobby(dt);
     }
 
+    if (this.duel) this.updateDuelHud();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -2195,7 +2547,8 @@ export class Game {
 
         // Finish line reached!
         if (cp.isFinish) {
-          this.showFinishScreen();
+          if (this.duel) this.onDuelRunFinished();
+          else this.showFinishScreen();
           return;
         }
       }

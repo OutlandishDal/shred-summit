@@ -365,7 +365,51 @@
       padding: 60px 16px 40px; overflow-y: auto; pointer-events: auto;
     }
     #party-panel.active { display: flex; }
-    #party-panel h2 {
+    #duel-panel {
+      display: none; flex-direction: column; align-items: center;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97); z-index: 3;
+      padding: 60px 16px 40px; overflow-y: auto; pointer-events: auto;
+    }
+    #duel-panel.active { display: flex; }
+    #duel-list { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; }
+    #duel-list .party-member .party-btn { font-size: 16px; padding: 6px 14px; }
+    #duel-list .duel-empty {
+      font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.6); text-align: center; margin-bottom: 10px;
+    }
+    #duel-error {
+      font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px;
+      color: #ff5252; margin-top: 16px; min-height: 20px; text-align: center;
+    }
+    #duel-error.ok { color: #69f0ae; }
+    .duel-overlay {
+      display: none; position: fixed; inset: 0; z-index: 150;
+      align-items: center; justify-content: center;
+      background: rgba(5,10,20,0.6); pointer-events: auto;
+    }
+    .duel-overlay.active { display: flex; }
+    .duel-card {
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      background: rgba(10,18,30,0.96); border: 2px solid rgba(255,193,7,0.6); border-radius: 14px;
+      padding: 28px 32px; max-width: min(420px, calc(100vw - 32px)); text-align: center;
+      font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; color: #fff;
+    }
+    .duel-card h2 { font-size: 44px; letter-spacing: 5px; color: #ffc107; margin: 0; }
+    #duel-invite-text { font-size: 24px; }
+    #duel-result-scores { display: flex; flex-direction: column; gap: 6px; width: 100%; font-size: 22px; }
+    #duel-result-scores .row { display: flex; justify-content: space-between; gap: 24px; }
+    #duel-result-scores .row.win { color: #69f0ae; }
+    #duel-result-note { font-size: 15px; color: rgba(255,255,255,0.6); }
+    #duel-hud {
+      display: none; position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      z-index: 90; font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; color: #fff;
+      background: rgba(0,0,0,0.45); border: 1px solid rgba(255,193,7,0.6); border-radius: 10px;
+      padding: 8px 18px; text-align: center; pointer-events: none;
+    }
+    #duel-hud .big { font-size: 22px; color: #ffc107; }
+    #duel-hud .small { font-size: 14px; color: rgba(255,255,255,0.8); }
+    #party-panel h2, #duel-panel h2 {
       font-size: 48px; font-family: 'Bebas Neue', sans-serif;
       color: #fff; letter-spacing: 6px; margin-bottom: 12px;
       text-shadow: 0 2px 12px rgba(0,0,0,0.4);
@@ -456,7 +500,8 @@
     }
     #start-multiplayer-btn { margin-top: 28px; pointer-events: auto; }
     @media (max-width: 600px) {
-      #party-panel h2 { font-size: 36px; }
+      #party-panel h2, #duel-panel h2 { font-size: 36px; }
+      .duel-card h2 { font-size: 34px; }
       #party-code { font-size: 44px; }
       #party-banner { top: 12px; padding: 6px 12px; }
       #party-banner-code { font-size: 20px; }
@@ -1790,10 +1835,34 @@
     <button class="touch-customize-btn" id="finish-customize-btn">CUSTOMIZE</button>
   </div>
 
+  <!-- 1v1: incoming challenge, live HUD while riding/watching, result -->
+  <div id="duel-invite" class="duel-overlay">
+    <div class="duel-card">
+      <h2>1V1</h2>
+      <div id="duel-invite-text"></div>
+      <div class="party-row">
+        <button id="duel-accept" class="party-btn primary">ACCEPT</button>
+        <button id="duel-decline" class="party-btn danger">DECLINE</button>
+      </div>
+    </div>
+  </div>
+  <div id="duel-hud"></div>
+  <div id="duel-result" class="duel-overlay">
+    <div class="duel-card">
+      <h2 id="duel-result-title"></h2>
+      <div id="duel-result-scores"></div>
+      <div id="duel-result-note"></div>
+      <button id="duel-result-done" class="party-btn primary">BACK TO LOBBY</button>
+    </div>
+  </div>
+
   <div id="lobby-screen">
     <!-- Right side button stack -->
     <div class="lobby-btn-stack">
-      <div class="lobby-corner-btn" id="lobby-multiplayer">MULTIPLAYER</div>
+      <div class="lobby-corner-btn" id="lobby-create-party">CREATE PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-join-party">JOIN PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-multiplayer" style="display:none">PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-duel">1V1 CHALLENGE</div>
       <div class="lobby-corner-btn" id="lobby-map">MAP</div>
       <div class="lobby-corner-btn" id="lobby-customize">CUSTOMIZE</div>
       <div class="lobby-corner-btn" id="lobby-account">ACCOUNT</div>
@@ -1837,6 +1906,14 @@
       </div>
       <div id="party-error"></div>
       <button id="party-back">BACK</button>
+    </div>
+
+    <div id="duel-panel">
+      <h2>1V1 CHALLENGE</h2>
+      <div class="party-sub">Challenge a friend in your party. You ride the 1v1 course while they watch, then they ride it while you watch. Three checkpoints, and every section is bigger than the last. Highest score wins.</div>
+      <div id="duel-list"></div>
+      <div id="duel-error"></div>
+      <button id="duel-back" class="party-btn">BACK</button>
     </div>
 
     <!-- Map panel (hidden until MAP clicked) -->

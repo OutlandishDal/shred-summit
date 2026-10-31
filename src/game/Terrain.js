@@ -60,6 +60,36 @@ const PARK_CONFIGS = {
     railsPerChunk: [8, 12],
     rollersPerChunk: 1,
   },
+  // 1v1 challenge course: three checkpoints, every section bigger than the last, booter to finish
+  'duel': {
+    name: '1V1 COURSE',
+    checkpointCount: 3, checkpointInterval: 600,
+    railWidthScale: 1,
+    railTypes: ['parkRail', 'kinkRail', 'downFlatDown', 'endKink'],
+    zones: {
+      1: {
+        medium: { feet: 40 },
+        small:  { feet: 30 },
+        big:    { feet: 40 },
+      },
+      2: {
+        medium: { feet: 75 },
+        small:  { feet: 60 },
+        big:    { feet: 100 },
+      },
+      3: {
+        medium: { feet: 125 },
+        small:  { feet: 100 },
+        big:    { feet: 150 },
+      },
+    },
+    // Checkpoints sit at -300, -900 and -1500 (finish): one size up after each
+    zoneThreshold: -300,
+    zone3Threshold: -900,
+    booterFeet: 200, booterPositions: [-1260],
+    railsPerChunk: [3, 5],
+    rollersPerChunk: 1,
+  },
   'slopestyle': {
     name: 'SLOPESTYLE COURSE',
     checkpointCount: 6, checkpointInterval: 600,
@@ -339,7 +369,11 @@ export class Terrain {
 
       // Rail dimensions by zone
       let railLength, railHeight, lipHeight;
-      if (zoneLevel === 2) {
+      if (this.parkId === 'duel' && zoneLevel === 3) {
+        railLength = 40 + this.rand() * 12; // 1v1 last section: longest, highest rails
+        railHeight = 1.15;
+        lipHeight = 0.65;
+      } else if (zoneLevel === 2) {
         railLength = 35 + this.rand() * 10; // 35-45 units
         railHeight = 0.9;
         lipHeight = 0.5;
