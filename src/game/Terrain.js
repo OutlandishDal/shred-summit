@@ -1,5 +1,6 @@
 import { JUMP_POP_MUL } from './Player.js';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Deterministic pseudo-random number generator (mulberry32)
 function mulberry32(seed) {
@@ -184,8 +185,8 @@ export class Terrain {
     const zOffset = -this.chunksGenerated * this.chunkLength;
     const yOffset = -this.chunksGenerated * this.chunkLength * this.slopeAngle;
 
-    // Higher resolution for smooth snow surface
-    const geometry = new THREE.PlaneGeometry(this.chunkWidth, this.chunkLength, 120, 120);
+    // Coarse grid keeps it cheap on Chromebooks; physics samples computeHeight directly
+    const geometry = new THREE.PlaneGeometry(this.chunkWidth, this.chunkLength, 48, 96);
     geometry.rotateX(-Math.PI / 2);
 
     const positions = geometry.attributes.position;
@@ -1341,29 +1342,31 @@ export class Terrain {
       this.trunkMaterial
     );
     trunk.position.y = 1.25 * scale;
-    trunk.castShadow = true;
     group.add(trunk);
 
+    // Bake the cone layers into one mesh per material so each tree is 3 draw calls, not 9
+    const cones = [];
     for (let i = 0; i < 5; i++) {
       const radius = (3.0 - i * 0.5) * scale;
       const height = (2.0 - i * 0.15) * scale;
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(radius, height, 6), mat
-      );
-      cone.position.y = (2.5 + i * 1.3) * scale;
-      cone.rotation.y = this.rand() * Math.PI;
-      cone.castShadow = true;
-      group.add(cone);
+      const g = new THREE.ConeGeometry(radius, height, 6);
+      g.rotateY(this.rand() * Math.PI);
+      g.translate(0, (2.5 + i * 1.3) * scale, 0);
+      cones.push(g);
     }
+    const foliage = new THREE.Mesh(mergeGeometries(cones), mat);
+    foliage.castShadow = true;
+    group.add(foliage);
 
+    const caps = [];
     for (let i = 0; i < 3; i++) {
-      const snow = new THREE.Mesh(
-        new THREE.ConeGeometry((2.2 - i * 0.5) * scale, 0.4 * scale, 6),
-        this.snowMaterial
-      );
-      snow.position.y = (3.2 + i * 1.3) * scale;
-      group.add(snow);
+      const g = new THREE.ConeGeometry((2.2 - i * 0.5) * scale, 0.4 * scale, 6);
+      g.translate(0, (3.2 + i * 1.3) * scale, 0);
+      caps.push(g);
     }
+    group.add(new THREE.Mesh(mergeGeometries(caps), this.snowMaterial));
+    cones.forEach((g) => g.dispose());
+    caps.forEach((g) => g.dispose());
 
     return group;
   }

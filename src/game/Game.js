@@ -485,9 +485,9 @@ export class Game {
   initRenderer() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     document.body.appendChild(this.renderer.domElement);
@@ -533,8 +533,8 @@ export class Game {
     this.sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
     this.sun.position.set(30, 50, 20);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.width = 2048;
-    this.sun.shadow.mapSize.height = 2048;
+    this.sun.shadow.mapSize.width = 1024;
+    this.sun.shadow.mapSize.height = 1024;
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 250;
     this.sun.shadow.camera.left = -60;

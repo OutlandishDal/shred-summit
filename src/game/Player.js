@@ -837,31 +837,6 @@ export class Player {
   // Higher-detail rider: smoother body parts, fabric textures and glossy hard parts. There's only
   // a handful of riders on screen, so this stays cheap; the rest of the world stays low poly.
   _upgradeRiderDetail() {
-    const smooth = (mesh) => {
-      const g = mesh.geometry, p = g.parameters;
-      // Only the big visible shapes; seams, creases and straps stay as they are
-      if (!p || Math.max(p.radius || 0, p.radiusTop || 0, p.radiusBottom || 0) < 0.04) return;
-      let ng = null;
-      switch (g.type) {
-        case 'CapsuleGeometry':
-          ng = new THREE.CapsuleGeometry(p.radius, p.length, Math.max(p.capSegments, 5), Math.max(p.radialSegments, 14));
-          break;
-        case 'SphereGeometry':
-          ng = new THREE.SphereGeometry(p.radius, Math.max(p.widthSegments, 18), Math.max(p.heightSegments, 12),
-            p.phiStart, p.phiLength, p.thetaStart, p.thetaLength);
-          break;
-        case 'CylinderGeometry':
-          ng = new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, Math.max(p.radialSegments, 14),
-            p.heightSegments, p.openEnded, p.thetaStart, p.thetaLength);
-          break;
-        case 'TorusGeometry':
-          ng = new THREE.TorusGeometry(p.radius, p.tube, Math.max(p.radialSegments, 8), Math.max(p.tubularSegments, 16), p.arc);
-          break;
-      }
-      if (ng) { g.dispose(); mesh.geometry = ng; }
-    };
-    this.boardGroup.traverse((o) => { if (o.isMesh && o !== this.boardMesh) smooth(o); });
-
     // Puffer jacket: stitched baffles plus a fine nylon weave
     const jacketN = makeNormalMap('jacket', 128, (x, y) => {
       const baffle = Math.sin((y / 128) * Math.PI * 4);           // 4 puffy rows per tile
