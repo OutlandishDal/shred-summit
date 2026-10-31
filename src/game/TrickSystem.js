@@ -7,7 +7,6 @@ export class TrickSystem {
     this.lastTrickName = '';
     this.lastTrickPoints = 0;
     this.lastTrickTime = 0;
-    this.auroraMultiplier = 1.0; // set by Game.js for Moonlight Ridge
 
     this.spinCount = 0;
     this.flipCount = 0;
@@ -267,8 +266,8 @@ export class TrickSystem {
 
       // Regular flip
       if (this.flipCount >= 1) {
-        tricks.push(this.getFlipName(this.flipCount, this.flipDirection));
-        trickScore += this.flipCount * 400;
+        tricks.push(this.getFlipName(this.flipCount, this.flipDirection, playerState.isLayout));
+        trickScore += this.flipCount * (playerState.isLayout ? 500 : 400);
       }
     }
 
@@ -306,10 +305,6 @@ export class TrickSystem {
       if (this.tookOffSwitch) {
         trickScore = Math.floor(trickScore * 1.5);
         tricks.unshift('SWITCH');
-      }
-      // Aurora multiplier (Moonlight Ridge)
-      if (this.auroraMultiplier > 1.0) {
-        trickScore = Math.floor(trickScore * this.auroraMultiplier);
       }
       this.totalScore += trickScore;
       this.lastTrickName = tricks.join(' + ');
@@ -387,10 +382,6 @@ export class TrickSystem {
       this.spinOnName = tricks.join(' + ');
       this.spinOnPoints = trickScore;
 
-      // Aurora multiplier (Moonlight Ridge)
-      if (this.auroraMultiplier > 1.0) {
-        trickScore = Math.floor(trickScore * this.auroraMultiplier);
-      }
       // Show the spin-on immediately as a trick
       this.totalScore += trickScore;
       this.lastTrickName = this.spinOnName;
@@ -462,6 +453,16 @@ export class TrickSystem {
         trickScore += scoredSwaps * 150;
       }
 
+      // Timing bonuses for popping on / off in the gold
+      if (playerState.railPerfectOn) {
+        tricks.push('PERFECT ON');
+        trickScore += 150;
+      }
+      if (playerState.railPerfectOff) {
+        tricks.push('PERFECT OFF');
+        trickScore += 150;
+      }
+
       // Long grind bonus
       if (this.grindAccumulatedTime > 2.0) {
         trickScore += Math.floor((this.grindAccumulatedTime - 2.0) * 150);
@@ -475,10 +476,6 @@ export class TrickSystem {
       if (this.grindStartedSwitch) {
         trickScore = Math.floor(trickScore * 1.5);
         tricks.unshift('SWITCH');
-      }
-      // Aurora multiplier (Moonlight Ridge)
-      if (this.auroraMultiplier > 1.0) {
-        trickScore = Math.floor(trickScore * this.auroraMultiplier);
       }
       this.totalScore += trickScore;
 
@@ -565,10 +562,10 @@ export class TrickSystem {
     return direction ? `${direction} ${prefix} ${deg}` : `${prefix} ${deg}`;
   }
 
-  getFlipName(count, direction = 0) {
+  getFlipName(count, direction = 0, layout = false) {
     // Negative X rotation = frontflip (W key), Positive X = backflip (S key)
     const isFront = direction < 0;
-    const type = isFront ? 'FRONTFLIP' : 'BACKFLIP';
+    const type = isFront ? 'FRONTFLIP' : (layout ? 'LAYOUT BACKFLIP' : 'BACKFLIP');
     if (count === 1) return type;
     if (count === 2) return `DOUBLE ${type}`;
     if (count === 3) return `TRIPLE ${type}`;

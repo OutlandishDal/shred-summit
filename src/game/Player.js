@@ -1,7 +1,55 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Pop on a jump lip adds this much of your ollie on top of the lip's own throw (keep in sync with Terrain)
+export const JUMP_POP_MUL = 1.4;
+
+// Tileable normal map drawn from a height function h(x, y) -> 0..1 (cached per kind)
+const _normalMaps = {};
+function makeNormalMap(kind, size, heightFn, strength) {
+  if (_normalMaps[kind]) return _normalMaps[kind];
+  const hs = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) hs[y * size + x] = heightFn(x, y);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const at = (x, y) => hs[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+    const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+    const l = Math.hypot(dx, dy, 1);
+    const i = (y * size + x) * 4;
+    img.data[i] = (-dx / l * 0.5 + 0.5) * 255;
+    img.data[i + 1] = (dy / l * 0.5 + 0.5) * 255;
+    img.data[i + 2] = (1 / l * 0.5 + 0.5) * 255;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  _normalMaps[kind] = tex;
+  return tex;
+}
+// Cheap repeatable hash noise
+const hash2 = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+
+// Scratch objects for the rider rig (IK runs every frame, so no allocations)
+const _ik = {
+  d: new THREE.Vector3(), p: new THREE.Vector3(), u: new THREE.Vector3(), v: new THREE.Vector3(),
+  w: new THREE.Vector3(), x: new THREE.Vector3(), y: new THREE.Vector3(),
+  m: new THREE.Matrix4(), e: new THREE.Euler(), qUpper: new THREE.Quaternion(), qLower: new THREE.Quaternion(),
+};
+const _rig = {
+  t: new THREE.Vector3(), pole: new THREE.Vector3(), inv: new THREE.Matrix4(),
+  qFeet: new THREE.Quaternion(), qKnee: new THREE.Quaternion(), qYaw: new THREE.Quaternion(),
+  up: new THREE.Vector3(0, 1, 0),
+  tw: new THREE.Vector3(), hw: new THREE.Vector3(), sw: new THREE.Vector3(), pw: new THREE.Vector3(),
+  qa: new THREE.Quaternion(), qb: new THREE.Quaternion(),
+};
+
 export class Player {
+  static FITS = { regular: 0, semi: 0.5, baggy: 1 };
   constructor(scene, equipmentType = 'snowboard') {
     this.scene = scene;
     this.equipmentType = equipmentType;
@@ -15,8 +63,12 @@ export class Player {
     this.grounded = false;
     this.airTime = 0;
     this.visualSpeedScale = 1.2; // player moves 1.2x faster than displayed speed
-    this.baseMaxSpeed = 36.11 * 1.2;
-    this.maxSpeed = 36.11 * 1.2;
+    // Ground speed relative to the original tuning. Jumps compensate for it
+    // (see _launchSpeed / _airSpeedBoost) so air height and distance stay the same.
+    this.groundSpeedScale = 0.75;
+    this._airSpeedBoost = 1;      // horizontal speed multiplier while in the air
+    this.baseMaxSpeed = 36.11 * 1.2 * this.groundSpeedScale;
+    this.maxSpeed = this.baseMaxSpeed;
     this.gravity = -25;
     this.baseJumpForce = 8;
     this.jumpForce = 8;
@@ -30,6 +82,8 @@ export class Player {
     this.turnRateMax = 2.3;       // ~130 deg/s — smooth carving
     this.turnAccel = 16.0;        // snappy edge engagement
     this.turnDecel = 10.0;        // smooth decay on release
+    this.railSlopeAccel = 12;     // speed gain on down rails per unit of slope beyond the hill
+    this.carveScrub = 0.003;      // speed lost per frame (at 60fps) per rad/s of turn
     this.edgeLean = 0;            // visual lean for carving (-1 to 1)
     this.edgeLeanSmooth = 0;      // smoothed lean for rendering
 
@@ -58,6 +112,22 @@ export class Player {
     this.wasGrinding = false;
     this.landedOnRail = false;     // one-shot flag: air → rail transition
     this.frontswapCount = 0;       // number of frontside↔backside swaps during grind
+    this.isLayingOut = false;      // holding jump during a backflip (straight body)
+    this.lastJumpLayout = false;
+    this._backflipTime = 0;
+    this._layoutTime = 0;
+    // Prepare for landing (jump held in the air): finish the current rotation, then lock in to land
+    this._prep = null;             // locked rotation targets {x, y, z} while preparing
+    this._landReady = false;       // rotation finished, rider set up for the landing
+    this._jumpFreshInAir = false;  // jump released since takeoff, so the pop's hold doesn't count
+    this._prepHold = 0;            // how long jump has been held in the air
+    // Stuck rescue: standing still this long unstraps the back foot (snowboard) or both skis, so the
+    // rider can push/walk clear of the feature, then straps back in and rides on
+    this.stuckTime = 0;
+    this.stuckLimit = 5.0;
+    this.walking = null;           // { phase, dist, strap } while unstrapped
+    this._walkFeet = null;         // per-foot IK targets that replace the bindings while unstrapped
+    this.prepCommitTime = 1.0;     // hold this long to commit to the landing
     this.grindExitTimer = 0;       // cooldown after jumping off rail
     this._grindedRails = new Set(); // rails already grinded this run — no re-snap
     this.grindAborted = false;     // true when fell off rail due to low speed (no points)
@@ -73,7 +143,38 @@ export class Player {
 
     // Kicker launch cooldown — prevents re-launch when landing back on same kicker
     this.kickerCooldown = 0;
-    this.kickerPopBoost = 0; // extra air from pressing space on a kicker
+    this.kickerPopBoost = 0; // ollie charge (0..1) released on a kicker, used at the lip
+    this.ollieCharge = 0;    // pop meter 0..1 while jump is held on the ground
+    this.ollieChargeTime = 0.7;  // seconds to fill the meter
+    this.popSweetSpot = [0.72, 0.88]; // release (or reach the lip) inside this for a perfect pop
+    this.lastPopPerfect = false;
+    this.lastPopTime = -1;
+    // Rail timing: the pop meter fills on its own before a rail lip / rail end; tap jump in the gold
+    this.railTiming = null;      // { kind: 'on' | 'off', meter } while active
+    this.railTimingWindow = 0.7; // seconds before the lip / end that the meter shows
+    this._railOnLocked = false;  // jump already tapped for this rail lip
+    this._pendingPerfectOn = false;
+    this.railPerfectOn = false;
+    this.railPerfectOff = false;
+    this._swapTimer = 0;         // frontswap in progress (seconds left)
+    this.swapDuration = 0.25;    // a frontswap takes this long; no new swap until it finishes
+    this.swapHopHeight = 0.3;
+    this.railExitMaxSpeed = 17;  // m/s of horizontal speed you can carry off the end of a rail
+    this.railExitMaxPop = 8;     // m/s of upward speed off a rail (kinks and perfect pops included)
+    // Setting a trick: holding a spin/flip key while loading the pop winds the shoulders up.
+    // Hucking off the lip with it set starts the rotation right away and faster; starting a
+    // rotation later in the air spins slower (see _launchRotation)
+    this._set = { spin: 0, flip: 0, amt: 0 };  // wound-up direction (-1/0/1) and how far (0..1)
+    this._rotMul = 1;           // rotation speed for this jump
+    this._rotMulLocked = false; // decided at takeoff (set) or at the first rotation input (late)
+    this._launched = false;     // takeoff handled for this airtime
+    this._huckT = 0;            // time left in the takeoff huck animation
+    this._huck = { spin: 0, flip: 0 };
+    this._fromRail = false;    // this airtime started off a rail
+    // Rider rig dimensions (see _buildRig)
+    this.THIGH_LEN = 0.34; this.SHIN_LEN = 0.3;     // hip→knee, knee→ankle
+    this.UPPER_ARM_LEN = 0.3; this.FOREARM_LEN = 0.3; // shoulder→elbow, elbow→glove
+    this.ANKLE_Y = 0.1;                              // ankle height above the board (board mesh space)    // how high the board hops off the rail during a frontswap
     this.terrainPopCooldown = 0; // cooldown for terrain bump pops
 
     // Landing zone tracking
@@ -102,15 +203,15 @@ export class Player {
     this.daveWaypoints = [];     // escape path waypoints
     this.daveWaypointIndex = 0;
 
-    // Surface type (Alpine Meadow / Moonlight Ridge)
-    this.surfaceType = 'snow'; // 'snow', 'grass', 'mud', 'creek', 'ice'
+    // Surface type (ice on frozen creeks)
+    this.surfaceType = 'snow'; // 'snow', 'ice'
 
     // Capsule hitbox: center = position, radius, half-height
     this.capsuleRadius = 0.4;
     this.capsuleHalfH = 0.8;
 
     // Stance depends on equipment — base values (overridden by stance/switch)
-    this.BASE_STANCE_YAW = this.equipmentType === 'ski' ? 0 : 1.3;
+    this.BASE_STANCE_YAW = this.equipmentType === 'ski' ? Math.PI : 1.3; // skier faces downhill (-z)
     this.BASE_HEAD_YAW = this.equipmentType === 'ski' ? 0 : -0.785;
     this.STANCE_YAW = this.BASE_STANCE_YAW;
     this.HEAD_YAW = this.BASE_HEAD_YAW;
@@ -124,6 +225,11 @@ export class Player {
     this.riderGroup = new THREE.Group();
 
     this.buildModel();
+    this._upgradeRiderDetail();
+    this.jacketFit = 'regular';
+    this.pantsFit = 'regular';
+    this._shopBaggy = false;
+    this._collectJacketParts();
     this.scene.add(this.group);
   }
 
@@ -289,6 +395,7 @@ export class Player {
     const waistMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 5, 10), jacketMat);
     waistMesh.scale.set(1, 1, 0.7);
     waistMesh.position.set(0, 0.82, 0); this.riderGroup.add(waistMesh);
+    waistMesh.userData.jacketHem = true;
 
     // Upper torso / chest — puffy jacket, broader
     this.torsoMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.22, 6, 10), jacketMat);
@@ -316,6 +423,7 @@ export class Player {
     const zipper = new THREE.Mesh(new THREE.CapsuleGeometry(0.005, 0.35, 3, 4),
       new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.5, roughness: 0.3 }));
     zipper.position.set(0, 1.0, 0.155); this.riderGroup.add(zipper);
+    zipper.userData.jacketPart = true;
 
     // Jacket collar at neckline
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.06, 10, 1, true), jacketMat);
@@ -324,6 +432,7 @@ export class Player {
     // Jacket waist band / hem — solid band
     const waistBand = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.19, 0.035, 12), jacketMat);
     waistBand.position.set(0, 0.74, 0); this.riderGroup.add(waistBand);
+    waistBand.userData.jacketHem = true;
 
     // Jacket brand logo decal (thin plane on chest)
     this.jacketLogoMat = new THREE.MeshStandardMaterial({
@@ -739,8 +848,214 @@ export class Player {
     this.hipR.rotation.x = -0.3;
     this.kneeR.rotation.x = 0.6;
 
+    this._buildRig();
+
     this.boardGroup.add(this.riderGroup);
     this.group.add(this.boardGroup);
+  }
+
+  // Higher-detail rider: smoother body parts, fabric textures and glossy hard parts. There's only
+  // a handful of riders on screen, so this stays cheap; the rest of the world stays low poly.
+  _upgradeRiderDetail() {
+    // Puffer jacket: stitched baffles plus a fine nylon weave
+    const jacketN = makeNormalMap('jacket', 128, (x, y) => {
+      const baffle = Math.sin((y / 128) * Math.PI * 4);           // 4 puffy rows per tile
+      return Math.sqrt(Math.abs(baffle)) * 0.8 + hash2(x, y) * 0.06;
+    }, 2.5);
+    // Pants: diagonal twill and some fabric grain
+    const pantsN = makeNormalMap('pants', 128, (x, y) =>
+      Math.sin((x + y) * 0.8) * 0.25 + hash2(x * 0.5 | 0, y) * 0.15, 1.5);
+    // Gloves and boots: leathery grain
+    const grainN = makeNormalMap('grain', 64, (x, y) => hash2(x, y) * 0.5 + hash2(x >> 1, y >> 1) * 0.5, 1.2);
+
+    const fabric = (mat, map, repeat, scale, rough) => {
+      mat.normalMap = map.clone();
+      mat.normalMap.needsUpdate = true;
+      mat.normalMap.repeat.set(repeat[0], repeat[1]);
+      mat.normalScale.set(scale, scale);
+      mat.roughness = rough;
+      mat.needsUpdate = true;
+    };
+    fabric(this.jacketMat, jacketN, [2, 3], 0.6, 0.62);
+    fabric(this.pantsMat, pantsN, [3, 4], 0.4, 0.85);
+    fabric(this.gloveMat, grainN, [2, 2], 0.5, 0.7);
+    fabric(this.bootMat, grainN, [3, 3], 0.4, 0.6);
+    if (this._jacketFoldMat) fabric(this._jacketFoldMat, jacketN, [2, 3], 0.4, 0.7);
+    if (this._pantsFoldMat) fabric(this._pantsFoldMat, pantsN, [3, 4], 0.3, 0.9);
+    // Hard parts: glossy helmet shell, mirrored goggle lens, waxed board
+    this.helmetMat.roughness = 0.22; this.helmetMat.metalness = 0.15;
+    this.boardMat.roughness = 0.3;
+
+    // Reflections from a soft sky/snow environment (set by Game once the renderer exists)
+    if (Player.envMap) {
+      for (const [mat, k] of [[this.jacketMat, 0.35], [this.pantsMat, 0.25], [this.helmetMat, 0.9],
+        [this.goggleLensMat, 0.7], [this.boardMat, 0.7], [this.bindingMat, 0.5], [this.bootMat, 0.4], [this.gloveMat, 0.3]]) {
+        if (!mat) continue;
+        mat.envMap = Player.envMap;
+        mat.envMapIntensity = k;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+
+  // Turns the procedural rider into a small rig: a spine that bends at the waist, ankles that keep
+  // the boots flat in the bindings, and two-bone IK so the feet never leave the board and a grabbing
+  // hand lands on the actual spot of the board it grabs.
+  _buildRig() {
+    // Leans are in the rider's own frame: rotation.x tips toward the toes, rotation.z toward the left foot
+    this.riderGroup.rotation.order = 'YXZ';
+
+    this.spineGroup = new THREE.Group();
+    this.spineGroup.position.set(0, 0.7, 0);
+    for (const child of [...this.riderGroup.children]) {
+      if (child === this.hipL || child === this.hipR || child.position.y < 0.7) continue;
+      this.riderGroup.remove(child);
+      child.position.y -= 0.7;
+      this.spineGroup.add(child);
+    }
+    this.riderGroup.add(this.spineGroup);
+
+    this._spinePose = { x: 0, y: 0, z: 0 };
+    this._armIK = { L: { w: 0, rate: 0.2, target: null, last: null }, R: { w: 0, rate: 0.2, target: null, last: null } };
+    this.legIK = true;
+    if (this.legIK) {
+      this.ankleL = this._makeAnkle(this.kneeL);
+      this.ankleR = this._makeAnkle(this.kneeR);
+    }
+  }
+
+  _makeAnkle(knee) {
+    const ankle = new THREE.Group();
+    ankle.position.set(0, -this.SHIN_LEN, 0);
+    for (const child of [...knee.children]) {
+      if (child.position.y > -0.29) continue; // boot and sole
+      knee.remove(child);
+      child.position.y += this.SHIN_LEN;
+      ankle.add(child);
+    }
+    knee.add(ankle);
+    return ankle;
+  }
+
+  // Which way the board's toe edge (+1 = board +x) and nose (+1 = board +z) sit for the current stance
+  _toeSign() { return Math.sign(Math.sin(this.riderGroup.rotation.y)) || 1; }
+  _frontSign() {
+    const yaw = this.riderGroup.rotation.y;
+    return Math.sign(0.14 * Math.sin(yaw) + 0.05 * Math.cos(yaw)) || 1;
+  }
+
+  // Pose requests, made each frame by the animation code and applied in _updateRig
+  _setSpine(x, y = 0, z = 0) { this._spinePose.x = x; this._spinePose.y = y; this._spinePose.z = z; }
+
+  // Put a hand ('L'/'R') on a point, in 'board' space (board mesh local) or 'rider' space (riderGroup local)
+  _reach(hand, space, x, y, z, rate = 0.2) {
+    const ik = this._armIK[hand];
+    ik.target = { space, x, y, z };
+    ik.rate = rate;
+  }
+
+  // Two-bone IK. target and pole are in the upper joint's parent space; the limb hangs along the
+  // joint's local -y. hingeSign: +1 when the lower joint bends with +x (knees), -1 for -x (elbows).
+  // Leaves the solved rotations in _ik.qUpper / _ik.qLower.
+  _solveTwoBone(upper, target, a, b, pole, hingeSign) {
+    const { d, p, u, v, w, x, y, m, e } = _ik;
+    d.copy(target).sub(upper.position);
+    const dist = THREE.MathUtils.clamp(d.length(), Math.abs(a - b) + 0.01, a + b - 0.002);
+    d.normalize();
+    p.copy(pole).addScaledVector(d, -pole.dot(d)).normalize();
+    const cosA = THREE.MathUtils.clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1);
+    u.copy(d).multiplyScalar(cosA).addScaledVector(p, Math.sqrt(1 - cosA * cosA)); // upper limb (bulges toward pole)
+    v.copy(d).multiplyScalar(dist).addScaledVector(u, -a).normalize();             // lower limb
+    const bend = Math.acos(THREE.MathUtils.clamp(u.dot(v), -1, 1));
+    w.copy(v).addScaledVector(u, -u.dot(v));
+    if (w.lengthSq() < 1e-8) w.copy(p).negate();
+    w.normalize().multiplyScalar(-hingeSign);  // local +z
+    y.copy(u).negate();                        // local +y
+    x.crossVectors(y, w);
+    m.makeBasis(x, y, w);
+    _ik.qUpper.setFromRotationMatrix(m);
+    _ik.qLower.setFromEuler(e.set(hingeSign * bend, 0, 0));
+  }
+
+  _updateRig() {
+    if (!this.spineGroup) return;
+    const lerp = THREE.MathUtils.lerp;
+    const sp = this._spinePose, sr = this.spineGroup.rotation;
+    sr.x = lerp(sr.x, sp.x, 0.15);
+    sr.y = lerp(sr.y, sp.y, 0.15);
+    sr.z = lerp(sr.z, sp.z, 0.15);
+    this.group.updateMatrixWorld(true);
+
+    // Legs: feet locked into the bindings whatever the body is doing, knees out over the toes
+    if (this.legIK) {
+      _rig.inv.copy(this.riderGroup.matrixWorld).invert();
+      const base = this.boardMesh || this.boardGroup; // skis sit straight in boardGroup
+      const ski = this.equipmentType === 'ski';
+      base.getWorldQuaternion(_rig.qFeet);
+      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.STANCE_YAW)); // boots keep the stance angle
+      const front = this._frontSign();
+      for (const [hip, knee, ankle, side, bz] of [
+        [this.hipL, this.kneeL, this.ankleL, -1, front * 0.22],
+        [this.hipR, this.kneeR, this.ankleR, 1, -front * 0.22],
+      ]) {
+        // Snowboard: one binding at each end. Skis: each foot on its own ski (hip side, mapped by stance yaw)
+        const free = this._walkFeet && this._walkFeet[side < 0 ? 'L' : 'R'];
+        if (free) _rig.t.copy(free); // unstrapped: foot on the snow (same frame as the bindings)
+        else if (ski) _rig.t.set(side * 0.14 * Math.cos(this.STANCE_YAW), this.ANKLE_Y, -0.05 * Math.cos(this.STANCE_YAW));
+        else _rig.t.set(0, this.ANKLE_Y, bz);
+        base.localToWorld(_rig.t).applyMatrix4(_rig.inv);
+        _rig.pole.set(side * 0.12, 0, 1);
+        this._solveTwoBone(hip, _rig.t, this.THIGH_LEN, this.SHIN_LEN, _rig.pole, 1);
+        hip.quaternion.copy(_ik.qUpper);
+        knee.quaternion.copy(_ik.qLower);
+        hip.updateMatrixWorld(true);
+        // Boots stay flat on the board
+        knee.getWorldQuaternion(_rig.qKnee);
+        ankle.quaternion.copy(_rig.qKnee.invert().multiply(_rig.qFeet));
+      }
+    }
+
+    // Arms: blend from the animated pose into a hand placed on a target
+    for (const hand of ['L', 'R']) {
+      const ik = this._armIK[hand];
+      if (ik.target) ik.last = ik.target;
+      ik.w = lerp(ik.w, ik.target ? 1 : 0, ik.rate);
+      ik.target = null; // poses re-request every frame
+      if (ik.w < 0.01 || !ik.last) continue;
+      const shoulder = hand === 'L' ? this.shoulderL : this.shoulderR;
+      const elbow = hand === 'L' ? this.elbowL : this.elbowR;
+      const t = ik.last;
+      _rig.tw.set(t.x, t.y, t.z);
+      (t.space === 'board' ? (this.boardMesh || this.boardGroup) : this.riderGroup).localToWorld(_rig.tw);
+      if (ik.w > 0.97) ik.w = 1;
+      // A grab locks the hand on: if the spot is out of arm's reach (spins twist the shoulders
+      // away), fold the torso toward it until the hand gets there.
+      const lock = t.space === 'board' && ik.w === 1;
+      for (let pass = 0; pass < (lock ? 4 : 1); pass++) {
+        _rig.t.copy(_rig.tw);
+        this.spineGroup.worldToLocal(_rig.t);
+        _rig.pole.set(hand === 'L' ? -1 : 1, -0.3, -0.5); // elbows out and back
+        this._solveTwoBone(shoulder, _rig.t, this.UPPER_ARM_LEN, this.FOREARM_LEN, _rig.pole, -1);
+        shoulder.quaternion.slerp(_ik.qUpper, ik.w);
+        elbow.quaternion.slerp(_ik.qLower, ik.w);
+        if (!lock) break;
+        const reach = (this.UPPER_ARM_LEN + this.FOREARM_LEN) * 0.97;
+        shoulder.getWorldPosition(_rig.sw);
+        const gap = _rig.sw.distanceTo(_rig.tw) - reach;
+        if (gap <= 0.003) break;
+        // Swing the spine about its base so the shoulder moves toward the spot by the missing distance
+        this.spineGroup.getWorldPosition(_rig.pw);
+        const vs = _rig.hw.copy(_rig.sw).sub(_rig.pw);
+        const vt = _rig.sw.copy(_rig.tw).sub(_rig.pw);
+        const ang = Math.min(vs.angleTo(vt), gap / vs.length() * 1.3);
+        const axis = vs.cross(vt).normalize();
+        if (axis.lengthSq() < 1e-6) break;
+        this.riderGroup.getWorldQuaternion(_rig.qa);
+        axis.applyQuaternion(_rig.qb.copy(_rig.qa).invert()); // into the spine's parent frame
+        this.spineGroup.quaternion.premultiply(_rig.qb.setFromAxisAngle(axis, ang));
+        this.spineGroup.updateMatrixWorld(true);
+      }
+    }
   }
 
   /**
@@ -1019,15 +1334,16 @@ export class Player {
 
       // Nose and tail tips
       const nose = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.15), this.boardMat);
-      nose.position.set(0, 0.03, 0.85); nose.rotation.x = 0.35; ski.add(nose);
+      nose.position.set(0, 0.03, -0.85); nose.rotation.x = -0.35; ski.add(nose); // tips lead downhill (-z)
       const tail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.12), this.boardMat);
-      tail.position.set(0, 0.025, -0.85); tail.rotation.x = -0.3; ski.add(tail);
+      tail.position.set(0, 0.025, 0.85); tail.rotation.x = 0.3; ski.add(tail);
 
       // One binding per ski
       const bind = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.16), bindMat);
-      bind.position.set(0, 0.05, 0.05); ski.add(bind);
+      bind.position.set(0, 0.05, -0.05); ski.add(bind);
 
       this.boardGroup.add(ski);
+      (this.skiMeshes = this.skiMeshes || []).push(ski);
     }
   }
 
@@ -1084,7 +1400,28 @@ export class Player {
     this.lerpJoint(this.headGroup, 'y', -0.6, s);
   }
 
+  // Jumps launch at the original ground speed so air height and distance are
+  // unchanged by the slower groundSpeedScale. Undone as soon as we touch down.
+  boostAirSpeed() {
+    if (this._airSpeedBoost !== 1) return;
+    this._airSpeedBoost = 1 / this.groundSpeedScale;
+    this.velocity.x *= this._airSpeedBoost;
+    this.velocity.z *= this._airSpeedBoost;
+  }
+
+  restoreGroundSpeed() {
+    if (this._airSpeedBoost === 1) return;
+    this.velocity.x /= this._airSpeedBoost;
+    this.velocity.z /= this._airSpeedBoost;
+    this._airSpeedBoost = 1;
+  }
+
   update(dt, input, terrain) {
+    if (!this.grounded && !this.grinding) this.railTiming = null; // timing meter is only for the ground and rails
+    if (this.grounded || this.grinding) { this._prep = null; this._landReady = false; this._jumpFreshInAir = false; this._prepHold = 0; }
+    // Rails keep air speed; it's restored to ground speed on the next landing
+    if (this.grounded && !this.grinding && !this.onKicker) this.restoreGroundSpeed();
+
     if (this.crashed) {
       this.updateDebris(dt);
       return this.getState(terrain);
@@ -1094,6 +1431,13 @@ export class Player {
       this.updateTomahawk(dt, terrain);
       return this.getState(terrain);
     }
+
+    // Stuck (e.g. stopped sideways against a jump): after a few seconds, unstrap and walk it out
+    if (this.walking) return this._updateWalk(dt, input, terrain);
+    const still = this.grounded && !this.grinding && !this.inRiver &&
+      Math.hypot(this.velocity.x, this.velocity.z) < 0.8;
+    this.stuckTime = still ? this.stuckTime + dt : 0;
+    if (this.stuckTime >= this.stuckLimit) this._startWalk(terrain);
 
     this.wasGrounded = this.grounded;
     this.wasGrinding = this.grinding;
@@ -1109,7 +1453,7 @@ export class Player {
 
     // ===== SURFACE TYPE QUERY =====
     if (this.grounded && terrain.config && terrain.config.frozenCreeks) {
-      // Moonlight Ridge: check frozen creeks first for ice physics
+      // Frozen creeks give ice physics
       let onIce = false;
       for (const fc of terrain.config.frozenCreeks) {
         if (this.position.z < fc.startZ && this.position.z > fc.endZ) {
@@ -1123,8 +1467,6 @@ export class Player {
         }
       }
       this.surfaceType = onIce ? 'ice' : 'snow';
-    } else if (this.grounded && terrain.getSurfaceType) {
-      this.surfaceType = terrain.getSurfaceType(this.position.x, this.position.z);
     } else if (!this.grounded) {
       // Keep last surface type while airborne (for particle effects)
     } else {
@@ -1151,11 +1493,12 @@ export class Player {
         this.kickerCooldown <= 0 && this.terrainPopCooldown <= 0) {
       const pop = terrain.config?.terrainPop;
       if (pop) {
-        const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        const groundSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        const speed = groundSpeed / this.groundSpeedScale; // pop as if at original speed
         if (speed > (pop.minSpeed || 8)) {
           const eps = pop.sampleDist || 2.0;
-          const dirX = this.velocity.x / speed;
-          const dirZ = this.velocity.z / speed;
+          const dirX = this.velocity.x / groundSpeed;
+          const dirZ = this.velocity.z / groundSpeed;
           const hBehind = terrain.getHeightAt(
             this.position.x - dirX * eps, this.position.z - dirZ * eps);
           const hHere = terrain.getHeightAt(this.position.x, this.position.z);
@@ -1170,6 +1513,7 @@ export class Player {
             );
             if (popStrength > 1.5) {
               this.velocity.y = popStrength;
+              this.boostAirSpeed();
               this.grounded = false;
               this.peakHeight = 0;
               this.launchedFromKicker = true;
@@ -1182,6 +1526,7 @@ export class Player {
 
     // ===== GROUND / SURFACE COLLISION =====
     const wasInAir = !this.grounded && !this.grinding;
+    if (this.grounded) this._rolledRailLip = false;
     const nextY = this.position.y + this.velocity.y * dt;
 
     if (nextY <= surfaceH + groundOffset) {
@@ -1192,6 +1537,29 @@ export class Player {
       this.landingQuality = null;
 
       if (wasInAir && this.airTime > 0.4) {
+        for (const ramp of terrain.ramps) {
+          if (!ramp.jump) continue;
+          const j = ramp.jump;
+          const d = j.zStart - this.position.z;
+          const part = terrain.jumpPart(j, d);
+          if (!part || terrain.jumpSurfaceAt(ramp, this.position.x, this.position.z) === null) continue;
+          if (part === 'landing') {
+            // Landing slope soaks up the drop; middle of it is the sweet spot
+            const worldSlope = j.landSlope + terrain.slopeAngle;
+            this.landingZoneSlopeAbsorb = Math.min(worldSlope * 0.8, 0.7);
+            const t = (d - j.landStart) / (j.landEnd - j.landStart);
+            this.landingQuality = (t >= 0.15 && t <= 0.7) ? 'perfect' : 'clean';
+          } else if (part === 'knuckle') {
+            // Casing the knuckle: rough but the rounded edge soaks up some of it
+            this.landingZoneSlopeAbsorb = 0.45;
+            this.landingQuality = 'clean';
+          } else if (part !== 'kicker') {
+            // Deck: flat and harsh — you came up short
+            this.landingZoneSlopeAbsorb = 0;
+            this.landingQuality = 'clean';
+          }
+          break;
+        }
         for (const ramp of terrain.ramps) {
           if (ramp.type !== 'kicker' || ramp.landingZoneStartZ === undefined) continue;
           if (this.position.z > ramp.position.z + 50) continue;
@@ -1222,6 +1590,9 @@ export class Player {
           }
         }
       }
+
+      if (wasInAir) this._latchLayout();
+      if (wasInAir && this._landReady) this.landingQuality = 'perfect'; // prepared for the landing: stomped
 
       // Crash check on landing — must land within 35° of clean rotation
       if (wasInAir && this.airTime > 0.4) {
@@ -1309,6 +1680,7 @@ export class Player {
     // ===== KICKER RIDE-UP =====
     // Check if we're on a kicker and adjust position/velocity to follow ramp surface
     this.updateKickerRide(terrain, dt);
+    if (this.grounded && !this.grinding) this._inrunSpeedCheck(terrain, dt);
 
     // ===== RAIL GRIND CHECK =====
     this.updateRailGrind(terrain, dt);
@@ -1329,16 +1701,37 @@ export class Player {
       const hSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
 
       // Auto-accelerate downhill
-      let slopeAccel = this.isTucking ? 16 : 11;
+      let slopeAccel = (this.isTucking ? 16 : 11) * this.groundSpeedScale;
 
-      // S = brake on ground (NOT flip — that's air only)
-      if (input.brake && !wasInAir) {
-        slopeAccel = 3;
+      // Setting a trick while loading the pop (holding jump, or a pop saved for the lip)
+      const loadingPop = this.ollieCharge > 0 || this.kickerPopBoost > 0 || this.onKicker;
+      const setSpin = loadingPop ? (input.spinLeft ? 1 : input.spinRight ? -1 : 0) : 0;
+      const setFlip = loadingPop ? (input.flipForward ? -1 : input.flipBackward ? 1 : 0) : 0;
+      if (setSpin || setFlip) {
+        if (setSpin !== this._set.spin || setFlip !== this._set.flip) this._set.amt = 0;
+        this._set.spin = setSpin;
+        this._set.flip = setFlip;
+        this._set.amt = Math.min(1, this._set.amt + dt / 0.35); // full wind-up in 0.35 s
+      } else {
+        this._set.amt = Math.max(0, this._set.amt - dt * 3);
+        if (this._set.amt === 0) { this._set.spin = 0; this._set.flip = 0; }
+      }
+      const settingTrick = !!(setSpin || setFlip);
+      this._didStraightBack = false;
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, 0, 0.1);
+      this._fromRail = false;
+      this._launched = false;
+      this._rotMulLocked = false;
+
+      // S = brake on ground (NOT flip — that's air only). While setting a backflip it's the set instead.
+      if (input.brake && !wasInAir && !settingTrick) {
+        slopeAccel = 3 * this.groundSpeedScale;
       }
 
       // ---- CARVING TURN ----
       // Smoothly ramp the turn rate up/down (like digging in an edge)
-      const steerInput = input.steer; // -1, 0, +1
+      // Setting a spin stops the carve: A/D wind up the shoulders instead
+      const steerInput = setSpin ? 0 : input.steer; // -1..+1
 
       if (steerInput !== 0) {
         // Ramp toward target turn rate
@@ -1360,7 +1753,7 @@ export class Player {
       }
 
       // Speed affects turning: slower = tighter, faster = wider arcs
-      const speedRatio = Math.max(0.2, Math.min(hSpeed / 50, 1.0));
+      const speedRatio = Math.max(0.2, Math.min(hSpeed / (50 * this.groundSpeedScale), 1.0));
       const effectiveTurnRate = this.turnRate * (1.2 - speedRatio * 0.3);
 
       // Rotate the heading (subtract so A=left, D=right from camera view)
@@ -1383,23 +1776,18 @@ export class Player {
       this.velocity.x = headSinH * speed;
       this.velocity.z = headCosH * speed;
 
-      // Carving: turning at speed creates a slight speed scrub (edge friction)
-      const carveFriction = 1.0 - Math.abs(this.turnRate) * 0.012;
+      // Carving: turning at speed creates a slight speed scrub (edge friction).
+      // Per-second loss, so it doesn't depend on frame rate.
+      const carveFriction = Math.pow(1.0 - Math.abs(this.turnRate) * this.carveScrub, dt * 60);
 
       // Standard friction — modified by surface type
       let frictionMul;
-      if (input.brake) {
+      if (input.brake && !settingTrick) {
         frictionMul = 0.94;
         this.turnRate *= 0.90;
       } else {
         let baseFriction = this.isTucking ? 0.998 : 0.995;
-        if (this.surfaceType === 'grass') {
-          baseFriction = this.isTucking ? 0.985 : 0.975;
-        } else if (this.surfaceType === 'mud') {
-          baseFriction = 0.92;
-        } else if (this.surfaceType === 'creek') {
-          baseFriction = 0.88;
-        } else if (this.surfaceType === 'ice') {
+        if (this.surfaceType === 'ice') {
           baseFriction = this.isTucking ? 0.999 : 0.998;
           this.turnRate *= 0.7; // harder to turn on ice
         }
@@ -1408,18 +1796,36 @@ export class Player {
       this.velocity.x *= frictionMul * carveFriction;
       this.velocity.z *= frictionMul * carveFriction;
 
-      // Ollie / Pop
-      if (input.jump) {
-        if (this.onKicker) {
-          // On a kicker: store pop boost — applied at lip for extra air
-          this.kickerPopBoost = this.jumpForce * 0.6;
-        } else {
+      // Ollie / Pop: hold jump to load (rider crouches), release to pop. Longer hold = bigger pop.
+      // Riding at a rail lip, the meter fills by itself instead: tap jump when it's in the gold.
+      const jumpHeld = input.jumpHeld ?? input.jump;
+      this._updateRailOnTiming(terrain);
+      if (this.railTiming) {
+        this.ollieCharge = 0;
+        if (input.jump && !this._railOnLocked) {
+          this.kickerPopBoost = Math.max(0.3, this._popStrength(this.railTiming.meter));
+          this._pendingPerfectOn = this.lastPopPerfect;
+          this._railOnLocked = true;
+        }
+      } else if (jumpHeld) {
+        this.ollieCharge = Math.min(1, this.ollieCharge + dt / this.ollieChargeTime);
+      } else if (this.ollieCharge > 0) {
+        if (this.onKicker || this._jumpAhead(terrain)) {
+          // Released on a kicker, a rail lip, or the run-in to a jump: saved for the lip
+          // (you can't pop off a jump before its lip)
+          this.kickerPopBoost = this._popStrength(this.ollieCharge);
+          this.ollieCharge = 0;
+        } else if (this.ollieCharge >= 0.15) {
           // Backcountry: full jump (pillows, bumps, drops need big air)
           // Park flat ground: reduced ollie (~6 feet)
-          this.velocity.y = this.backcountryMode ? this.jumpForce : this.ollieForce;
+          const force = this.backcountryMode ? this.jumpForce : this.ollieForce;
+          this.velocity.y = force * this._popStrength(this.ollieCharge);
+          this.ollieCharge = 0;
           this.grounded = false;
           this.peakHeight = 0;
           this.launchedFromKicker = this.backcountryMode;
+        } else {
+          this.ollieCharge = 0; // a quick tap doesn't pop
         }
       }
 
@@ -1437,6 +1843,9 @@ export class Player {
       this.isCorkingThisJump = false;
       this.corkFlipDirection = 0;
       this.corkSpinDirection = 0;
+      this.isLayingOut = false;
+      this._backflipTime = 0;
+      this._layoutTime = 0;
 
       // ---- VISUAL: smooth edge lean & board tilt ----
       this.edgeLean = this.turnRate / this.turnRateMax; // -1 to 1
@@ -1459,71 +1868,77 @@ export class Player {
       const lean = this.edgeLeanSmooth;
       const impactBend = this.landingImpact * 0.8;
 
-      if (this.isTucking) {
-        // Ground tuck: deep crouch
-        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.15, 0.12);
-        this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.3, 0.12);
-        // Deep knee bend
-        this.lerpJoint(this.hipL, 'x', -0.7, 0.12);
-        this.lerpJoint(this.kneeL, 'x', 1.2, 0.12);
-        this.lerpJoint(this.hipR, 'x', -0.7, 0.12);
-        this.lerpJoint(this.kneeR, 'x', 1.2, 0.12);
-        // Arms tucked in tight for speed tuck
-        const tuckZ = 0.5;
-        this.lerpJoint(this.shoulderL, 'z', -tuckZ, 0.12);
-        this.lerpJoint(this.shoulderL, 'x', 0.5, 0.12);
-        this.lerpJoint(this.elbowL, 'x', -1.2, 0.12);
-        this.lerpJoint(this.shoulderR, 'z', tuckZ, 0.12);
-        this.lerpJoint(this.shoulderR, 'x', 0.5, 0.12);
-        this.lerpJoint(this.elbowR, 'x', -1.2, 0.12);
-      } else {
-        this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
-        // Hunch torso forward over toes via spine bones (not riderGroup — foot snap cancels that)
-        if (this._boneSpine1) this._boneSpine1.rotation.x = THREE.MathUtils.lerp(this._boneSpine1.rotation.x, 0.25, 0.1);
-        if (this._boneSpine2) this._boneSpine2.rotation.x = THREE.MathUtils.lerp(this._boneSpine2.rotation.x, 0.25, 0.1);
-        // Legs: deeper bend, knees over toes
-        const frontKnee = 0.8 + impactBend + lean * 0.2;
-        const rearKnee = 0.8 + impactBend - lean * 0.2;
-        const frontHip = -0.5 - impactBend * 0.5;
-        const rearHip = -0.5 - impactBend * 0.5;
-
-        this.lerpJoint(this.hipL, 'x', frontHip, 0.12);
-        this.lerpJoint(this.kneeL, 'x', frontKnee, 0.12);
-        this.lerpJoint(this.hipR, 'x', rearHip, 0.12);
-        this.lerpJoint(this.kneeR, 'x', rearKnee, 0.12);
-
-        // Arms: relaxed at sides, athletic snowboard stance
-        const armZ = this.equipmentType === 'ski' ? 0.75 : 0.35;
-        const armFwd = 0.15;
-        this.lerpJoint(this.shoulderL, 'z', -armZ - lean * 0.25, 0.1);
-        this.lerpJoint(this.shoulderL, 'x', armFwd - lean * 0.2 + impactBend * 0.3, 0.1);
-        this.lerpJoint(this.elbowL, 'x', -0.3 - lean * 0.25, 0.1);
-
-        this.lerpJoint(this.shoulderR, 'z', armZ - lean * 0.25, 0.1);
-        this.lerpJoint(this.shoulderR, 'x', armFwd + lean * 0.2 + impactBend * 0.3, 0.1);
-        this.lerpJoint(this.elbowR, 'x', -0.3 + lean * 0.25, 0.1);
-      }
-
-      // Rider body drop from landing impact + subtle breathing micro-motion
       if (!this._rideTime) this._rideTime = 0;
       this._rideTime += dt;
       const breathe = Math.sin(this._rideTime * 1.5) * 0.015;
-      const dropY = this.isTucking ? -0.15 : (-impactBend * 0.15 + breathe);
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, dropY, 0.12);
+      const rg = this.riderGroup;
+      // The body leans with the board on edge; counter a little so the rider angulates instead of toppling.
+      // A skier faces down the hill, so that's a sideways lean for them (and they ride with softer knees).
+      const skier = this.equipmentType === 'ski';
+      rg.rotation.x = THREE.MathUtils.lerp(rg.rotation.x, skier ? 0 : -lean * 0.3, 0.15);
+      rg.rotation.z = THREE.MathUtils.lerp(rg.rotation.z, skier ? -lean * 0.3 : 0, 0.15);
+      const skiBend = skier ? -0.1 : 0;
 
-      // Rider leans into carves
-      this.riderGroup.rotation.z = THREE.MathUtils.lerp(
-        this.riderGroup.rotation.z, this.edgeLeanSmooth * 0.3, 0.15
-      );
+      if (this.isTucking || this.ollieCharge > 0.05) {
+        // Speed tuck / loading an ollie: knees deep, chest folded over the board, hands in front of the knees
+        const crouch = this.isTucking ? 1 : Math.min(1, this.ollieCharge * 1.5);
+        // (hand spots are in riderGroup space, which already drops with the crouch)
+        rg.position.y = THREE.MathUtils.lerp(rg.position.y, -0.06 - 0.16 * crouch, 0.15);
+        // Setting a trick: shoulders wind up against the spin, the chest loads for a flip
+        const set = this._set;
+        const windUp = -set.spin * 0.6 * set.amt;
+        const flipLoad = set.flip * 0.25 * set.amt;  // backflip: chest drops to load; frontflip: chest up
+        this._setSpine(0.3 + 0.45 * crouch + flipLoad, -lean * 0.2 + windUp, 0);
+        if (set.spin) {
+          // Arms open out so the wind-up reads, ready to throw
+          this.lerpJoint(this.shoulderL, 'z', -0.7, 0.15);
+          this.lerpJoint(this.shoulderL, 'x', 0.3, 0.15);
+          this.lerpJoint(this.elbowL, 'x', -0.5, 0.15);
+          this.lerpJoint(this.shoulderR, 'z', 0.7, 0.15);
+          this.lerpJoint(this.shoulderR, 'x', 0.3, 0.15);
+          this.lerpJoint(this.elbowR, 'x', -0.5, 0.15);
+        } else {
+          this._reach('L', 'rider', -0.09, 0.62, 0.42, 0.2);
+          this._reach('R', 'rider', 0.09, 0.6, 0.4, 0.2);
+        }
+        this.lerpJoint(this.headGroup, 'x', -0.35 * crouch, 0.12); // chin up, eyes down the hill
+      } else {
+        // Carving. Toeside (lean > 0): knees drive over the toes, chest stays fairly tall.
+        // Heelside (lean < 0): sit down low, fold at the waist, arms reach forward for balance.
+        const toe = Math.max(0, lean), heel = Math.max(0, -lean);
+        rg.position.y = THREE.MathUtils.lerp(rg.position.y,
+          -0.06 + skiBend - 0.08 * toe - 0.16 * heel - impactBend * 0.15 + breathe, 0.12);
+        this._setSpine(0.22 + 0.08 * toe + 0.15 * heel + impactBend * 0.3, -lean * 0.3, 0);
+
+        // Arms: relaxed and athletic; the leading arm points into the turn
+        const armZ = this.equipmentType === 'ski' ? 0.75 : 0.4;
+        const armFwd = 0.15 + heel * 0.7 + impactBend * 0.3;
+        this.lerpJoint(this.shoulderL, 'z', -armZ - toe * 0.35, 0.1);
+        this.lerpJoint(this.shoulderL, 'x', armFwd - toe * 0.2, 0.1);
+        this.lerpJoint(this.elbowL, 'x', -0.35 - heel * 0.3, 0.1);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.1);
+        this.lerpJoint(this.shoulderR, 'z', armZ + heel * 0.2, 0.1);
+        this.lerpJoint(this.shoulderR, 'x', armFwd + toe * 0.3, 0.1);
+        this.lerpJoint(this.elbowR, 'x', -0.35 - toe * 0.3, 0.1);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.1);
+
+        if (!this.legIK) {
+          this.lerpJoint(this.hipL, 'x', -0.5 - impactBend * 0.5, 0.12);
+          this.lerpJoint(this.kneeL, 'x', 0.8 + impactBend + lean * 0.2, 0.12);
+          this.lerpJoint(this.hipR, 'x', -0.5 - impactBend * 0.5, 0.12);
+          this.lerpJoint(this.kneeR, 'x', 0.8 + impactBend - lean * 0.2, 0.12);
+        }
+      }
 
       // Head looks into turns more aggressively + dips on landing impact
+      this.lerpJoint(this.headGroup, 'z', 0, 0.1);
       const headLookY = -0.6 - lean * 0.35;
       this.lerpJoint(this.headGroup, 'y', headLookY, 0.1);
       const headRestX = this._boneRest(this.headGroup, 'x');
       if (impactBend > 0.1) {
         this.headGroup.rotation.x = THREE.MathUtils.lerp(
           this.headGroup.rotation.x, impactBend * 0.15 + headRestX, 0.15);
-      } else {
+      } else if (!this.isTucking && this.ollieCharge <= 0.05) {
         this.headGroup.rotation.x = THREE.MathUtils.lerp(this.headGroup.rotation.x, headRestX, 0.08);
       }
 
@@ -1538,12 +1953,21 @@ export class Player {
         const dz = this.position.z - this.grindRail.position.z;
         if (Math.abs(dz) > this.grindRail.length / 2 + 0.5) {
           railEnded = true;
+          this.railTiming = null;
+          const endedRail = this.grindRail;
           this.grinding = false;
           this.grindRail = null;
           this.grounded = false;
           this.peakHeight = 0;
-          // Exit kicker pop — launch ~3-5 feet upward (about character height)
-          this.velocity.y = 7.0;
+          if (endedRail.kickAngle) {
+            // Kinked / up rail: the end kicks you off like a jump lip
+            this._launchOffLip(endedRail.kickAngle, true);
+            this.kickerCooldown = 0.5;
+          } else {
+            // Exit kicker pop — launch ~3-5 feet upward (about character height)
+            this.velocity.y = 4.5;
+          }
+          this._capRailExit();
         }
       }
 
@@ -1551,20 +1975,37 @@ export class Player {
         // Lock X position to rail center (smooth lerp so it feels natural)
         const railX = this.grindRail.position.x;
         this.position.x = THREE.MathUtils.lerp(this.position.x, railX, 0.15);
-        this.velocity.x *= 0.8; // dampen lateral drift
+        // Dampen lateral drift, but turn it into speed along the rail instead of losing it
+        const railHSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+        this.velocity.x *= 0.8;
+        this.velocity.z = (this.velocity.z <= 0 ? -1 : 1) * Math.sqrt(Math.max(0, railHSpeed ** 2 - this.velocity.x ** 2));
 
         // Lock Y to rail surface height at player's Z (follows terrain slope)
-        const terrainAtPlayer = terrain.computeHeight(this.position.x, this.position.z);
-        const railTop = terrainAtPlayer + this._getRailHeightAtZ(this.grindRail, this.position.z);
-        this.position.y = railTop + 0.2;
+        const railTop = this._getRailTop(this.grindRail, terrain);
+        // A frontswap is a little hop: the board lifts off the rail and lands back on it
+        const swapHop = this._swapTimer > 0
+          ? Math.sin(Math.PI * (1 - this._swapTimer / this.swapDuration)) * this.swapHopHeight : 0;
+        this.position.y = railTop + 0.2 + swapHop;
         this.velocity.y = 0;
 
         // Maintain forward speed — very light friction so momentum carries
-        this.velocity.z *= 0.9995;
+        this.velocity.z *= Math.pow(0.9998, dt * 60);
+
+        // Rails steeper than the hill (down rails) speed you up a little
+        if (terrain.getRailTopAt) {
+          const railDir = this.velocity.z <= 0 ? -1 : 1;
+          const railDrop = this._getRailTop(this.grindRail, terrain) - terrain.getRailTopAt(
+            this.grindRail, this.position.x, this.position.z + railDir * 0.5);
+          const extraSlope = railDrop / 0.5 - terrain.slopeAngle;
+          const railMax = this.baseMaxSpeed / this.groundSpeedScale;
+          if (extraSlope > 0 && Math.abs(this.velocity.z) < railMax) {
+            this.velocity.z += railDir * extraSlope * this.railSlopeAccel * dt;
+          }
+        }
 
         // Minimum speed check: hop off rail below 20 km/h (5.556 m/s) — no points
         const grindSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-        if (grindSpeed < 5.556 * this.visualSpeedScale) {
+        if (grindSpeed < 5.556 * this.visualSpeedScale * this.groundSpeedScale) {
           this.grinding = false;
           this.grindAborted = true; // signal TrickSystem to skip scoring
           this._grindedRails.add(this.grindRail);
@@ -1578,17 +2019,28 @@ export class Player {
 
         // Track grind duration
         this.grindTime += dt;
+        this._fromRail = true;
+        this._launched = false;
+        this._rotMulLocked = false;
 
-        // A/D for boardslide tricks while grinding
+        // A/D for boardslide tricks while grinding.
+        // Switching sides is a frontswap: it takes swapDuration and can't be interrupted, so it can't be spammed.
         const prevBoardslideType = this.boardslideType;
-        if (input.steer > 0) {
-          // D key = frontside boardslide
-          this.boardslideType = 'frontside';
-          this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, Math.PI / 2, 0.15);
-        } else if (input.steer < 0) {
-          // A key = backside boardslide
-          this.boardslideType = 'backside';
-          this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, -Math.PI / 2, 0.15);
+        this._swapTimer = Math.max(0, this._swapTimer - dt);
+        const swapping = this._swapTimer > 0;
+        let want = null;
+        if (input.steer > 0) want = 'frontside';      // D key = frontside boardslide
+        else if (input.steer < 0) want = 'backside';  // A key = backside boardslide
+        if (swapping || want) {
+          if (!swapping && want !== this.boardslideType) {
+            if (this.boardslideType) this._swapTimer = this.swapDuration; // start a frontswap
+            this.boardslideType = want;
+          }
+          const target = this.boardslideType === 'frontside' ? Math.PI / 2 : -Math.PI / 2;
+          // Rotate at a steady rate: a full 180 swap takes swapDuration
+          const rate = Math.PI / this.swapDuration;
+          const diff = target - this.boardslideAngle;
+          this.boardslideAngle += Math.sign(diff) * Math.min(Math.abs(diff), rate * dt);
         } else if (this.boardslideType) {
           // No A/D but already in a boardslide (from spin-on or previous input) — hold angle
         } else if (this.equipmentType === 'ski') {
@@ -1600,7 +2052,7 @@ export class Player {
           this.boardslideAngle = THREE.MathUtils.lerp(this.boardslideAngle, 0, 0.15);
         }
 
-        // Detect frontswap: switching between frontside ↔ backside
+        // Count a frontswap when one starts (switching between frontside ↔ backside)
         if (prevBoardslideType && this.boardslideType &&
             prevBoardslideType !== this.boardslideType) {
           this.frontswapCount = (this.frontswapCount || 0) + 1;
@@ -1613,14 +2065,8 @@ export class Player {
           0.1
         );
 
-        // Can do spins while grinding (Q/E)
-        if (input.spinLeft) this.angularVelocity.y = 4.0;
-        else if (input.spinRight) this.angularVelocity.y = -4.0;
-
-        this.trickRotation.y += this.angularVelocity.y * dt;
-        this.angularVelocity.multiplyScalar(0.95);
-
-        // Combine spin rotation with boardslide angle
+        // No spinning on the rail (A/D are boardslides here)
+        this.angularVelocity.y = 0;
         this.boardGroup.rotation.y = this.trickRotation.y + this.boardslideAngle;
 
         // Grind rider animations: arms spread wide for balance
@@ -1631,20 +2077,39 @@ export class Player {
         this.lerpJoint(this.shoulderR, 'x', 0, 0.12);
         this.lerpJoint(this.elbowR, 'x', -0.15, 0.12);
 
-        // Legs: slight crouch
-        this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
-        this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
-        this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
-        this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
+        // Slight crouch, chest over the rail; tuck the knees up for the frontswap hop
+        const hopping = this._swapTimer > 0 ? Math.sin(Math.PI * (1 - this._swapTimer / this.swapDuration)) : 0;
+        this._setSpine(0.2 + hopping * 0.2, 0, 0);
 
         // Maintain stance yaw
         this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
-        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
+        this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.1 - hopping * 0.12, 0.2);
         this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0, 0.1);
+        this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, 0, 0.1);
 
-        // Jump off rail
+        // Timing meter for popping off the end of the rail
+        this._updateRailOffTiming();
+
+        // Jump off rail: tapping in the gold near the end is a perfect pop off
         if (input.jump) {
-          this.velocity.y = this.jumpForce * 0.7;
+          let pop = 0.55;
+          if (this.railTiming) {
+            const strength = this._popStrength(this.railTiming.meter);
+            this.railPerfectOff = this.lastPopPerfect;
+            pop = 0.55 + 0.4 * strength; // perfect = 0.95: enough air for a backflip off the end
+            if (this.grindRail.kickAngle && this.railTiming.meter > 0.6) {
+              // Popping off a kinked / up rail end adds to its kick
+              this._launchOffLip(this.grindRail.kickAngle, true);
+              pop = 0.2 * strength;
+            } else {
+              this.velocity.y = 0;
+            }
+            this.railTiming = null;
+          } else {
+            this.velocity.y = 0;
+          }
+          this.velocity.y += this.jumpForce * pop;
+          this._capRailExit();
           this.grinding = false;
           this._grindedRails.add(this.grindRail);
           this.grindRail = null;
@@ -1664,11 +2129,43 @@ export class Player {
       // Player must time their inputs to land clean rotations.
       // Shift = tuck in air → 1.5x faster spins/flips/corks
       // Flat ground ollie → 1.5x slower rotation (no flip-worthy air without a kicker)
+      // Jump in the air = prepare for landing (a fresh press, so the pop's hold doesn't count).
+      // Holding it opens the rider up (a backflip is laid out) while the tricks stay in your hands.
+      // After a full second held the rider commits: the current flip/spin carries round to its next
+      // clean stop, rotation locks and the landing is set up to stomp (always a perfect landing).
+      // Letting go before then you land it yourself; letting go at any point gives the tricks back.
+      const jumpHeld = !!(input.jumpHeld ?? false);
+      if (!jumpHeld) this._jumpFreshInAir = true;
+      const prepping = jumpHeld && this._jumpFreshInAir;
+      this._prepHold = prepping ? (this._prepHold || 0) + dt : 0;
+      if (!prepping) { this._prep = null; this._landReady = false; }
+      else if (!this._prep && this._prepHold >= this.prepCommitTime) {
+        // Lock the next clean stop in the direction we're already turning
+        const next = (rot, vel, step) => Math.abs(vel) > 1
+          ? (vel > 0 ? Math.ceil(rot / step - 0.02) : Math.floor(rot / step + 0.02)) * step
+          : Math.round(rot / step) * step;
+        const TAU = Math.PI * 2;
+        this._prep = {
+          x: next(this.trickRotation.x, this.angularVelocity.x, TAU),
+          y: next(this.trickRotation.y, this.angularVelocity.y, Math.PI),
+          z: next(this.trickRotation.z, this.angularVelocity.z, TAU),
+        };
+      }
+      const committed = !!this._prep;
+      this._launchRotation(input);
+      const setMul = this._rotMul;
       const tuckMul = (input.tuck || input.grab) ? 1.5 : 1.0;
       const flatMul = this.launchedFromKicker ? 1.0 : 0.83;
-      const flipTarget = 6.0 * tuckMul * flatMul;     // target flip angular vel
-      const spinTarget = 6.5 * tuckMul * flatMul;     // target spin angular vel
-      const rampUp = 14.0 * tuckMul * flatMul;        // how fast rotation builds (rad/s²)
+      const flipTarget = 6.5 * tuckMul * flatMul * setMul; // target flip angular vel
+      const spinTarget = 4.8 * tuckMul * flatMul * setMul; // target spin angular vel (was 6.5: too fast)
+      const rampUp = 20.0 * tuckMul * flatMul * setMul; // how fast rotation builds (rad/s²)
+      // Layout backflip: preparing for landing partway through a backflip lays out the rest of it
+      const noSpin = !(input.spinLeft || input.spinRight) && Math.abs(this.angularVelocity.y) < 1;
+      this.isLayingOut = prepping && !this._landReady && noSpin && (committed
+        ? this._prep.x > this.trickRotation.x + 0.05 && Math.abs(this._prep.y - this.trickRotation.y) < 0.05
+        : input.flipBackward || this.angularVelocity.x > 2.5);
+      if ((input.flipBackward && !committed) || this.isLayingOut) this._backflipTime += dt;
+      if (this.isLayingOut) this._layoutTime += dt;
       const stopSpeed = 18.0;     // how fast rotation stops on release (rad/s²)
 
       const flipping = input.flipForward || input.flipBackward;
@@ -1677,6 +2174,7 @@ export class Player {
       // --- CORK DETECTION ---
       // Cork = flip + spin pressed simultaneously. Off-axis diagonal rotation.
       const isCork = flipping && spinning;
+      this._corking = isCork;
       this.isCorkingThisJump = this.isCorkingThisJump || isCork;
       if (isCork && this.corkFlipDirection === 0) {
         // W = frontflip (-1), S = backflip (+1)
@@ -1697,7 +2195,18 @@ export class Player {
         }
       };
 
-      if (isCork) {
+      if (committed) {
+        // Carry the rotation through to the locked stop, keeping momentum, then hold it there
+        let done = true;
+        for (const a of ['x', 'y', 'z']) {
+          const err = this._prep[a] - this.trickRotation[a];
+          if (Math.abs(err) < 0.02) { this.trickRotation[a] = this._prep[a]; this.angularVelocity[a] = 0; continue; }
+          done = false;
+          const speed = Math.max(Math.abs(this.angularVelocity[a]) * (Math.sign(this.angularVelocity[a]) === Math.sign(err) ? 1 : 0), 4);
+          this.angularVelocity[a] = Math.sign(err) * Math.min(speed, Math.abs(err) / dt);
+        }
+        if (done) this._landReady = true;
+      } else if (isCork) {
         // Cork: flip + spin simultaneously → off-axis diagonal rotation
         const corkFlipTarget = (input.flipForward ? -1 : 1) * flipTarget * 0.7;
         const corkSpinTarget = (input.spinLeft ? 1 : -1) * spinTarget * 0.85;
@@ -1727,7 +2236,7 @@ export class Player {
           }
         }
 
-        // --- SPIN (Q/E) — ramp up while held, auto-snap on release ---
+        // --- SPIN (A/D) — ramp up while held, auto-snap on release ---
         if (spinning) {
           const spinDir = input.spinLeft ? 1 : -1;
           this.angularVelocity.y = rampOrBrake(
@@ -1757,11 +2266,7 @@ export class Player {
         }
       }
 
-      // Air steer — meaningful directional control while airborne
-      if (input.steer !== 0) {
-        this.velocity.x += input.steer * 8.0 * dt;
-        this.heading -= input.steer * 2.0 * dt;
-      }
+      // (No air steering: A/D spin you in the air)
 
       // Apply angular velocity to trick rotation
       this.trickRotation.x += this.angularVelocity.x * dt;
@@ -1776,12 +2281,34 @@ export class Player {
       // Decay turn rate while airborne so you land neutral
       this.turnRate *= 0.95;
 
-      this.isGrabbing = input.grab;
+      this.isGrabbing = input.grab && !committed;
       this.grabType = input.grabType;
 
       // --- AIRBORNE RIDER ANIMATIONS ---
       // Maintain sideways stance in air
       this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
+
+      // A straight backflip: the rider turns board and body 65° toward where they're going, flips
+      // straight over their back (not a sideways wildcat), then turns back to land. Visual only:
+      // the flip axis stays across the direction of travel because x is the outer Euler rotation.
+      // (Skiers already face the way they're going, so their backflips are straight back with no turn.)
+      this._backflipping = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
+        (input.flipBackward || this.angularVelocity.x > 2.5);
+      this._straightBack = this._backflipping && this.equipmentType !== 'ski';
+      // Preparing to land: start turning back over the last ~100° like a released flip does
+      if (committed && this._prep.x - this.trickRotation.x < 1.75) this._straightBack = false;
+      if (this._straightBack) this._didStraightBack = true;
+      // Turning back is tied to the flip finishing: it unwinds over the last ~100° of rotation,
+      // eased, so the board comes back around in one flowing move instead of whipping after.
+      let openTarget = this._straightBack ? 1 : 0;
+      if (!this._straightBack && this._didStraightBack) {
+        const toClean = Math.abs(Math.round(this.trickRotation.x / (Math.PI * 2)) * Math.PI * 2 - this.trickRotation.x);
+        const k = THREE.MathUtils.clamp(toClean / 1.75, 0, 1);
+        openTarget = k * k * (3 - 2 * k); // smoothstep
+      }
+      this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, openTarget, 0.08);
+      const openDir = Math.sign(this.STANCE_YAW) || 1;
+      this.boardGroup.rotation.y = this.trickRotation.y + openDir * THREE.MathUtils.degToRad(65) * this._backOpen;
     }
 
     // ===== OBSTACLE COLLISIONS (capsule vs cylinder/sphere) =====
@@ -1857,47 +2384,108 @@ export class Player {
     if (this.grabWindup > 0) this.grabWindup -= dt;
     this.wasGrabbing = this.isGrabbing;
 
-    // Grab & tuck & default air animations
-    if (this.isGrabbing && !this.grounded && this.grabWindup > 0) {
-      // Wind-up phase — reaching toward grab, half-speed
-      this.applyGrabPose(this.grabType, true);
-    } else if (this.isGrabbing && !this.grounded) {
-      this.applyGrabPose(this.grabType, false);
-    } else if (this.isTucking && !this.grounded && !this.grinding) {
-      // Air tuck — crouched tight for faster rotation
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, -0.2, 0.15);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.4, 0.15);
-      // Arms fold in tight (but clear of body)
-      this.lerpJoint(this.shoulderL, 'z', -0.6, 0.15);
-      this.lerpJoint(this.shoulderL, 'x', 0.4, 0.15);
-      this.lerpJoint(this.elbowL, 'x', -1.1, 0.15);
-      this.lerpJoint(this.shoulderR, 'z', 0.6, 0.15);
-      this.lerpJoint(this.shoulderR, 'x', 0.4, 0.15);
-      this.lerpJoint(this.elbowR, 'x', -1.1, 0.15);
-      // Legs tuck up
-      this.lerpJoint(this.hipL, 'x', -0.8, 0.15);
-      this.lerpJoint(this.kneeL, 'x', 1.4, 0.15);
-      this.lerpJoint(this.hipR, 'x', -0.8, 0.15);
-      this.lerpJoint(this.kneeR, 'x', 1.4, 0.15);
-    } else if (!this.grounded && !this.grinding) {
-      // Default air pose: arms spread WIDE for balance/style
-      this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, 0, 0.1);
-      this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, 0.1, 0.1);
-      this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, 0, 0.1);
-      // Arms spread wide out to sides — one slightly higher for style
-      this.lerpJoint(this.shoulderL, 'z', -1.05, 0.12);
-      this.lerpJoint(this.shoulderL, 'x', 0.1, 0.12);
-      this.lerpJoint(this.elbowL, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowL, 'z', 0, 0.12);
-      this.lerpJoint(this.shoulderR, 'z', 0.95, 0.12);
-      this.lerpJoint(this.shoulderR, 'x', -0.1, 0.12);
-      this.lerpJoint(this.elbowR, 'x', -0.2, 0.12);
-      this.lerpJoint(this.elbowR, 'z', 0, 0.12);
-      // Legs slightly tucked
-      this.lerpJoint(this.hipL, 'x', -0.4, 0.1);
-      this.lerpJoint(this.kneeL, 'x', 0.7, 0.1);
-      this.lerpJoint(this.hipR, 'x', -0.4, 0.1);
-      this.lerpJoint(this.kneeR, 'x', 0.7, 0.1);
+    // Grab, layout, tuck and default air animations
+    if (!this.grounded && !this.grinding) {
+      const rg = this.riderGroup;
+      const L = THREE.MathUtils.lerp;
+      // Spins: the upper body leads the rotation and the arms come in
+      const spinRate = this.angularVelocity.y;
+      // Huck off the takeoff: shoulders and arms throw hard into the set rotation, then settle
+      this._huckT = Math.max(0, this._huckT - dt);
+      const huck = this._huckT / 0.3;
+      const spinTwist = THREE.MathUtils.clamp(spinRate * 0.1 + this._huck.spin * 0.6 * huck, -0.9, 0.9);
+      const flipThrow = -this._huck.flip * 0.5 * huck; // backflip: head and chest thrown back
+      const spinIn = Math.min(1, Math.abs(spinRate) / 4);
+      const flipping = Math.abs(this.angularVelocity.x) + Math.abs(this.angularVelocity.z) > 2.5;
+      this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + spinTwist * 0.8, 0.1);
+      this.lerpJoint(this.headGroup, 'z', 0, 0.1);
+
+      if (this._landReady) {
+        // Prepared for landing: board flat under the hips, knees loaded to absorb, chest over the
+        // board, arms out front for balance and eyes spotting the landing
+        rg.position.y = L(rg.position.y, -0.07, 0.15);
+        rg.rotation.x = L(rg.rotation.x, 0.06, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(0.15, 0, 0);
+        this._reach('L', 'rider', -0.55, 1.0, 0.22, 0.2);
+        this._reach('R', 'rider', 0.55, 1.0, 0.22, 0.2);
+        this.lerpJoint(this.headGroup, 'x', 0.35, 0.12);
+      } else if (this.isGrabbing) {
+        // Wind-up: reaching toward the grab before it connects
+        this.applyGrabPose(this.grabType, this.grabWindup > 0, spinTwist);
+        this.lerpJoint(this.headGroup, 'x', 0.25, 0.1);
+      } else if (this.isLayingOut) {
+        // Layout: legs long, hips driven forward, back arched hard, shoulders and arms thrown back, head back
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.2 * this._backOpen; // square the shoulders up
+        rg.position.y = L(rg.position.y, 0.02, 0.15);
+        rg.rotation.x = L(rg.rotation.x, -0.15, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(-0.6 + flipThrow * 0.5, openTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.35, 0.15);
+        this.lerpJoint(this.shoulderL, 'x', -0.75, 0.15);
+        this.lerpJoint(this.elbowL, 'x', -0.1, 0.15);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.15);
+        this.lerpJoint(this.shoulderR, 'z', 1.35, 0.15);
+        this.lerpJoint(this.shoulderR, 'x', -0.75, 0.15);
+        this.lerpJoint(this.elbowR, 'x', -0.1, 0.15);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.15);
+        this.lerpJoint(this.headGroup, 'x', -0.5, 0.12);
+      } else if (this._backflipping && !this.isTucking) {
+        // Backflip: chest open to the sky, shoulders back, knees soft (layout it by holding jump)
+        const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.2 * this._backOpen; // square the shoulders up
+        rg.position.y = L(rg.position.y, -0.16, 0.15);
+        rg.rotation.x = L(rg.rotation.x, -0.05, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(-0.3 + flipThrow, openTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.1, 0.15);
+        this.lerpJoint(this.shoulderL, 'x', -0.55, 0.15);
+        this.lerpJoint(this.elbowL, 'x', -0.4, 0.15);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.15);
+        this.lerpJoint(this.shoulderR, 'z', 1.1, 0.15);
+        this.lerpJoint(this.shoulderR, 'x', -0.55, 0.15);
+        this.lerpJoint(this.elbowR, 'x', -0.4, 0.15);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.15);
+        this.lerpJoint(this.headGroup, 'x', -0.4, 0.12);
+      } else if (this._corking) {
+        // Cork: compact and off-axis. The lead shoulder drops into the spin and the head turns to spot
+        // over it, knees pulled up, lead arm wrapped low across the shins, back hand hugging its knee.
+        const dir = this.corkSpinDirection || Math.sign(spinRate) || 1; // +1 turns toward the rider's right
+        const lead = dir > 0 ? 'R' : 'L', back = dir > 0 ? 'L' : 'R';
+        const side = dir > 0 ? 1 : -1;
+        rg.position.y = L(rg.position.y, -0.32, 0.18);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.z = L(rg.rotation.z, -dir * 0.12, 0.12);
+        this._setSpine(0.4, THREE.MathUtils.clamp(spinTwist + dir * 0.3, -1, 1), -dir * 0.35);
+        this._reach(lead, 'rider', -side * 0.05, 0.5, 0.42, 0.25);
+        this._reach(back, 'rider', -side * 0.17, 0.66, 0.36, 0.25);
+        this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + dir * 0.9, 0.12);
+        this.lerpJoint(this.headGroup, 'x', 0.15, 0.12);
+        this.lerpJoint(this.headGroup, 'z', -dir * 0.25, 0.12);
+      } else if (this.isTucking || flipping) {
+        // Tuck: knees pulled up to the chest, hands holding the shins, compact so it rotates fast
+        rg.position.y = L(rg.position.y, -0.34, 0.18);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(0.6 + flipThrow, spinTwist, 0);
+        this._reach('L', 'rider', -0.15, 0.58, 0.36, 0.25);
+        this._reach('R', 'rider', 0.15, 0.58, 0.36, 0.25);
+        this.lerpJoint(this.headGroup, 'x', 0.2, 0.12);
+      } else {
+        // Default air: knees soft, arms out for balance (pulled in while spinning)
+        rg.position.y = L(rg.position.y, -0.12 - spinIn * 0.06, 0.12);
+        rg.rotation.x = L(rg.rotation.x, 0, 0.1);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.1);
+        this._setSpine(0.2 + spinIn * 0.1 + flipThrow, spinTwist, 0);
+        this.lerpJoint(this.shoulderL, 'z', -1.05 + spinIn * 0.5, 0.12);
+        this.lerpJoint(this.shoulderL, 'x', 0.1 + spinIn * 0.3, 0.12);
+        this.lerpJoint(this.elbowL, 'x', -0.25 - spinIn * 0.8, 0.12);
+        this.lerpJoint(this.elbowL, 'z', 0, 0.12);
+        this.lerpJoint(this.shoulderR, 'z', 0.95 - spinIn * 0.45, 0.12);
+        this.lerpJoint(this.shoulderR, 'x', -0.1 + spinIn * 0.4, 0.12);
+        this.lerpJoint(this.elbowR, 'x', -0.25 - spinIn * 0.8, 0.12);
+        this.lerpJoint(this.elbowR, 'z', 0, 0.12);
+        this.lerpJoint(this.headGroup, 'x', 0, 0.1);
+      }
     }
 
     // Ponytail physics
@@ -1924,32 +2512,236 @@ export class Player {
 
     this.group.rotation.y = this.visualYaw;
 
+    this._updateRig();
+
     // Snap GLB feet onto bindings every frame
     this._snapFeetToBindings();
 
     return this.getState(terrain);
   }
 
+  // ===== UNSTRAPPED: PUSHING / WALKING OUT OF A STUCK SPOT =====
+  _startWalk(terrain) {
+    this.stuckTime = 0;
+    this.walking = { phase: 0, dist: 0, strap: 0, clear: false, exitX: 0, backZ: 0, backSide: 'R', toe: 1 };
+    // Head for the nearer side of whatever we're stuck on
+    // (somewhere with room to strap in, not a gap between two jumps)
+    for (let d = 1; d <= 40 && terrain; d++) {
+      const x = this.position.x, z = this.position.z;
+      if (!this._nearFeature(terrain, x + d, z, 3)) { this.walking.exitX = 1; break; }
+      if (!this._nearFeature(terrain, x - d, z, 3)) { this.walking.exitX = -1; break; }
+    }
+    this.velocity.set(0, 0, 0);
+    this.onKicker = null;
+    this.ollieCharge = 0;
+    this.kickerPopBoost = 0;
+    this._walkFeet = {};
+    if (this.equipmentType !== 'ski') {
+      // Work out, in the bindings' frame, which binding trails the direction of travel and which
+      // side of the board the toes face: the back foot comes out and pushes on the toe side
+      const base = this.boardMesh || this.boardGroup;
+      this.group.updateMatrixWorld(true);
+      const travel = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
+      const inv = new THREE.Matrix4().copy(base.matrixWorld).invert();
+      const tl = travel.transformDirection(inv);
+      const fwd = new THREE.Vector3(0, 0, 1).transformDirection(this.riderGroup.matrixWorld).transformDirection(inv);
+      const backZ = tl.z > 0 ? -0.22 : 0.22;
+      const frontSign = this._frontSign();
+      this.walking.backZ = backZ;
+      this.walking.backSide = backZ === frontSign * 0.22 ? 'L' : 'R'; // hipL sits on +front*0.22
+      this.walking.toe = Math.sign(fwd.x) || 1;
+    }
+    if (this.equipmentType === 'ski' && this.skiMeshes) {
+      // Step out of both skis and shoulder them: they ride on the right shoulder, tips forward
+      for (const [i, ski] of this.skiMeshes.entries()) {
+        ski.userData.rest = { p: ski.position.clone(), r: ski.rotation.clone() };
+        this.spineGroup.add(ski);
+        ski.position.set(0.2 + i * 0.07, 0.6, -0.1);
+        ski.rotation.set(-0.35, 0, 0);
+      }
+    }
+  }
+
+  _strapIn() {
+    if (this.skiMeshes) {
+      for (const ski of this.skiMeshes) {
+        if (!ski.userData.rest) continue;
+        this.boardGroup.add(ski);
+        ski.position.copy(ski.userData.rest.p);
+        ski.rotation.copy(ski.userData.rest.r);
+        ski.userData.rest = null;
+      }
+    }
+    this.walking = null;
+    this._walkFeet = null;
+  }
+
+  _featureAt(terrain, x, z) {
+    return this.getSurfaceHeight(terrain, x, z, true) - terrain.getHeightAt(x, z) > 0.05;
+  }
+
+  // Is there a jump, kicker or landing anywhere within r of (x, z)?
+  _nearFeature(terrain, x, z, r) {
+    if (this._featureAt(terrain, x, z)) return true;
+    for (let a = 0; a < 8; a++) {
+      for (const d of [r * 0.5, r]) {
+        if (this._featureAt(terrain, x + Math.cos(a * Math.PI / 4) * d, z + Math.sin(a * Math.PI / 4) * d)) return true;
+      }
+    }
+    return false;
+  }
+
+  _updateWalk(dt, input, terrain) {
+    const w = this.walking;
+    const ski = this.equipmentType === 'ski';
+    this.railTiming = null;
+    const L = THREE.MathUtils.lerp;
+    const rg = this.riderGroup;
+    let speed = 0;
+
+    if (w.strap > 0) {
+      // Strapping back in: crouch down to the bindings, then ride away
+      w.strap += dt;
+      const k = Math.min(1, w.strap / 0.9);
+      if (ski && k > 0.45 && this.skiMeshes && this.skiMeshes[0].userData.rest) {
+        // Skis go back down on the snow and the boots click in
+        for (const s of this.skiMeshes) {
+          if (!s.userData.rest) continue;
+          this.boardGroup.add(s); s.position.copy(s.userData.rest.p); s.rotation.copy(s.userData.rest.r); s.userData.rest = null;
+        }
+        this._walkFeet = {};
+      }
+      if (!ski && k > 0.6) this._walkFeet = {}; // back foot into the binding
+      rg.position.y = L(rg.position.y, -0.3 * Math.sin(k * Math.PI), 0.2);
+      this._setSpine(0.6 * Math.sin(k * Math.PI), 0, 0);
+      this._reach('R', 'rider', 0.05, 0.45, 0.3, 0.2); // hand down to the strap
+      if (k >= 1) {
+        this._strapIn();
+        const v = 4 * this.groundSpeedScale;
+        this.velocity.set(Math.sin(this.heading) * v, 0, Math.cos(this.heading) * v);
+      }
+    } else {
+      // Steer with A/D. With no input the rider heads out the side of the feature, then turns
+      // to face down the hill once clear of it.
+      w.clear = !this._nearFeature(terrain, this.position.x, this.position.z, 3);
+      const steer = input.steer || 0;
+      if (steer) this.heading -= steer * 2.2 * dt;
+      else {
+        const want = w.clear || !w.exitX ? Math.PI : w.exitX * Math.PI / 2;
+        let diff = want - this.heading;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        this.heading += THREE.MathUtils.clamp(diff, -1.2 * dt, 1.2 * dt);
+      }
+      // Ski walk / snowboard skate. W walks or pushes harder.
+      const base = (ski ? 1.8 : 2.6) * (input.flipForward ? 1.5 : 1);
+      const cadence = ski ? 1.6 : 1.1; // steps (or pushes) per second
+      w.phase = (w.phase + dt * cadence) % 1;
+      if (ski) speed = base;
+      else speed = base * (w.phase < 0.55 ? 1.25 : 0.7); // surge on each push
+
+      const bob = Math.sin(w.phase * Math.PI * 2 * (ski ? 2 : 1));
+      const front = this._frontSign();
+      if (ski) {
+        // Walking: legs stride under the body (board frame: travel is -z)
+        const c = Math.cos(this.STANCE_YAW);
+        for (const [side, off] of [[-1, 0], [1, 0.5]]) {
+          const ph = (w.phase + off) % 1;
+          const swing = ph > 0.5;
+          const t = swing ? (ph - 0.5) * 2 : ph * 2; // 0..1 through stance or swing
+          const z = swing ? L(0.22, -0.22, t) : L(-0.22, 0.22, t);
+          const y = this.ANKLE_Y - 0.06 + (swing ? Math.sin(t * Math.PI) * 0.1 : 0);
+          (this._walkFeet[side < 0 ? 'L' : 'R'] ||= new THREE.Vector3()).set(side * 0.11 * c, y, z);
+        }
+        rg.position.y = L(rg.position.y, 0.06 + bob * 0.015, 0.2);
+        this._setSpine(0.08, 0, 0);
+        // Right hand steadies the skis on the shoulder, left arm swings
+        this._reach('R', 'rider', 0.24, 1.38, 0.12, 0.2);
+        this.lerpJoint(this.shoulderL, 'x', Math.sin(w.phase * Math.PI * 2) * 0.4, 0.2);
+        this.lerpJoint(this.shoulderL, 'z', -0.2, 0.2);
+        this.lerpJoint(this.elbowL, 'x', -0.35, 0.2);
+      } else {
+        // Skating: front foot stays strapped, back foot plants beside the board and pushes back
+        const backZ = w.backZ, ahead = -Math.sign(backZ); // toward the front binding
+        const ph = w.phase;
+        const plant = ph < 0.55;
+        const t = plant ? ph / 0.55 : (ph - 0.55) / 0.45;
+        const zA = backZ + ahead * 0.3, zB = backZ - ahead * 0.25; // plant up by the front foot, push to behind the tail binding
+        const z = plant ? L(zA, zB, t) : L(zB, zA, t);
+        const y = this.ANKLE_Y - 0.05 + (plant ? 0 : Math.sin(t * Math.PI) * 0.12);
+        const foot = this._walkFeet[w.backSide] ||= new THREE.Vector3();
+        foot.set(w.toe * 0.24, y, z);
+        rg.position.y = L(rg.position.y, -0.1 + bob * 0.03, 0.2);
+        rg.rotation.x = L(rg.rotation.x, 0.05, 0.1);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.1);
+        this._setSpine(0.25, front * 0.35, 0); // shoulders open toward the nose
+        this.resetJointsToRiding(0.1);
+      }
+      this.lerpJoint(this.headGroup, 'x', 0.1, 0.1);
+
+      // Far enough from the jump? Strap back in.
+      w.dist += speed * dt;
+      const facingDown = Math.cos(this.heading) < -0.96;
+      if (w.dist > 2 && facingDown && w.clear) w.strap = dt;
+    }
+
+    // Move along the heading, following the snow (and any feature we're walking over)
+    this.velocity.set(Math.sin(this.heading) * speed, 0, Math.cos(this.heading) * speed);
+    this.position.x += this.velocity.x * dt;
+    this.position.z += this.velocity.z * dt;
+    const xBound = terrain.chunkWidth ? (terrain.chunkWidth / 2 - 10) : 50;
+    this.position.x = THREE.MathUtils.clamp(this.position.x, -xBound, xBound);
+    this.position.y = this.getSurfaceHeight(terrain, this.position.x, this.position.z, true) + 0.08;
+    this.grounded = true;
+    this.onKicker = null;
+    this.turnRate = 0;
+    this.edgeLeanSmooth = L(this.edgeLeanSmooth || 0, 0, 0.2);
+
+    this.boardGroup.rotation.set(L(this.boardGroup.rotation.x, 0, 0.2), 0, L(this.boardGroup.rotation.z, 0, 0.2));
+    this.group.position.copy(this.position);
+    let yawDiff = this.heading + Math.PI - this.visualYaw;
+    yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff));
+    this.visualYaw += yawDiff * 0.25;
+    this.group.rotation.y = this.visualYaw;
+    this._updateRig();
+    return this.getState(terrain);
+  }
+
   // ===== KICKER SURFACE RIDE =====
   // Instead of instant launch, the player RIDES UP the kicker surface.
   // The ramp raises them gradually. When they exit the lip, gravity takes over.
-  getSurfaceHeight(terrain) {
-    const baseH = terrain.getHeightAt(this.position.x, this.position.z);
+  getSurfaceHeight(terrain, px = this.position.x, pz = this.position.z, probe = false) {
+    const pos = { x: px, z: pz }; // probe = just look (no kicker state changes)
+    const baseH = terrain.getHeightAt(pos.x, pos.z);
     let boost = 0;
 
     for (const ramp of terrain.ramps) {
       if (ramp.type !== 'kicker') continue;
+      if (ramp.jump) {
+        const j = ramp.jump;
+        const d = j.zStart - pos.z;
+        if (d < 0 || d > j.total) continue;
+        const onKickerPart = d <= j.transLen;
+        if (onKickerPart && this.kickerCooldown > 0) continue; // just launched
+        const y = terrain.jumpSurfaceAt(ramp, pos.x, pos.z);
+        if (y === null) continue;
+        boost = Math.max(boost, y - baseH);
+        if (!probe && onKickerPart && this.grounded && d > j.transLen * 0.1) {
+          this.onKicker = ramp;
+          this.kickerProgress = d / j.transLen;
+        }
+        continue;
+      }
       // Asymmetric cull: 50 uphill is plenty; downhill must reach landing zone end
-      if (this.position.z > ramp.position.z + 50) continue;
+      if (pos.z > ramp.position.z + 50) continue;
       const downhillLimit = ramp.landingZoneEndZ !== undefined
         ? ramp.landingZoneEndZ - 5
         : ramp.position.z - 50;
-      if (this.position.z < downhillLimit) continue;
+      if (pos.z < downhillLimit) continue;
 
       // Check kicker ramp surface (skip during cooldown to prevent re-launch)
-      if (this.kickerCooldown <= 0) {
-        const dx = this.position.x - ramp.position.x;
-        const dz = this.position.z - ramp.position.z;
+      if (probe || this.kickerCooldown <= 0) {
+        const dx = pos.x - ramp.position.x;
+        const dz = pos.z - ramp.position.z;
 
         const halfW = ramp.width / 2;
         const halfL = ramp.length / 2;
@@ -1959,7 +2751,7 @@ export class Player {
           const rampH = ramp.lipHeight * Math.pow(clampedT, 0.65);
           boost = Math.max(boost, rampH);
 
-          if (this.grounded && clampedT > 0.1) {
+          if (!probe && this.grounded && clampedT > 0.1) {
             this.onKicker = ramp;
             this.kickerProgress = clampedT;
           }
@@ -1968,8 +2760,8 @@ export class Player {
 
       // Check landing zone surface (always active, even during cooldown)
       if (ramp.landingZoneStartZ !== undefined) {
-        const dx = this.position.x - ramp.position.x;
-        const z = this.position.z;
+        const dx = pos.x - ramp.position.x;
+        const z = pos.z;
 
         if (Math.abs(dx) < ramp.landingWidth / 2 &&
             z < ramp.landingZoneStartZ && z > ramp.landingZoneEndZ) {
@@ -2002,45 +2794,211 @@ export class Player {
     }
 
     const ramp = this.onKicker;
+    if (ramp.jump) {
+      if (ramp.jump.zStart - this.position.z >= ramp.jump.transLen - 0.05) {
+        this._launchOffJump(ramp.jump, terrain);
+        this.kickerCooldown = 1.0;
+      }
+      return;
+    }
     const dz = this.position.z - ramp.position.z;
     const halfL = ramp.length / 2;
     const t = 1.0 - (dz + halfL) / ramp.length;
 
     // Player has passed the lip — launch!
-    if (t >= 0.95) {
-      const rawSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-      // Cap effective launch speed — allow fast approach to matter
-      const speed = Math.min(rawSpeed, 32);
-
-      // Launch angle based on jump size (bigger = steeper lip)
-      const lipAngle = ramp.lipAngle || 0.55;
-
-      // Redirect velocity through the lip angle
-      const launchSpeed = speed * 0.92;
-      this.velocity.y = Math.sin(lipAngle) * launchSpeed;
-      const horizFactor = Math.cos(lipAngle);
-      // Dampen horizontal speed — smaller jumps (lower lipAngle) get more reduction
-      // so the rider lands on the landing zone instead of overshooting
-      const horizDamp = 0.3 + lipAngle * 0.8; // small(0.45)→0.66, big(0.65)→0.82
-      const hScale = horizFactor * horizDamp * Math.min(1, 32 / Math.max(rawSpeed, 1));
-      this.velocity.x *= hScale;
-      this.velocity.z *= hScale;
-
-      // Pop bonus from speed
-      this.velocity.y += Math.min(speed * 0.05, 3);
-
-      // Apply ollie pop boost if player pressed space on the kicker
-      if (this.kickerPopBoost > 0) {
-        this.velocity.y += this.kickerPopBoost;
-        this.kickerPopBoost = 0;
-      }
-
-      this.grounded = false;
-      this.onKicker = null;
-      this.peakHeight = 0;
-      this.launchedFromKicker = true;
+    if (t >= 0.95 && ramp.railLip) {
+      this._popOntoRail(ramp, terrain);
+      this.kickerCooldown = 1.0;
+    } else if (t >= 0.95) {
+      this._launchOffLip(ramp.lipAngle || 0.55);
       this.kickerCooldown = 1.5; // ignore kicker surfaces for 1.5s after launch
     }
+  }
+
+  // Launch off a lip (kicker, kinked rail end, up rail end) at the given angle
+  // Leave the lip moving along it: speed is kept and pointed up the lip angle.
+  // Popping (jump on the kicker) uses the full lip angle plus your ollie; without it you
+  // soak up the lip and only get about half the angle, so you land on the deck.
+  _launchOffJump(j, terrain) {
+    this.boostAirSpeed();
+    const s = Math.hypot(this.velocity.x, this.velocity.z) || 1;
+    const dirX = this.velocity.x / s, dirZ = this.velocity.z / s;
+    const charge = this._takePopCharge();
+    const popped = charge > 0;
+    // The lip always throws you up at its angle; the pop adds your ollie on top
+    const angle = j.lipAngle - Math.atan(terrain.slopeAngle);
+    this.velocity.x = dirX * s * Math.cos(angle);
+    this.velocity.z = dirZ * s * Math.cos(angle);
+    this.velocity.y = s * Math.sin(angle) + this.ollieForce * JUMP_POP_MUL * charge;
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+    this.lastJumpPopped = popped;
+  }
+
+  // Was the backflip on this jump laid out (jump held for most of it)?
+  _latchLayout() {
+    this.lastJumpLayout = this._backflipTime > 0.2 && this._layoutTime > this._backflipTime * 0.5;
+    this._backflipTime = 0;
+    this._layoutTime = 0;
+    this.isLayingOut = false;
+  }
+
+  // Rail lip ahead: show the pop meter filling so it hits the middle of the gold at the lip
+  _updateRailOnTiming(terrain) {
+    this.railTiming = null;
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (hSpeed < 1 || this.velocity.z >= 0) { this._railOnLocked = false; return; }
+    for (const ramp of terrain.ramps) {
+      if (!ramp.railLip) continue;
+      if (Math.abs(this.position.x - ramp.position.x) > ramp.width / 2) continue;
+      const lipEnd = ramp.position.z - ramp.length / 2;
+      const timeToLip = (this.position.z - lipEnd) / hSpeed;
+      if (timeToLip < 0 || timeToLip > this.railTimingWindow) continue;
+      this.railTiming = { kind: 'on', meter: this._timingMeter(timeToLip) };
+      return;
+    }
+    this._railOnLocked = false; // left the approach without reaching a lip
+  }
+
+  // Near the end of a rail: meter fills so it hits the middle of the gold at the end
+  _updateRailOffTiming() {
+    this.railTiming = null;
+    const rail = this.grindRail;
+    if (!rail) return;
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (hSpeed < 1) return;
+    const railEnd = rail.position.z - rail.length / 2;
+    const timeToEnd = (this.position.z - railEnd) / hSpeed;
+    if (timeToEnd < 0 || timeToEnd > this.railTimingWindow) return;
+    this.railTiming = { kind: 'off', meter: this._timingMeter(timeToEnd) };
+  }
+
+  _timingMeter(timeLeft) {
+    const [lo, hi] = this.popSweetSpot;
+    const center = (lo + hi) / 2;
+    return Math.min(1, center * (1 - timeLeft / this.railTimingWindow));
+  }
+
+  // Pop strength from the pop meter: builds up to the sweet spot (perfect = 1), weaker if overloaded
+  _popStrength(meter) {
+    const [lo, hi] = this.popSweetSpot;
+    this.lastPopTime = performance.now();
+    this.lastPopPerfect = meter >= lo && meter <= hi;
+    if (meter < 0.15) return 0;
+    if (meter < lo) return 0.25 + 0.45 * (meter / lo); // early: up to 0.7
+    if (meter <= hi) return 1;                         // perfect pop: clearly the most height
+    return 0.65;                                       // held too long
+  }
+
+  // A jump kicker just ahead on the run-in (or under you): pops are saved for its lip
+  _jumpAhead(terrain) {
+    for (const ramp of terrain.ramps) {
+      const j = ramp.jump;
+      if (!j) continue;
+      const before = this.position.z - j.zStart;
+      if (before < -j.transLen || before > 40) continue;
+      if (Math.abs(this.position.x - j.x) > j.width / 2 + 1) continue;
+      return ramp;
+    }
+    return null;
+  }
+
+  // Pop strength at a lip: an ollie released on the kicker, or one still being held (0 = no pop)
+  _takePopCharge() {
+    let strength = this.kickerPopBoost;
+    if (this.ollieCharge >= 0.15) strength = this._popStrength(this.ollieCharge);
+    this.kickerPopBoost = 0;
+    this.ollieCharge = 0;
+    return strength;
+  }
+
+  // Speed check on the in-run: riders gently scrub any extra speed before the kicker
+  _inrunSpeedCheck(terrain, dt) {
+    for (const ramp of terrain.ramps) {
+      const j = ramp.jump;
+      if (!j) continue;
+      const before = this.position.z - j.zStart; // distance uphill of the transition
+      if (before < -j.transLen || before > 70) continue;
+      if (Math.abs(this.position.x - j.x) > j.width / 2 + 2) continue;
+      const target = j.designSpeed * this.groundSpeedScale;
+      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      if (hSpeed <= target) return;
+      const newSpeed = Math.max(target, hSpeed - 5 * dt);
+      this.velocity.x *= newSpeed / hSpeed;
+      this.velocity.z *= newSpeed / hSpeed;
+      return;
+    }
+  }
+
+  // Gap-on lip in front of a rail: a small pop that just clears onto the rail at any speed
+  _popOntoRail(ramp, terrain) {
+    // No air-speed boost here: you start the rail at your riding speed and down rails speed you up gradually
+    // Follow the slope (otherwise the hill drops away under you at speed), then pop just enough to clear the rail
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z) || 1;
+    const dirX = this.velocity.x / hSpeed, dirZ = this.velocity.z / hSpeed;
+    const slopeDrop = terrain.getHeightAt(this.position.x + dirX, this.position.z + dirZ)
+      - terrain.getHeightAt(this.position.x, this.position.z);
+    // You have to ollie to get onto the rail; without one you just roll off the lip
+    const charge = this._takePopCharge();
+    const rise = charge > 0 ? Math.max(0.3, (ramp.railClear || 0.5) + 0.3 + 0.4 * charge) : 0.1;
+    this._rolledRailLip = charge === 0; // no ollie: can't lock onto the rail
+    this.velocity.y = slopeDrop * hSpeed + Math.sqrt(2 * -this.gravity * rise);
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+  }
+
+  // Leaving a rail you only fly a manageable distance, however fast you were grinding:
+  // horizontal speed and pop are capped so the landing never comes in hard enough to slam you
+  _capRailExit() {
+    const h = Math.hypot(this.velocity.x, this.velocity.z);
+    if (h > this.railExitMaxSpeed) {
+      this.velocity.x *= this.railExitMaxSpeed / h;
+      this.velocity.z *= this.railExitMaxSpeed / h;
+    }
+    this.velocity.y = Math.min(this.velocity.y, this.railExitMaxPop);
+  }
+
+  // keepSpeed: rail kicks keep their horizontal speed instead of the kicker's landing-zone damping
+  _launchOffLip(lipAngle, keepSpeed = false) {
+    // Launch as if riding at the original (faster) ground speed so air is unchanged
+    this.boostAirSpeed();
+    const rawSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+    // Cap effective launch speed — allow fast approach to matter
+    const speed = Math.min(rawSpeed, 32);
+
+    // Redirect velocity through the lip angle
+    const launchSpeed = speed * 0.92;
+    this.velocity.y = Math.sin(lipAngle) * launchSpeed;
+    const horizFactor = Math.cos(lipAngle);
+    // Dampen horizontal speed — smaller jumps (lower lipAngle) get more reduction
+    // so the rider lands on the landing zone instead of overshooting
+    const horizDamp = 0.3 + lipAngle * 0.8; // small(0.45)→0.66, big(0.65)→0.82
+    const hScale = keepSpeed ? horizFactor
+      : horizFactor * horizDamp * Math.min(1, 32 / Math.max(rawSpeed, 1));
+    this.velocity.x *= hScale;
+    this.velocity.z *= hScale;
+
+    // Pop bonus from speed
+    this.velocity.y += Math.min(speed * 0.05, 3);
+
+    // Ollie pop if the player loaded one on the kicker
+    const charge = this._takePopCharge();
+    if (charge > 0) this.velocity.y += this.jumpForce * 0.6 * charge;
+
+    this.grounded = false;
+    this.onKicker = null;
+    this.peakHeight = 0;
+    this.launchedFromKicker = true;
+  }
+
+  // World-space rail top under the player (rollers, kinks and height profiles included)
+  _getRailTop(ramp, terrain) {
+    if (terrain.getRailTopAt) return terrain.getRailTopAt(ramp, this.position.x, this.position.z);
+    return terrain.computeHeight(this.position.x, this.position.z) + this._getRailHeightAtZ(ramp, this.position.z);
   }
 
   // Get rail surface height at a given Z, interpolating for variable-height rails
@@ -2069,8 +3027,7 @@ export class Player {
       const dx = this.position.x - ramp.position.x;
       const dz = this.position.z - ramp.position.z;
       // Use terrain height at player's Z for accurate rail top on tilted rails
-      const terrainH = terrain.computeHeight(this.position.x, this.position.z);
-      const railTop = terrainH + this._getRailHeightAtZ(ramp, this.position.z);
+      const railTop = this._getRailTop(ramp, terrain);
       const dy = this.position.y - railTop;
 
       const absDx = Math.abs(dx);
@@ -2091,6 +3048,7 @@ export class Player {
           const flipDev = Math.min(flipAbs, Math.PI * 2 - flipAbs);
           const rollDev = Math.min(rollAbs, Math.PI * 2 - rollAbs);
           if (flipDev > 0.349 || rollDev > 0.349) break; // too tilted — skip lock-on
+          if (this._rolledRailLip) break; // rolled the gap-on lip without an ollie
           this.position.y = railTop + 0.2;
           this.velocity.y = 0;
           this.grinding = true;
@@ -2141,136 +3099,107 @@ export class Player {
     }
 
     this.frontswapCount = 0;
+    this._swapTimer = 0;
+    this._railOnLocked = false;
+    this.railPerfectOn = this._pendingPerfectOn;
+    this._pendingPerfectOn = false;
+    this.railPerfectOff = false;
+    this.railTiming = null;
+
+    this._latchLayout();
 
     // Signal to TrickSystem that we landed on a rail from air
     this.landedOnRail = true;
 
-    // Reset trickRotation so Q/E spins during grind accumulate fresh
+    // Reset trickRotation for the grind
     this.trickRotation.set(0, 0, 0);
     this.angularVelocity.set(0, 0, 0);
   }
 
-  applyGrabPose(type, windUp = false) {
-    const L = windUp ? 0.08 : 0.18; // slower lerp during wind-up
-    let crouchY = -0.35;
-    let leanX = 0.3;
-    let leanZ = 0; // body counter-rotation (roll)
+  // Takeoff and rotation speed for this jump.
+  // A trick set during the pop (key held while loading, still held at takeoff) is hucked: the
+  // rotation starts at once and runs up to 30% faster. Starting a rotation later in the air,
+  // without a set, only gets 95% down to 70% the later it starts. Real life: the takeoff sets the spin.
+  _launchRotation(input) {
+    const spinKey = input.spinLeft ? 1 : input.spinRight ? -1 : 0;
+    const flipKey = input.flipForward ? -1 : input.flipBackward ? 1 : 0;
+    if (!this._launched) {
+      this._launched = true;
+      const set = this._set;
+      // Still holding the set direction at takeoff (or holding a key off a rail) counts as a set
+      const heldSpin = spinKey && (spinKey === set.spin || this._fromRail) ? spinKey : 0;
+      const heldFlip = flipKey && (flipKey === set.flip || this._fromRail) ? flipKey : 0;
+      const amt = Math.max(set.amt, this._fromRail ? 0.5 : 0);
+      if ((heldSpin || heldFlip) && amt > 0.15) {
+        this._rotMul = 1 + 0.3 * amt;
+        this._rotMulLocked = true;
+        this._huck.spin = heldSpin;
+        this._huck.flip = heldFlip;
+        this._huckT = 0.3;
+        // The huck: rotation is already going as you leave the lip
+        if (heldSpin) this.angularVelocity.y = heldSpin * 4.8 * this._rotMul * (0.5 + 0.4 * amt);
+        if (heldFlip) this.angularVelocity.x = heldFlip * 6.5 * this._rotMul * (0.5 + 0.4 * amt);
+      }
+      set.spin = 0; set.flip = 0; set.amt = 0;
+    }
+    if (!this._rotMulLocked && (spinKey || flipKey)) {
+      this._rotMulLocked = true;
+      this._rotMul = THREE.MathUtils.clamp(0.95 - 0.4 * this.airTime, 0.7, 0.95);
+    }
+    if (!this._rotMulLocked) this._rotMul = 1;
+  }
 
-    // Per-grab leg differentiation
-    let hipLX = -0.6, kneeLX = 1.2;
-    let hipRX = -0.6, kneeRX = 1.2;
+  // Grabs: the grabbing hand is IK'd onto the real spot on the board, the body folds down to reach it,
+  // and the free arm styles it out. All spots are in board space so they work in either stance.
+  applyGrabPose(type, windUp = false, twist = 0) {
+    const rate = windUp ? 0.1 : 0.25;
+    const toe = this._toeSign() * 0.16;   // board x of the toe edge
+    const heel = -toe;
+    const nose = this._frontSign();       // +1: the nose (board +z) is on the rider's left-hand side
+    const frontHand = nose > 0 ? 'L' : 'R';
+    const rearHand = nose > 0 ? 'R' : 'L';
+    const edgeY = 0.09;
 
+    // hand, board spot [x, z], crouch, body lean (x toes, z nose side), spine bend (x fwd, y twist, z side), free arm
+    let g;
     switch (type) {
+      case 'method':  // front hand, heel edge; board tweaked up behind, chest arched open
+        g = { hand: frontHand, x: heel, z: 0.02, drop: -0.4, lx: -0.6, lz: 0, sx: 0.7, sy: 0.35, sz: 0.1 * nose, free: [1.5, -0.3] };
+        break;
+      case 'stalefish':  // rear hand reaches behind the legs to the heel edge
+        g = { hand: rearHand, x: heel, z: -0.06, drop: -0.4, lx: -0.35, lz: 0, sx: 0.8, sy: -0.35, sz: -0.15 * nose, free: [1.3, -0.2] };
+        break;
+      case 'melon':  // front hand, heel edge between the feet
+        g = { hand: frontHand, x: heel, z: 0.06, drop: -0.38, lx: -0.35, lz: 0, sx: 0.7, sy: 0.35, sz: 0.15 * nose, free: [1.25, 0.2] };
+        break;
+      case 'nosegrab':  // front hand to the nose, body leaning over the front foot
+        g = { hand: frontHand, x: 0, z: 0.68, drop: -0.3, lx: 0, lz: 0.3 * nose, sx: 0.35, sy: 0, sz: 0.5 * nose, free: [1.3, -0.4] };
+        break;
+      case 'tailgrab':  // rear hand to the tail, body over the back foot
+        g = { hand: rearHand, x: 0, z: -0.68, drop: -0.3, lx: 0, lz: -0.3 * nose, sx: 0.35, sy: 0, sz: -0.5 * nose, free: [1.3, 0.4] };
+        break;
       case 'indy':
-        // Right hand grabs toe edge between feet — slight frontside lean
-        this.lerpJoint(this.shoulderR, 'z', 1.2, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.2, L);
-        this.lerpJoint(this.elbowR, 'x', -1.3, L);
-        // Trailing arm — up high with style
-        this.lerpJoint(this.shoulderL, 'z', -1.2, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.3, L);
-        this.lerpJoint(this.elbowL, 'x', -0.15, L);
-        this.lerpJoint(this.elbowL, 'z', 0.3, L); // style wrist angle
-        leanZ = -0.15; // slight frontside lean
-        break;
-
-      case 'method':
-        // Classic tweaked method — arch back, body counter-rotation
-        this.lerpJoint(this.shoulderL, 'z', -1.1, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.8, L);
-        this.lerpJoint(this.elbowL, 'x', -1.4, L);
-        // Right arm forward and up for balance/style
-        this.lerpJoint(this.shoulderR, 'z', 0.5, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.5, L);
-        this.lerpJoint(this.elbowR, 'x', -0.2, L);
-        this.lerpJoint(this.elbowR, 'z', -0.25, L);
-        leanX = 0.5;
-        leanZ = 0.3; // arch back heelside
-        hipLX = -0.4; // front leg extends more
-        hipRX = -0.8; // rear leg tucks harder
-        kneeRX = 1.5;
-        break;
-
-      case 'stalefish':
-        // Right hand crosses body to heel edge — body twist
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.3, L);
-        this.lerpJoint(this.elbowR, 'x', -1.4, L);
-        // Trailing left arm with style
-        this.lerpJoint(this.shoulderL, 'z', -1.0, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.1, L);
-        this.lerpJoint(this.elbowL, 'x', -0.2, L);
-        this.lerpJoint(this.elbowL, 'z', 0.25, L);
-        crouchY = -0.4;
-        leanZ = 0.2; // body twist into grab
-        hipLX = -0.5; // front leg slightly extended
-        break;
-
-      case 'melon':
-        // Left hand grabs heel edge
-        this.lerpJoint(this.shoulderL, 'z', -1.2, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.2, L);
-        this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        // Trailing right arm — raised for style
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.2, L);
-        this.lerpJoint(this.elbowR, 'x', -0.15, L);
-        this.lerpJoint(this.elbowR, 'z', -0.3, L);
-        leanZ = 0.15;
-        break;
-
-      case 'nosegrab':
-        // Deep forward lean — right hand reaches for nose
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', 0.9, L);
-        this.lerpJoint(this.elbowR, 'x', -1.2, L);
-        // Left arm swept back high
-        this.lerpJoint(this.shoulderL, 'z', -0.8, L);
-        this.lerpJoint(this.shoulderL, 'x', -0.5, L);
-        this.lerpJoint(this.elbowL, 'x', -0.1, L);
-        this.lerpJoint(this.elbowL, 'z', 0.3, L);
-        leanX = 0.7; // deep forward lean
-        crouchY = -0.3;
-        hipRX = -0.3; // rear leg extends back
-        kneeRX = 0.8;
-        break;
-
-      case 'tailgrab':
-        // Lean back — right hand reaches for tail
-        this.lerpJoint(this.shoulderR, 'z', 1.0, L);
-        this.lerpJoint(this.shoulderR, 'x', -0.9, L);
-        this.lerpJoint(this.elbowR, 'x', -1.2, L);
-        // Left arm forward and up
-        this.lerpJoint(this.shoulderL, 'z', -0.8, L);
-        this.lerpJoint(this.shoulderL, 'x', 0.5, L);
-        this.lerpJoint(this.elbowL, 'x', -0.15, L);
-        this.lerpJoint(this.elbowL, 'z', 0.25, L);
-        leanX = -0.2; // lean back
-        crouchY = -0.3;
-        hipLX = -0.3; // front leg extends forward
-        kneeLX = 0.8;
-        break;
-
-      default:
-        // Generic grab
-        this.lerpJoint(this.shoulderL, 'z', -1.05, L);
-        this.lerpJoint(this.shoulderL, 'x', 0, L);
-        this.lerpJoint(this.elbowL, 'x', -1.3, L);
-        this.lerpJoint(this.shoulderR, 'z', 1.05, L);
-        this.lerpJoint(this.shoulderR, 'x', 0, L);
-        this.lerpJoint(this.elbowR, 'x', -1.3, L);
+      default:  // rear hand, toe edge between the feet
+        g = { hand: rearHand, x: toe, z: -0.03, drop: -0.4, lx: 0.1, lz: 0, sx: 0.8, sy: -0.2, sz: 0, free: [1.3, -0.3] };
     }
 
-    // Per-grab leg positions
-    this.lerpJoint(this.hipL, 'x', hipLX, L);
-    this.lerpJoint(this.kneeL, 'x', kneeLX, L);
-    this.lerpJoint(this.hipR, 'x', hipRX, L);
-    this.lerpJoint(this.kneeR, 'x', kneeRX, L);
+    this._reach(g.hand, 'board', g.x, edgeY, g.z, rate);
+    this._setSpine(g.sx, g.sy * nose + twist, g.sz);
 
-    // Crouch body down, lean forward/back, and counter-rotate
-    this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, crouchY, 0.15);
-    this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, leanX, 0.15);
-    this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, leanZ, 0.12);
+    // Free arm out to the side for style (FK)
+    const free = g.hand === 'L' ? 'R' : 'L';
+    const side = free === 'L' ? -1 : 1;
+    const sh = free === 'L' ? this.shoulderL : this.shoulderR;
+    const el = free === 'L' ? this.elbowL : this.elbowR;
+    this.lerpJoint(sh, 'z', side * g.free[0], 0.15);
+    this.lerpJoint(sh, 'x', g.free[1], 0.15);
+    this.lerpJoint(el, 'x', -0.3, 0.15);
+    this.lerpJoint(el, 'z', 0, 0.15);
+
+    const L = windUp ? 0.1 : 0.18;
+    this.riderGroup.position.y = THREE.MathUtils.lerp(this.riderGroup.position.y, g.drop, L);
+    this.riderGroup.rotation.x = THREE.MathUtils.lerp(this.riderGroup.rotation.x, g.lx, L);
+    this.riderGroup.rotation.z = THREE.MathUtils.lerp(this.riderGroup.rotation.z, g.lz, L);
   }
 
   setColor(part, colorHex) {
@@ -2330,23 +3259,35 @@ export class Player {
     }
   }
 
+  // Shop pants that are cut baggy override the fit picked in the customize menu
   setBaggyPants(isBaggy) {
-    // Baggy pants: scale thighs, calves, and hips wider for a loose fit
-    const s = isBaggy ? 1.875 : 1.0;
-    for (const mesh of [this.thighL, this.thighR, this.calfL, this.calfR]) {
-      mesh.scale.set(s, 1, s);
-    }
-    // Slightly widen hips (keep subtle so no big rectangle)
-    const hipS = isBaggy ? 1.15 : 1.0;
-    this.hipsMesh.scale.set(hipS, 1, hipS);
+    this._shopBaggy = isBaggy;
+    this.setFit('pants', this.pantsFit);
+  }
 
-    // Hide skinny wrinkles when baggy, show when skinny
+  // Fit of the jacket or pants: 'regular', 'semi' (semi-baggy) or 'baggy'
+  setFit(part, fit) {
+    const amt = Player.FITS[fit] ?? 0;
+    if (part === 'jacket') {
+      this.jacketFit = fit;
+      this._applyJacketFit(amt);
+    } else if (part === 'pants') {
+      this.pantsFit = fit;
+      this._applyPantsFit(this._shopBaggy ? 1 : amt);
+    }
+  }
+
+  _applyPantsFit(amt) {
+    // Legs and seat widen; the skinny creases give way to a few loose ridges
+    const s = 1 + 0.875 * amt;
+    for (const mesh of [this.thighL, this.thighR, this.calfL, this.calfR]) mesh.scale.set(s, 1, s);
+    const hipS = 1 + 0.15 * amt;
+    this.hipsMesh.scale.set(hipS, 0.8, 0.7 * hipS);
+
     if (this._pantsWrinkles) {
-      for (const w of this._pantsWrinkles) w.visible = !isBaggy;
+      for (const w of this._pantsWrinkles) w.visible = amt === 0;
     }
-
-    // Add/remove baggy-specific ridges (just a few subtle ones)
-    if (isBaggy && !this._baggyRidges) {
+    if (amt > 0 && !this._baggyRidges) {
       this._baggyRidges = [];
       const mat = this._pantsFoldMat;
       // A couple ridges on each thigh
@@ -2365,7 +3306,41 @@ export class Player {
       }
     }
     if (this._baggyRidges) {
-      for (const r of this._baggyRidges) r.visible = isBaggy;
+      const r = s / 1.875; // ridges are sized for the full baggy cut
+      for (const ridge of this._baggyRidges) { ridge.visible = amt > 0; ridge.scale.set(r, r, 1); }
+    }
+  }
+
+  // Everything the jacket is made of, with its rest scale and position, so the fit can be re-applied
+  _collectJacketParts() {
+    this._jacketParts = [];
+    const under = (o, ...groups) => { for (let p = o.parent; p; p = p.parent) if (groups.includes(p)) return true; return false; };
+    this.riderGroup.traverse((o) => {
+      if (!o.isMesh || under(o, this.neckGroup)) return; // hood stays put
+      const isJacket = o.material === this.jacketMat || o.material === this._jacketFoldMat ||
+        o.userData.jacketPart || o === this.jacketLogoPlane;
+      if (!isJacket) return;
+      const p = o.geometry.parameters || {};
+      this._jacketParts.push({
+        o, arm: under(o, this.shoulderL, this.shoulderR),
+        thin: o === this.jacketLogoPlane || Math.max(p.radius || 0, p.radiusTop || 0, p.radiusBottom || 0) < 0.01,
+        s: o.scale.clone(), p: o.position.clone(),
+      });
+    });
+  }
+
+  _applyJacketFit(amt) {
+    // Body and sleeves puff out around their own axis (thin seams and the logo just move out with
+    // the surface); a baggy jacket also hangs longer over the hips.
+    const body = 1 + 0.25 * amt, sleeve = 1 + 0.3 * amt;
+    for (const { o, arm, thin, s, p } of this._jacketParts || []) {
+      const k = arm ? sleeve : body;
+      o.position.set(p.x * k, p.y, p.z * k);
+      if (!thin) o.scale.set(s.x * k, s.y, s.z * k);
+      if (o.userData.jacketHem) {
+        o.position.y = p.y - 0.06 * amt;
+        if (o.geometry.type === 'CapsuleGeometry') o.scale.y = s.y * (1 + 0.15 * amt);
+      }
     }
   }
 
@@ -2394,8 +3369,8 @@ export class Player {
 
   updateStanceYaw() {
     if (this.equipmentType === 'ski') {
-      // Skiers: face forward normally, face backward when switch
-      this.STANCE_YAW = this.isSwitch ? Math.PI : 0;
+      // Skiers: face downhill (-z, the way you travel) normally, uphill when switch
+      this.STANCE_YAW = this.isSwitch ? 0 : Math.PI;
       this.HEAD_YAW = 0;
     } else {
       // Snowboard: regular = 1.3, goofy = -1.3; switch negates it
@@ -2577,7 +3552,12 @@ export class Player {
     this.updateStanceYaw();
     this.kickerCooldown = 0;
     this.kickerPopBoost = 0;
+    this.ollieCharge = 0;
+    this.railTiming = null;
+    this._railOnLocked = false;
+    this._pendingPerfectOn = false;
     this.terrainPopCooldown = 0;
+    this._airSpeedBoost = 1;
     this.launchedFromKicker = false;
     this.grounded = false;
     this.airTime = 0;
@@ -2601,9 +3581,12 @@ export class Player {
     this.daveWaypoints = [];
     this.daveWaypointIndex = 0;
 
+    this.stuckTime = 0;
+    if (this.walking) this._strapIn();
     this.boardGroup.rotation.set(0, 0, 0);
     this.riderGroup.position.set(0, 0, 0);
     this.riderGroup.rotation.set(0, this.STANCE_YAW, 0);
+    if (this.spineGroup) this.spineGroup.rotation.set(0, 0, 0);
 
     // Reset all joints to default riding pose — arms spread outward
     if (this.equipmentType === 'ski') {
@@ -2789,6 +3772,9 @@ export class Player {
       boardslideType: this.boardslideType,
       grindTime: this.grindTime,
       frontswapCount: this.frontswapCount,
+      isLayout: this.lastJumpLayout,
+      railPerfectOn: this.railPerfectOn,
+      railPerfectOff: this.railPerfectOff,
       isCork: this.isCorkingThisJump,
       corkFlipDirection: this.corkFlipDirection,
       corkSpinDirection: this.corkSpinDirection,

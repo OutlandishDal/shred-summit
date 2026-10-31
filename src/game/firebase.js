@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, where, limit, getDocs, serverTimestamp, doc, setDoc, getDoc } from 'firebase/firestore';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet, onValue, onDisconnect, remove as rtdbRemove, update as rtdbUpdate, serverTimestamp as rtdbTimestamp } from 'firebase/database';
+import { getFirestore, connectFirestoreEmulator, collection, addDoc, query, where, limit, getDocs, serverTimestamp, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getDatabase, connectDatabaseEmulator, ref as rtdbRef, set as rtdbSet, get as rtdbGet, onValue, onDisconnect, remove as rtdbRemove, update as rtdbUpdate, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 
 // ==========================================
 // FIREBASE SETUP — Replace this config with
@@ -37,6 +37,13 @@ export function initFirebase() {
     db = getFirestore(app);
     auth = getAuth(app);
     try { rtdb = getDatabase(app); } catch (e) { console.warn('RTDB init failed:', e); }
+    // Local testing: `VITE_FIREBASE_EMULATOR=1 npm run dev` with `firebase emulators:start`
+    if (import.meta.env.VITE_FIREBASE_EMULATOR) {
+      connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+      connectFirestoreEmulator(db, '127.0.0.1', 8080);
+      if (rtdb) connectDatabaseEmulator(rtdb, '127.0.0.1', 9000);
+      console.log('[firebase] using local emulators');
+    }
     return db;
   } catch (e) {
     console.warn('Firebase init failed:', e);

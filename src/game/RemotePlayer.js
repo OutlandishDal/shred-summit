@@ -65,7 +65,9 @@ export class RemotePlayer {
     }
     if (cosmetics.jacketLegendary) p.setLegendaryMaterial('jacket', true);
 
-    // Pants: baggy + legendary
+    // Fit, then shop pants that are always baggy
+    if (cosmetics.jacketFit) p.setFit('jacket', cosmetics.jacketFit);
+    if (cosmetics.pantsFit) p.setFit('pants', cosmetics.pantsFit);
     if (cosmetics.pantsBaggy) p.setBaggyPants(true);
     if (cosmetics.pantsLegendary) p.setLegendaryMaterial('pants', true);
 
@@ -96,6 +98,11 @@ export class RemotePlayer {
 
   receiveState(data) {
     this.targetPos.set(data.x, data.y, data.z);
+    // Snap instead of gliding on the first update and after respawns
+    if (this.lastUpdateTime === 0 || this.currentPos.distanceTo(this.targetPos) > 40) {
+      this.currentPos.copy(this.targetPos);
+      this.currentHeading = data.h;
+    }
     this.targetHeading = data.h;
     this.targetTrickRot.set(data.tx || 0, data.ty || 0, data.tz || 0);
     this.grounded = !!data.g;
@@ -110,6 +117,8 @@ export class RemotePlayer {
     this.boardslideType = data.bs || null;
     this.boardslideAngle = data.ba || 0;
     this.trickName = data.trick || null;
+    this.score = data.sc || 0;
+    this.checkpoint = data.cp || 0;
     this.lastUpdateTime = performance.now();
   }
 

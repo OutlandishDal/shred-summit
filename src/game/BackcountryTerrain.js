@@ -12,291 +12,10 @@ function mulberry32(seed) {
 
 // ---- CHAIR CONFIGURATIONS ----
 const CHAIRS = {
-  summit: {
-    name: 'SUMMIT BOWL',
-    slopeAngle: 0.65,          // ~33 degrees average pitch
-    chunkWidth: 800,            // massive — feels infinite sideways
-    chunkLength: 300,
-    totalChunks: 6,             // ~1800 units of vertical
-    seed: 42,
-    // Bowl shape: gentle rise far out — no visible walls
-    bowlStrength: 15,           // very gentle rise so it feels open
-    bowlWidth: 300,             // bowl floor extends 300 units each side before any rise
-    // Cliff bands — Z ranges where terrain drops sharply (vertical rock faces)
-    cliffs: [
-      { zStart: -200, zEnd: -215, drop: 8 },
-      { zStart: -450, zEnd: -468, drop: 14 },
-      { zStart: -700, zEnd: -720, drop: 12 },
-      { zStart: -950, zEnd: -970, drop: 16 },
-      { zStart: -1200, zEnd: -1220, drop: 18 },
-      { zStart: -1400, zEnd: -1416, drop: 10 },
-    ],
-    // Scattered cliff ledges throughout the bowl (x, z, width, drop)
-    ledges: [
-      // Left side
-      { x: -80, z: -200, w: 24, drop: 5 },
-      { x: -50, z: -450, w: 20, drop: 6 },
-      { x: -90, z: -650, w: 22, drop: 5 },
-      { x: -30, z: -850, w: 18, drop: 4 },
-      { x: -70, z: -1050, w: 25, drop: 7 },
-      { x: -100, z: -1300, w: 20, drop: 5 },
-      // Center
-      { x: 0, z: -300, w: 28, drop: 5 },
-      { x: 10, z: -600, w: 22, drop: 6 },
-      { x: -15, z: -900, w: 26, drop: 7 },
-      { x: 5, z: -1200, w: 24, drop: 5 },
-      // Right side
-      { x: 60, z: -250, w: 20, drop: 4 },
-      { x: 85, z: -500, w: 22, drop: 6 },
-      { x: 45, z: -700, w: 18, drop: 5 },
-      { x: 75, z: -950, w: 24, drop: 6 },
-      { x: 100, z: -1150, w: 20, drop: 5 },
-      { x: 55, z: -1400, w: 22, drop: 4 },
-    ],
-    // Sub-bowls — concave pockets within the main bowl
-    subBowls: [
-      { x: -60, z: -350, radius: 50, depth: 5 },
-      { x: 50, z: -550, radius: 45, depth: 4 },
-      { x: -30, z: -750, radius: 55, depth: 6 },
-      { x: 70, z: -1000, radius: 40, depth: 5 },
-      { x: -80, z: -1200, radius: 50, depth: 4 },
-      { x: 20, z: -1400, radius: 45, depth: 5 },
-    ],
-    // Trees appear scattered throughout, denser toward bottom
-    treeLineZ: -100,
-    rockDensity: 1.5,           // rocks per chunk (multiplier)
-    treeDensity: 0.8,           // trees per chunk (multiplier)
-    checkpointInterval: 380,
-    checkpointCount: 4,
-  },
-
-  biggie: {
-    name: 'BIGGIE PILLOW LINES',
-    slopeAngle: 0.42,
-    chunkWidth: 2400,
-    chunkLength: 75,
-    totalChunks: 56,
-    seed: 137,
-    bowlStrength: 8,
-    bowlWidth: 900,             // wide usable terrain
-    cliffs: [],
-    treeLineZ: 0,
-    rockDensity: 2.0,           // rocks for visual variety
-    treeDensity: 44.0,          // dense trees — Revelstoke-style tree runs
-    checkpointInterval: 340,
-    checkpointCount: 12,
-    generateRadius: 1,
-
-    // Aggressive pillow field — distinct mounds you launch off
-    pillowField: {
-      strength: 7.0,
-      frequency: 0.065,         // sharper crests for natural air
-      secondaryFreq: 0.028,
-      secondaryStrength: 5.0,
-    },
-
-    // Terrain pop — natural air from riding over pillow crests (~7 feet)
-    terrainPop: {
-      curvatureThreshold: 0.008,  // min convexity to trigger pop
-      popFactor: 14,              // curvature * speed * factor = pop velocity
-      maxPop: 11,                 // cap: ~7 feet peak at moderate speed
-      sampleDist: 2.0,            // curvature sample distance
-      minSpeed: 8,                // must be moving to pop
-    },
-
-    // Multi-octave terrain noise for natural rollers, bumps, and variation
-    terrainNoise: {
-      rollerAmplitude: 4.5,     // large cross-slope rollers
-      rollerFreqZ: 0.038,
-      rollerFreqX: 0.007,
-      mediumAmplitude: 2.8,     // medium terrain bumps
-      mediumFreqX: 0.045,
-      mediumFreqZ: 0.055,
-      smallAmplitude: 1.2,      // small terrain detail
-      smallFreqX: 0.11,
-      smallFreqZ: 0.14,
-    },
-
-    // Variable slope zones
-    slopeZones: [
-      { endZ: -400,  slope: 0.50 },   // steep entry with pillow drops
-      { endZ: -900,  slope: 0.35 },   // mellow pillow glades
-      { endZ: -1500, slope: 0.55 },   // steep pillow chutes with cliffs
-      { endZ: -2100, slope: 0.32 },   // mellow tree runs
-      { endZ: -2800, slope: 0.52 },   // steep cliff and pillow zone
-      { endZ: -3500, slope: 0.38 },   // mellow wooded pillows
-      { endZ: -4200, slope: 0.48 },   // final steep runout
-    ],
-
-    // Partial cliffs spread across the full width
-    partialCliffs: [
-      // Zone 1: Steep entry (0 to -400) — warm-up drops spread wide
-      { zStart: -60,   drop: 8,   xCenter: -400,  xWidth: 250 },
-      { zStart: -80,   drop: 10,  xCenter: 200,   xWidth: 200 },
-      { zStart: -140,  drop: 12,  xCenter: -100,  xWidth: 280 },
-      { zStart: -180,  drop: 15,  xCenter: 500,   xWidth: 300 },
-      { zStart: -220,  drop: 8,   xCenter: -600,  xWidth: 220 },
-      { zStart: -260,  drop: 18,  xCenter: 50,    xWidth: 350 },
-      { zStart: -310,  drop: 10,  xCenter: 400,   xWidth: 250 },
-      { zStart: -350,  drop: 12,  xCenter: -350,  xWidth: 280 },
-      { zStart: -390,  drop: 8,   xCenter: 650,   xWidth: 200 },
-
-      // Zone 2: Mellow glades (-400 to -900)
-      { zStart: -430,  drop: 10,  xCenter: -500,  xWidth: 280 },
-      { zStart: -470,  drop: 15,  xCenter: 300,   xWidth: 300 },
-      { zStart: -520,  drop: 8,   xCenter: -200,  xWidth: 200 },
-      { zStart: -570,  drop: 20,  xCenter: 600,   xWidth: 350 },
-      { zStart: -620,  drop: 12,  xCenter: -450,  xWidth: 250 },
-      { zStart: -670,  drop: 14,  xCenter: 100,   xWidth: 280 },
-      { zStart: -720,  drop: 10,  xCenter: -650,  xWidth: 220 },
-      { zStart: -770,  drop: 18,  xCenter: 450,   xWidth: 320 },
-      { zStart: -830,  drop: 8,   xCenter: -150,  xWidth: 220 },
-      { zStart: -880,  drop: 12,  xCenter: 550,   xWidth: 250 },
-
-      // Zone 3: Steep chutes (-900 to -1500) — big drops
-      { zStart: -930,  drop: 25,  xCenter: -350,  xWidth: 380 },
-      { zStart: -970,  drop: 15,  xCenter: 500,   xWidth: 300 },
-      { zStart: -1030, drop: 35,  xCenter: 0,     xWidth: 400 },
-      { zStart: -1090, drop: 20,  xCenter: -550,  xWidth: 300 },
-      { zStart: -1140, drop: 45,  xCenter: 250,   xWidth: 450 },
-      { zStart: -1200, drop: 15,  xCenter: -200,  xWidth: 250 },
-      { zStart: -1260, drop: 30,  xCenter: 600,   xWidth: 350 },
-      { zStart: -1320, drop: 50,  xCenter: -400,  xWidth: 400 },
-      { zStart: -1380, drop: 20,  xCenter: 150,   xWidth: 300 },
-      { zStart: -1440, drop: 40,  xCenter: -600,  xWidth: 350 },
-      { zStart: -1480, drop: 25,  xCenter: 400,   xWidth: 300 },
-
-      // Zone 4: Mellow trees (-1500 to -2100)
-      { zStart: -1540, drop: 12,  xCenter: -500,  xWidth: 250 },
-      { zStart: -1600, drop: 18,  xCenter: 350,   xWidth: 300 },
-      { zStart: -1660, drop: 10,  xCenter: -100,  xWidth: 220 },
-      { zStart: -1720, drop: 25,  xCenter: 550,   xWidth: 350 },
-      { zStart: -1780, drop: 15,  xCenter: -400,  xWidth: 280 },
-      { zStart: -1840, drop: 30,  xCenter: 100,   xWidth: 320 },
-      { zStart: -1910, drop: 12,  xCenter: -650,  xWidth: 220 },
-      { zStart: -1970, drop: 20,  xCenter: 400,   xWidth: 300 },
-      { zStart: -2040, drop: 10,  xCenter: -250,  xWidth: 250 },
-
-      // Zone 5: Steep cliff zone (-2100 to -2800) — massive drops
-      { zStart: -2130, drop: 40,  xCenter: -300,  xWidth: 400 },
-      { zStart: -2180, drop: 25,  xCenter: 500,   xWidth: 350 },
-      { zStart: -2240, drop: 60,  xCenter: 50,    xWidth: 500 },
-      { zStart: -2300, drop: 15,  xCenter: -550,  xWidth: 250 },
-      { zStart: -2360, drop: 50,  xCenter: 300,   xWidth: 400 },
-      { zStart: -2420, drop: 70,  xCenter: -150,  xWidth: 450 },
-      { zStart: -2490, drop: 20,  xCenter: 650,   xWidth: 300 },
-      { zStart: -2550, drop: 55,  xCenter: -400,  xWidth: 400 },
-      { zStart: -2620, drop: 35,  xCenter: 200,   xWidth: 350 },
-      { zStart: -2690, drop: 45,  xCenter: -500,  xWidth: 380 },
-      { zStart: -2760, drop: 30,  xCenter: 450,   xWidth: 300 },
-
-      // Zone 6: Mellow wooded (-2800 to -3500)
-      { zStart: -2830, drop: 15,  xCenter: 400,   xWidth: 280 },
-      { zStart: -2890, drop: 25,  xCenter: -200,  xWidth: 300 },
-      { zStart: -2950, drop: 12,  xCenter: 600,   xWidth: 220 },
-      { zStart: -3020, drop: 30,  xCenter: -450,  xWidth: 350 },
-      { zStart: -3090, drop: 18,  xCenter: 100,   xWidth: 280 },
-      { zStart: -3160, drop: 20,  xCenter: -350,  xWidth: 300 },
-      { zStart: -3230, drop: 10,  xCenter: 500,   xWidth: 250 },
-      { zStart: -3300, drop: 25,  xCenter: -100,  xWidth: 320 },
-      { zStart: -3370, drop: 15,  xCenter: 350,   xWidth: 250 },
-      { zStart: -3440, drop: 18,  xCenter: -550,  xWidth: 280 },
-
-      // Zone 7: Final runout (-3500 to -4200)
-      { zStart: -3530, drop: 20,  xCenter: -400,  xWidth: 300 },
-      { zStart: -3600, drop: 30,  xCenter: 200,   xWidth: 350 },
-      { zStart: -3670, drop: 12,  xCenter: -150,  xWidth: 250 },
-      { zStart: -3740, drop: 25,  xCenter: 550,   xWidth: 300 },
-      { zStart: -3810, drop: 15,  xCenter: -500,  xWidth: 280 },
-      { zStart: -3880, drop: 18,  xCenter: 50,    xWidth: 250 },
-      { zStart: -3950, drop: 10,  xCenter: -300,  xWidth: 220 },
-      { zStart: -4020, drop: 20,  xCenter: 350,   xWidth: 300 },
-      { zStart: -4100, drop: 8,   xCenter: -200,  xWidth: 200 },
-    ],
-
-    // Hand-placed jumps spread across the full width
-    jumps: [
-      // Zone 1: Steep entry
-      { z: -80,   x: -300,  feet: 25 },
-      { z: -100,  x: 250,   feet: 20 },
-      { z: -170,  x: -50,   feet: 30 },
-      { z: -200,  x: 500,   feet: 20 },
-      { z: -270,  x: -500,  feet: 25 },
-      { z: -330,  x: 150,   feet: 20 },
-      { z: -380,  x: -250,  feet: 25 },
-      // Zone 2: Mellow glades
-      { z: -440,  x: 400,   feet: 25 },
-      { z: -490,  x: -350,  feet: 30 },
-      { z: -540,  x: 50,    feet: 20 },
-      { z: -590,  x: 550,   feet: 25 },
-      { z: -650,  x: -450,  feet: 20 },
-      { z: -710,  x: 200,   feet: 30 },
-      { z: -770,  x: -150,  feet: 20 },
-      { z: -830,  x: 350,   feet: 25 },
-      { z: -880,  x: -550,  feet: 20 },
-      // Zone 3: Steep chutes
-      { z: -950,  x: 400,   feet: 30 },
-      { z: -1000, x: -200,  feet: 25 },
-      { z: -1060, x: 150,   feet: 35 },
-      { z: -1120, x: -500,  feet: 25 },
-      { z: -1180, x: 300,   feet: 30 },
-      { z: -1250, x: -100,  feet: 25 },
-      { z: -1310, x: 550,   feet: 20 },
-      { z: -1370, x: -400,  feet: 30 },
-      { z: -1430, x: 50,    feet: 25 },
-      { z: -1490, x: -300,  feet: 20 },
-      // Zone 4: Mellow trees
-      { z: -1550, x: 250,   feet: 25 },
-      { z: -1620, x: -350,  feet: 20 },
-      { z: -1690, x: 450,   feet: 25 },
-      { z: -1750, x: -50,   feet: 30 },
-      { z: -1820, x: 350,   feet: 20 },
-      { z: -1890, x: -500,  feet: 25 },
-      { z: -1960, x: 100,   feet: 25 },
-      { z: -2030, x: -350,  feet: 20 },
-      { z: -2080, x: 500,   feet: 25 },
-      // Zone 5: Steep drops
-      { z: -2150, x: -200,  feet: 30 },
-      { z: -2220, x: 400,   feet: 35 },
-      { z: -2290, x: -450,  feet: 25 },
-      { z: -2360, x: 150,   feet: 30 },
-      { z: -2430, x: -100,  feet: 35 },
-      { z: -2500, x: 550,   feet: 25 },
-      { z: -2570, x: -350,  feet: 30 },
-      { z: -2640, x: 250,   feet: 25 },
-      { z: -2720, x: -500,  feet: 30 },
-      { z: -2780, x: 50,    feet: 25 },
-      // Zone 6: Mellow wooded
-      { z: -2850, x: 400,   feet: 25 },
-      { z: -2920, x: -250,  feet: 20 },
-      { z: -2990, x: 300,   feet: 30 },
-      { z: -3060, x: -500,  feet: 25 },
-      { z: -3130, x: 100,   feet: 20 },
-      { z: -3200, x: -150,  feet: 25 },
-      { z: -3270, x: 500,   feet: 30 },
-      { z: -3340, x: -400,  feet: 20 },
-      { z: -3420, x: 200,   feet: 25 },
-      { z: -3480, x: -300,  feet: 20 },
-      // Zone 7: Final runout
-      { z: -3550, x: 350,   feet: 25 },
-      { z: -3630, x: -200,  feet: 30 },
-      { z: -3700, x: 450,   feet: 20 },
-      { z: -3780, x: -100,  feet: 25 },
-      { z: -3860, x: 300,   feet: 30 },
-      { z: -3940, x: -450,  feet: 20 },
-      { z: -4020, x: 150,   feet: 25 },
-      { z: -4100, x: -250,  feet: 20 },
-    ],
-
-    // Procedural natural kickers per chunk (wind lips, snow mounds, pillows)
-    naturalKickerDensity: 6,
-    naturalKickerSpread: 1500,
-  },
-
   peak: {
     name: 'PEAK BACKCOUNTRY',
     slopeAngle: 0.40,             // base slope (overridden by slopeZones)
-    chunkWidth: 2400,             // ~3x summit's 800
+    chunkWidth: 2400,             // very wide bowl
     chunkLength: 75,
     totalChunks: 56,
     seed: 256,
@@ -401,136 +120,6 @@ const CHAIRS = {
     ],
   },
 
-  moonlight: {
-    name: 'MOONLIGHT RIDGE',
-    slopeAngle: 0.38,
-    chunkWidth: 2000,
-    chunkLength: 75,
-    totalChunks: 52,
-    seed: 777,
-    bowlStrength: 10,
-    bowlWidth: 650,
-    cliffs: [],
-    treeLineZ: -100,
-    rockDensity: 1.5,
-    treeDensity: 15.0,
-    checkpointInterval: 320,
-    checkpointCount: 12,
-    generateRadius: 1,
-
-    slopeZones: [
-      { endZ: -500,  slope: 0.42 },
-      { endZ: -1000, slope: 0.30 },
-      { endZ: -1600, slope: 0.48 },
-      { endZ: -2200, slope: 0.28 },
-      { endZ: -2900, slope: 0.45 },
-      { endZ: -3500, slope: 0.32 },
-      { endZ: -3900, slope: 0.38 },
-    ],
-
-    terrainNoise: {
-      rollerAmplitude: 3.5,
-      rollerFreqZ: 0.035,
-      rollerFreqX: 0.008,
-      mediumAmplitude: 2.2,
-      mediumFreqX: 0.042,
-      mediumFreqZ: 0.048,
-      smallAmplitude: 1.0,
-      smallFreqX: 0.10,
-      smallFreqZ: 0.13,
-    },
-
-    terrainPop: {
-      curvatureThreshold: 0.006,
-      popFactor: 14,
-      maxPop: 12,
-      sampleDist: 2.0,
-      minSpeed: 7,
-    },
-
-    // Frozen creek beds removed — clean open terrain
-    frozenCreeks: [],
-
-    // Sastrugi fields — wavy wind-carved snow zones
-    sastrugiFields: [
-      { zStart: -400,  zEnd: -550,  xCenter: 0,   xWidth: 300, frequency: 0.35, amplitude: 1.5 },
-      { zStart: -1100, zEnd: -1300, xCenter: -50, xWidth: 250, frequency: 0.30, amplitude: 1.8 },
-      { zStart: -1800, zEnd: -1950, xCenter: 40,  xWidth: 280, frequency: 0.38, amplitude: 1.4 },
-      { zStart: -2500, zEnd: -2650, xCenter: -20, xWidth: 260, frequency: 0.32, amplitude: 1.6 },
-      { zStart: -3200, zEnd: -3400, xCenter: 60,  xWidth: 300, frequency: 0.36, amplitude: 1.5 },
-    ],
-
-    // Cornices — overhanging snow lips with big drops
-    cornices: [
-      { z: -250,  xCenter: -180, drop: 20, width: 60 },
-      { z: -700,  xCenter: 200,  drop: 25, width: 80 },
-      { z: -1200, xCenter: -150, drop: 30, width: 70 },
-      { z: -1700, xCenter: 180,  drop: 22, width: 65 },
-      { z: -2300, xCenter: -200, drop: 35, width: 90 },
-      { z: -2800, xCenter: 160,  drop: 28, width: 75 },
-      { z: -3400, xCenter: -170, drop: 25, width: 70 },
-    ],
-
-    // Aurora system config
-    aurora: {
-      baseFogDensity: 0.012,
-      litFogDensity: 0.004,
-      baseAmbient: 0.15,
-      litAmbient: 0.55,
-      decayRate: 0.3,
-      flareRate: 0.8,
-      maxBrightness: 1.0,
-    },
-
-    partialCliffs: [
-      { zStart: -200,  drop: 12, xCenter: -100, xWidth: 250 },
-      { zStart: -350,  drop: 15, xCenter: 200,  xWidth: 220 },
-      { zStart: -550,  drop: 20, xCenter: -50,  xWidth: 300 },
-      { zStart: -750,  drop: 18, xCenter: 150,  xWidth: 250 },
-      { zStart: -950,  drop: 25, xCenter: -200, xWidth: 350 },
-      { zStart: -1150, drop: 14, xCenter: 100,  xWidth: 220 },
-      { zStart: -1350, drop: 30, xCenter: -150, xWidth: 300 },
-      { zStart: -1550, drop: 20, xCenter: 250,  xWidth: 280 },
-      { zStart: -1750, drop: 35, xCenter: -100, xWidth: 350 },
-      { zStart: -1950, drop: 18, xCenter: 180,  xWidth: 240 },
-      { zStart: -2150, drop: 40, xCenter: -200, xWidth: 400 },
-      { zStart: -2350, drop: 22, xCenter: 120,  xWidth: 260 },
-      { zStart: -2550, drop: 45, xCenter: -50,  xWidth: 380 },
-      { zStart: -2750, drop: 25, xCenter: 200,  xWidth: 300 },
-      { zStart: -2950, drop: 50, xCenter: -150, xWidth: 420 },
-      { zStart: -3150, drop: 20, xCenter: 100,  xWidth: 250 },
-      { zStart: -3350, drop: 30, xCenter: -80,  xWidth: 300 },
-      { zStart: -3550, drop: 15, xCenter: 150,  xWidth: 220 },
-      { zStart: -3750, drop: 10, xCenter: -50,  xWidth: 200 },
-    ],
-
-    // Wind lips + jumps
-    jumps: [
-      { z: -150,  x: -60,  feet: 25 }, { z: -150,  x: 80,   feet: 20 },
-      { z: -300,  x: -100, feet: 22 }, { z: -350,  x: 120,  feet: 28 },
-      { z: -500,  x: -40,  feet: 25 }, { z: -550,  x: 90,   feet: 20 },
-      { z: -650,  x: -120, feet: 30 }, { z: -700,  x: 50,   feet: 22 },
-      { z: -820,  x: -80,  feet: 25 }, { z: -880,  x: 100,  feet: 28 },
-      { z: -950,  x: -60,  feet: 20 }, { z: -1050, x: 70,   feet: 25 },
-      { z: -1150, x: -100, feet: 30 }, { z: -1250, x: 40,   feet: 22 },
-      { z: -1350, x: -50,  feet: 28 }, { z: -1450, x: 110,  feet: 25 },
-      { z: -1550, x: -90,  feet: 20 }, { z: -1650, x: 60,   feet: 30 },
-      { z: -1750, x: -70,  feet: 25 }, { z: -1850, x: 100,  feet: 22 },
-      { z: -1950, x: -110, feet: 28 }, { z: -2050, x: 50,   feet: 25 },
-      { z: -2150, x: -40,  feet: 30 }, { z: -2250, x: 90,   feet: 22 },
-      { z: -2350, x: -80,  feet: 25 }, { z: -2450, x: 120,  feet: 28 },
-      { z: -2550, x: -60,  feet: 20 }, { z: -2650, x: 70,   feet: 25 },
-      { z: -2750, x: -100, feet: 30 }, { z: -2850, x: 40,   feet: 22 },
-      { z: -2950, x: -50,  feet: 28 }, { z: -3050, x: 80,   feet: 25 },
-      { z: -3150, x: -90,  feet: 20 }, { z: -3250, x: 60,   feet: 30 },
-      { z: -3350, x: -70,  feet: 25 }, { z: -3450, x: 100,  feet: 22 },
-      { z: -3550, x: -40,  feet: 28 }, { z: -3650, x: 110,  feet: 25 },
-      { z: -3750, x: -80,  feet: 20 }, { z: -3850, x: 50,   feet: 25 },
-    ],
-
-    naturalKickerDensity: 3,
-    naturalKickerSpread: 900,
-  },
   oldgrowth: {
     name: 'OLD GROWTH GLADES',
     slopeAngle: 0.48,
@@ -866,9 +455,6 @@ export class BackcountryTerrain {
     this.poleMaterial = new THREE.MeshStandardMaterial({
       color: 0xff6600, roughness: 0.6,
     });
-    this.exposedRockMaterial = new THREE.MeshStandardMaterial({
-      color: 0x6a5a48, roughness: 0.85, flatShading: true,
-    });
     // Old Growth Glades materials
     this.logMaterial = new THREE.MeshStandardMaterial({
       color: 0x4a3520, roughness: 1.0, flatShading: true,
@@ -876,27 +462,14 @@ export class BackcountryTerrain {
     this.mossyTrunkMaterial = new THREE.MeshStandardMaterial({
       color: 0x2d1f0f, roughness: 1.0,
     });
-    this.dirtMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5a3e2b, roughness: 0.95, flatShading: true,
-    });
-    // Moonlight Ridge materials
+    // Frozen creek material
     this.frozenIceMaterial = new THREE.MeshStandardMaterial({
       color: 0x6699cc, roughness: 0.1, metalness: 0.15,
       transparent: true, opacity: 0.75,
     });
-    // Dead tree materials for Moonlight Ridge
-    this.birchBarkMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd0c8b8, roughness: 0.85, flatShading: true, // pale white bark
-    });
-    this.deadOakMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3a2a1a, roughness: 1.0, flatShading: true, // dark gnarly bark
-    });
-    this.snagMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a2220, roughness: 1.0, flatShading: true, // charred/weathered
-    });
 
-    // Night mode: slight blue tint for non-moonlight backcountry chairs
-    if (nightMode && chairId !== 'moonlight') {
+    // Night mode: slight blue tint
+    if (nightMode) {
       this.snowMaterial.color.set(0xb8c8dd);
       this.rockMaterial.color.set(0x506070);
       this.treeMaterial.color.set(0x122812);
@@ -905,8 +478,6 @@ export class BackcountryTerrain {
 
     // River zones — populated during chunk generation for collision detection
     this.riverZones = [];
-    // Creek zones (Alpine Meadow)
-    this.creekZones = [];
 
     // Lazy chunk generation — keep generateRadius chunks around the player
     this.generateRadius = this.config.generateRadius || 3;
@@ -943,15 +514,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Populate creekZones from config
-    if (this.config.creeks) {
-      for (const creek of this.config.creeks) {
-        this.creekZones.push({
-          z: creek.z, xCenter: creek.xCenter,
-          halfWidth: creek.width / 2, halfSpan: creek.xSpan / 2,
-        });
-      }
-    }
   }
 
   // ---- VARIABLE SLOPE ----
@@ -1058,50 +620,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Scattered cliff ledges — small droppable faces at various positions
-    if (cfg.ledges) {
-      for (const ledge of cfg.ledges) {
-        const dx = x - ledge.x;
-        const dz = globalZ - ledge.z;
-        const halfW = ledge.w / 2;
-        // Only affect terrain within the ledge's width band
-        if (Math.abs(dx) < halfW && dz < 0 && dz > -8) {
-          const xFade = 1 - Math.pow(Math.abs(dx) / halfW, 2); // smooth fade at edges
-          const zProgress = -dz / 8;
-          const dropFactor = 1 / (1 + Math.exp(-10 * (zProgress - 0.5)));
-          height -= ledge.drop * dropFactor * xFade;
-        } else if (Math.abs(dx) < halfW && dz <= -8) {
-          const xFade = 1 - Math.pow(Math.abs(dx) / halfW, 2);
-          height -= ledge.drop * xFade;
-        }
-      }
-    }
-
-    // Sub-bowls — concave pockets within the main bowl
-    if (cfg.subBowls) {
-      for (const sb of cfg.subBowls) {
-        const dx = x - sb.x;
-        const dz = globalZ - sb.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < sb.radius) {
-          const t = 1 - dist / sb.radius;
-          // Smooth parabolic depression
-          height -= sb.depth * t * t;
-        }
-      }
-    }
-
-    // Pillow field — rounded snow mounds at two scales
-    if (cfg.pillowField) {
-      const pf = cfg.pillowField;
-      const p1 = Math.sin(x * pf.frequency) * Math.cos(globalZ * pf.frequency * 1.3);
-      const p2 = Math.cos(x * pf.frequency * 0.7 + 1.5) * Math.sin(globalZ * pf.frequency * 0.9 + 0.8);
-      const pillow = Math.max(0, (p1 + p2) * 0.5) * pf.strength;
-      const s1 = Math.sin(x * pf.secondaryFreq + 2.3) * Math.cos(globalZ * pf.secondaryFreq * 1.1 + 1.1);
-      const secondary = (s1 * 0.5 + 0.5) * pf.secondaryStrength;
-      height += pillow + secondary;
-    }
-
     // Partial-width cliffs — only affect part of the terrain width
     if (cfg.partialCliffs) {
       for (const cliff of cfg.partialCliffs) {
@@ -1165,23 +683,7 @@ export class BackcountryTerrain {
       }
     }
 
-    // Creek crossings — shallow V-channel depressions (Alpine Meadow)
-    if (cfg.creeks) {
-      for (const creek of cfg.creeks) {
-        const dz = globalZ - creek.z;
-        const halfW = creek.width / 2;
-        if (Math.abs(dz) < halfW) {
-          const dx = Math.abs(x - creek.xCenter);
-          if (dx < creek.xSpan / 2) {
-            const xFade = Math.max(0, 1 - dx / (creek.xSpan / 2));
-            const vShape = 1 - Math.abs(dz) / halfW;
-            height -= 2.5 * vShape * xFade;
-          }
-        }
-      }
-    }
-
-    // Mogul fields — slushy bump runs (Alpine Meadow)
+    // Mogul fields — slushy bump runs
     if (cfg.mogulFields) {
       for (const mf of cfg.mogulFields) {
         if (globalZ < mf.zStart && globalZ > mf.zEnd) {
@@ -1196,31 +698,7 @@ export class BackcountryTerrain {
       }
     }
 
-    // Rock drops — exposed rock outcrops with clean landings (Alpine Meadow)
-    if (cfg.rockDrops) {
-      for (const rd of cfg.rockDrops) {
-        const cliffEnd = rd.z - rd.drop * 0.5;
-        if (globalZ < rd.z && globalZ > cliffEnd) {
-          const dx = Math.abs(x - rd.x);
-          const halfW = rd.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const progress = (rd.z - globalZ) / (rd.z - cliffEnd);
-            const dropFactor = 1 / (1 + Math.exp(-25 * (progress - 0.5)));
-            height -= rd.drop * dropFactor * xFade;
-          }
-        } else if (globalZ <= cliffEnd) {
-          const dx = Math.abs(x - rd.x);
-          const halfW = rd.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) height -= rd.drop * xFade;
-        }
-      }
-    }
-
-    // Frozen creek beds — U-shaped halfpipe channels (Moonlight Ridge)
+    // Frozen creek beds — U-shaped halfpipe channels
     if (cfg.frozenCreeks) {
       for (const fc of cfg.frozenCreeks) {
         if (globalZ < fc.startZ && globalZ > fc.endZ) {
@@ -1316,54 +794,6 @@ export class BackcountryTerrain {
       }
     }
 
-    // Sastrugi fields — wavy wind-carved snow ridges (Moonlight Ridge)
-    if (cfg.sastrugiFields) {
-      for (const sf of cfg.sastrugiFields) {
-        if (globalZ < sf.zStart && globalZ > sf.zEnd) {
-          const dx = Math.abs(x - sf.xCenter);
-          if (dx < sf.xWidth / 2) {
-            const xFade = 1 - Math.pow(dx / (sf.xWidth / 2), 2);
-            const wave = Math.sin((globalZ + x * 0.3) * sf.frequency * Math.PI) * sf.amplitude;
-            height += Math.abs(wave) * xFade;
-          }
-        }
-      }
-    }
-
-    // Cornices — overhanging snow lips with big drops (Moonlight Ridge)
-    if (cfg.cornices) {
-      for (const corn of cfg.cornices) {
-        const dropEnd = corn.z - corn.drop * 0.6;
-        const lipRegion = corn.z + 4;
-        if (globalZ < lipRegion && globalZ > corn.z) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const lipT = (lipRegion - globalZ) / 4;
-            height += 2.5 * Math.sin(lipT * Math.PI * 0.5) * xFade;
-          }
-        } else if (globalZ <= corn.z && globalZ > dropEnd) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) {
-            const progress = (corn.z - globalZ) / (corn.z - dropEnd);
-            const dropFactor = 1 / (1 + Math.exp(-25 * (progress - 0.5)));
-            height -= corn.drop * dropFactor * xFade;
-          }
-        } else if (globalZ <= dropEnd) {
-          const dx = Math.abs(x - corn.xCenter);
-          const halfW = corn.width / 2;
-          let xFade = 1;
-          if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-          if (xFade > 0) height -= corn.drop * xFade;
-        }
-      }
-    }
-
     // Runout zone — flatten at the bottom
     const totalLength = cfg.totalChunks * cfg.chunkLength;
     const runoutStart = -(totalLength - 400);
@@ -1398,34 +828,6 @@ export class BackcountryTerrain {
     return normal;
   }
 
-  // ---- SURFACE TYPE ----
-  getSurfaceType(x, globalZ) {
-    const cfg = this.config;
-    if (!cfg.surfaceMap) return 'snow';
-
-    // Check creeks first (highest priority)
-    if (cfg.creeks) {
-      for (const creek of cfg.creeks) {
-        if (Math.abs(globalZ - creek.z) < creek.width / 2 &&
-            Math.abs(x - creek.xCenter) < creek.xSpan / 2) {
-          return 'creek';
-        }
-      }
-    }
-
-    // Deterministic surface from noise
-    const sm = cfg.surfaceMap;
-    const snowNoise = Math.sin(x * sm.snowFreqX + 1.3) * Math.cos(globalZ * sm.snowFreqZ + 0.7)
-                    + Math.sin(x * sm.snowFreqX * 2.1 + 3.0) * Math.cos(globalZ * sm.snowFreqZ * 1.5 + 1.2) * 0.5;
-
-    if (snowNoise > sm.snowThreshold) return 'snow';
-
-    const mudNoise = Math.sin(x * sm.mudFreqX + 2.1) * Math.cos(globalZ * sm.mudFreqZ + 0.4);
-    if (mudNoise > sm.mudThreshold) return 'mud';
-
-    return 'grass';
-  }
-
   // ---- CHUNK GENERATION ----
   generateChunk() {
     const zOffset = -this.chunksGenerated * this.chunkLength;
@@ -1458,18 +860,6 @@ export class BackcountryTerrain {
       colors[i * 3] = base - shadowTint * 1.5;
       colors[i * 3 + 1] = base - shadowTint * 0.5;
       colors[i * 3 + 2] = base + shadowTint;
-
-      // Pillow highlights — slightly brighter on mound tops
-      if (cfg.pillowField) {
-        const pf = cfg.pillowField;
-        const p1 = Math.sin(x * pf.frequency) * Math.cos(globalZ * pf.frequency * 1.3);
-        const p2 = Math.cos(x * pf.frequency * 0.7 + 1.5) * Math.sin(globalZ * pf.frequency * 0.9 + 0.8);
-        const pillowIntensity = Math.max(0, (p1 + p2) * 0.5);
-        const brighten = pillowIntensity * 0.04;
-        colors[i * 3] = Math.min(1, colors[i * 3] + brighten);
-        colors[i * 3 + 1] = Math.min(1, colors[i * 3 + 1] + brighten);
-        colors[i * 3 + 2] = Math.min(1, colors[i * 3 + 2] + brighten * 0.5);
-      }
 
       // Full-width cliff faces get dark rock color
       for (const cliff of (cfg.cliffs || [])) {
@@ -1534,97 +924,6 @@ export class BackcountryTerrain {
             colors[i * 3] = colors[i * 3] * (1 - iceBlend) + 0.53 * iceBlend;
             colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - iceBlend) + 0.80 * iceBlend;
             colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - iceBlend) + 0.93 * iceBlend;
-          }
-        }
-      }
-
-      // Surface colors (Alpine Meadow)
-      if (cfg.surfaceMap) {
-        const surfaceType = this.getSurfaceType(x, globalZ);
-        if (surfaceType === 'grass') {
-          colors[i * 3]     = 0.35 + Math.sin(x * 0.1 + globalZ * 0.08) * 0.05;
-          colors[i * 3 + 1] = 0.55 + Math.sin(x * 0.07 + globalZ * 0.06) * 0.08;
-          colors[i * 3 + 2] = 0.20 + Math.sin(x * 0.12 + globalZ * 0.09) * 0.03;
-        } else if (surfaceType === 'mud') {
-          colors[i * 3]     = 0.35;
-          colors[i * 3 + 1] = 0.25;
-          colors[i * 3 + 2] = 0.15;
-        } else if (surfaceType === 'creek') {
-          colors[i * 3]     = 0.30;
-          colors[i * 3 + 1] = 0.55;
-          colors[i * 3 + 2] = 0.75;
-        }
-      }
-
-      // Rock drop faces — brownish exposed rock
-      if (cfg.rockDrops) {
-        for (const rd of cfg.rockDrops) {
-          const cliffEnd = rd.z - rd.drop * 0.5;
-          if (globalZ < rd.z && globalZ > cliffEnd) {
-            const progress = (rd.z - globalZ) / (rd.z - cliffEnd);
-            if (progress > 0.2 && progress < 0.8) {
-              const dx = Math.abs(x - rd.x);
-              const halfW = rd.width / 2;
-              let xFade = 1;
-              if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-              if (xFade > 0.1) {
-                const rb = 0.8 * xFade;
-                colors[i * 3]     = colors[i * 3] * (1 - rb) + 0.42 * rb;
-                colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - rb) + 0.35 * rb;
-                colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - rb) + 0.28 * rb;
-              }
-            }
-          }
-        }
-      }
-
-      // Moonlight Ridge — bright moonlit snow palette
-      if (this.chairId === 'moonlight') {
-        const moonBase = 0.72 + Math.sin(x * 0.08 + globalZ * 0.04) * 0.05;
-        colors[i * 3]     = moonBase * 0.82;
-        colors[i * 3 + 1] = moonBase * 0.88;
-        colors[i * 3 + 2] = moonBase * 1.0;
-
-        // Frozen creek beds: icy blue-white
-        if (cfg.frozenCreeks) {
-          for (const fc of cfg.frozenCreeks) {
-            if (globalZ < fc.startZ && globalZ > fc.endZ) {
-              const t = (fc.startZ - globalZ) / (fc.startZ - fc.endZ);
-              const pathIdx = t * (fc.xPath.length - 1);
-              const i0 = Math.floor(pathIdx);
-              const i1 = Math.min(i0 + 1, fc.xPath.length - 1);
-              const frac = pathIdx - i0;
-              const ccX = fc.xPath[i0] * (1 - frac) + fc.xPath[i1] * frac;
-              const dx = Math.abs(x - ccX);
-              if (dx < fc.halfWidth * 1.5) {
-                const iceBlend = Math.max(0, 1 - dx / (fc.halfWidth * 1.5)) * 0.5;
-                colors[i * 3]     = colors[i * 3] * (1 - iceBlend) + 0.55 * iceBlend;
-                colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - iceBlend) + 0.75 * iceBlend;
-                colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - iceBlend) + 0.95 * iceBlend;
-              }
-            }
-          }
-        }
-
-        // Cornice faces: slightly brighter rock
-        if (cfg.cornices) {
-          for (const corn of cfg.cornices) {
-            const dropEnd = corn.z - corn.drop * 0.6;
-            if (globalZ <= corn.z && globalZ > dropEnd) {
-              const progress = (corn.z - globalZ) / (corn.z - dropEnd);
-              if (progress > 0.2 && progress < 0.8) {
-                const dx = Math.abs(x - corn.xCenter);
-                const halfW = corn.width / 2;
-                let xFade = 1;
-                if (dx > halfW) xFade = Math.max(0, 1 - (dx - halfW) / 40);
-                if (xFade > 0.1) {
-                  const rb = 0.7 * xFade;
-                  colors[i * 3]     = colors[i * 3] * (1 - rb) + 0.22 * rb;
-                  colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - rb) + 0.24 * rb;
-                  colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - rb) + 0.30 * rb;
-                }
-              }
-            }
           }
         }
       }
@@ -1721,10 +1020,7 @@ export class BackcountryTerrain {
     this.placeRiverVisuals(chunk, zOffset);
     this.placeJumps(chunk, zOffset);
     this.placeNaturalKickers(chunk, zOffset);
-    this.placeCreekVisuals(chunk, zOffset);
-    this.placeRockDropWalls(chunk, zOffset);
     this.placeFrozenCreekVisuals(chunk, zOffset);
-    this.placeCorniceWalls(chunk, zOffset);
     this.placeFallenLogs(chunk, zOffset);
     this.placeRootDrops(chunk, zOffset);
     this.placeGapJumps(chunk, zOffset);
@@ -2130,12 +1426,11 @@ export class BackcountryTerrain {
 
       const y = this.computeHeight(x, globalZ);
 
-      const tree = this.chairId === 'moonlight' ? this.createMoonlightTree()
-        : cfg.oldGrowthTrees ? this.createOldGrowthTree() : this.createSnowPineTree();
+      const tree = cfg.oldGrowthTrees ? this.createOldGrowthTree() : this.createSnowPineTree();
       tree.position.set(x, y, globalZ);
       this.scene.add(tree);
       chunk.objects.push(tree);
-      const treeRadius = cfg.oldGrowthTrees ? 1.8 : this.chairId === 'moonlight' ? 0.8 : 1.2;
+      const treeRadius = cfg.oldGrowthTrees ? 1.8 : 1.2;
       const obs = { position: new THREE.Vector3(x, y, globalZ), radius: treeRadius, type: 'tree' };
       this.obstacles.push(obs);
       chunk.chunkObstacles.push(obs);
@@ -2194,65 +1489,7 @@ export class BackcountryTerrain {
     }
   }
 
-  // ---- CREEK VISUALS (Alpine Meadow) ----
-  placeCreekVisuals(chunk, zOffset) {
-    if (!this.config.creeks) return;
-    for (const creek of this.config.creeks) {
-      if (creek.z > zOffset || creek.z < zOffset - this.chunkLength) continue;
-      const geo = new THREE.PlaneGeometry(creek.xSpan, creek.width * 0.8);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, this.creekMaterial);
-      const iceY = this.computeHeight(creek.xCenter, creek.z) + 0.08;
-      mesh.position.set(creek.xCenter, iceY, creek.z);
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      chunk.objects.push(mesh);
-    }
-  }
-
-  // ---- ROCK DROP WALLS (Alpine Meadow) ----
-  placeRockDropWalls(chunk, zOffset) {
-    if (!this.config.rockDrops) return;
-    for (const rd of this.config.rockDrops) {
-      const cliffEnd = rd.z - rd.drop * 0.5;
-      const cliffMidZ = (rd.z + cliffEnd) / 2;
-      if (cliffMidZ > zOffset || cliffMidZ < zOffset - this.chunkLength) continue;
-
-      const wallWidth = rd.width;
-      const segments = Math.max(6, Math.ceil(wallWidth / 15));
-      const segWidth = wallWidth / segments;
-
-      for (let s = 0; s < segments; s++) {
-        const segX = rd.x - wallWidth / 2 + segWidth * s + segWidth / 2;
-        const segSeed = Math.abs(Math.sin(segX * 0.37 + rd.z * 0.13));
-        const segW = segWidth * (0.9 + segSeed * 0.2);
-
-        const topY = this.computeHeight(segX, rd.z);
-        const bottomY = this.computeHeight(segX, cliffEnd);
-        const wallH = Math.max(topY - bottomY, rd.drop * 0.15) * (0.3 + segSeed * 0.2);
-        if (wallH < 1) continue;
-        const centerY = bottomY + wallH / 2;
-
-        const geo = new THREE.BoxGeometry(segW, wallH, 3);
-        const pos = geo.attributes.position;
-        for (let v = 0; v < pos.count; v++) {
-          const vy = pos.getY(v); const vx = pos.getX(v); const vz = pos.getZ(v);
-          if (vz > 0) pos.setZ(v, vz + Math.sin(vx * 2.1 + vy * 1.7) * 0.6);
-          if (vy > 0) pos.setY(v, vy + Math.sin(vx * 3.0) * 0.4);
-        }
-        geo.computeVertexNormals();
-
-        const mesh = new THREE.Mesh(geo, this.exposedRockMaterial);
-        mesh.position.set(segX, centerY, cliffMidZ);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        chunk.objects.push(mesh);
-      }
-    }
-  }
-
-  // ---- FROZEN CREEK VISUALS (Moonlight Ridge) ----
+  // ---- FROZEN CREEK VISUALS ----
   placeFrozenCreekVisuals(chunk, zOffset) {
     if (!this.config.frozenCreeks) return;
     // Old Growth uses vertex coloring for creek beds instead of ice planes
@@ -2280,48 +1517,6 @@ export class BackcountryTerrain {
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, this.frozenIceMaterial);
         mesh.position.set(cx, this.computeHeight(cx, midZ) + 0.05, midZ);
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        chunk.objects.push(mesh);
-      }
-    }
-  }
-
-  // ---- CORNICE WALLS (Moonlight Ridge) ----
-  placeCorniceWalls(chunk, zOffset) {
-    if (!this.config.cornices) return;
-    for (const corn of this.config.cornices) {
-      const dropEnd = corn.z - corn.drop * 0.6;
-      const cliffMidZ = (corn.z + dropEnd) / 2;
-      if (cliffMidZ > zOffset || cliffMidZ < zOffset - this.chunkLength) continue;
-
-      const wallWidth = corn.width;
-      const segments = Math.max(6, Math.ceil(wallWidth / 15));
-      const segWidth = wallWidth / segments;
-
-      for (let s = 0; s < segments; s++) {
-        const segX = corn.xCenter - wallWidth / 2 + segWidth * s + segWidth / 2;
-        const segSeed = Math.abs(Math.sin(segX * 0.37 + corn.z * 0.13));
-        const segW = segWidth * (0.9 + segSeed * 0.2);
-
-        const topY = this.computeHeight(segX, corn.z);
-        const bottomY = this.computeHeight(segX, dropEnd);
-        const wallH = Math.max(topY - bottomY, corn.drop * 0.15) * (0.3 + segSeed * 0.2);
-        if (wallH < 1) continue;
-        const centerY = bottomY + wallH / 2;
-
-        const geo = new THREE.BoxGeometry(segW, wallH, 3);
-        const pos = geo.attributes.position;
-        for (let v = 0; v < pos.count; v++) {
-          const vy = pos.getY(v); const vx = pos.getX(v); const vz = pos.getZ(v);
-          if (vz > 0) pos.setZ(v, vz + Math.sin(vx * 2.1 + vy * 1.7) * 0.6);
-          if (vy > 0) pos.setY(v, vy + Math.sin(vx * 3.0) * 0.4);
-        }
-        geo.computeVertexNormals();
-
-        const mesh = new THREE.Mesh(geo, this.cliffMaterial);
-        mesh.position.set(segX, centerY, cliffMidZ);
-        mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.scene.add(mesh);
         chunk.objects.push(mesh);
@@ -2582,187 +1777,6 @@ export class BackcountryTerrain {
     return group;
   }
 
-  // Dead birch — tall white trunk with thin forking branches at top
-  createDeadBirch() {
-    const group = new THREE.Group();
-    const scale = 0.7 + this.rng() * 0.6;
-    const height = (8 + this.rng() * 5) * scale;
-    const lean = (this.rng() - 0.5) * 0.15;
-
-    // Main trunk — tall, thin, white bark
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12 * scale, 0.22 * scale, height, 5),
-      this.birchBarkMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 3-5 forking branches near the top
-    const branchCount = 3 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < branchCount; i++) {
-      const branchLen = (2 + this.rng() * 3) * scale;
-      const branchRadius = 0.04 * scale + this.rng() * 0.03 * scale;
-      const branch = new THREE.Mesh(
-        new THREE.CylinderGeometry(branchRadius * 0.3, branchRadius, branchLen, 4),
-        this.birchBarkMaterial
-      );
-      const attachY = height * (0.55 + this.rng() * 0.4);
-      branch.position.y = attachY;
-      branch.position.x = (this.rng() - 0.5) * 0.4 * scale;
-      // Branch angles outward and upward
-      const spreadAngle = (this.rng() - 0.5) * 1.2;
-      branch.rotation.z = spreadAngle + lean;
-      branch.rotation.y = this.rng() * Math.PI * 2;
-      // Offset branch tip position
-      branch.position.x += Math.sin(spreadAngle) * branchLen * 0.3;
-      branch.castShadow = true;
-      group.add(branch);
-
-      // Sub-branch (thin twig)
-      if (this.rng() > 0.4) {
-        const twig = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.01 * scale, branchRadius * 0.25, branchLen * 0.6, 3),
-          this.birchBarkMaterial
-        );
-        twig.position.copy(branch.position);
-        twig.position.y += branchLen * 0.3;
-        twig.position.x += (this.rng() - 0.5) * 1.0 * scale;
-        twig.rotation.z = spreadAngle * 1.3 + (this.rng() - 0.5) * 0.5;
-        twig.rotation.y = this.rng() * Math.PI * 2;
-        twig.castShadow = true;
-        group.add(twig);
-      }
-    }
-
-    return group;
-  }
-
-  // Dead oak — thick dark trunk with wide spreading gnarly branches
-  createDeadOak() {
-    const group = new THREE.Group();
-    const scale = 0.8 + this.rng() * 0.5;
-    const height = (5 + this.rng() * 4) * scale;
-    const lean = (this.rng() - 0.5) * 0.1;
-
-    // Thick trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.25 * scale, 0.45 * scale, height, 6),
-      this.deadOakMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 4-6 wide-spreading thick branches
-    const branchCount = 4 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < branchCount; i++) {
-      const branchLen = (3 + this.rng() * 4) * scale;
-      const branchR = (0.08 + this.rng() * 0.08) * scale;
-      const branch = new THREE.Mesh(
-        new THREE.CylinderGeometry(branchR * 0.3, branchR, branchLen, 5),
-        this.deadOakMaterial
-      );
-      const attachY = height * (0.4 + this.rng() * 0.45);
-      // Wide horizontal spread — oak branches go outward
-      const angle = (i / branchCount) * Math.PI * 2 + this.rng() * 0.5;
-      const spreadTilt = 0.4 + this.rng() * 0.8; // more horizontal than birch
-      branch.position.set(
-        Math.cos(angle) * 0.3 * scale,
-        attachY,
-        Math.sin(angle) * 0.3 * scale
-      );
-      branch.rotation.z = Math.cos(angle) * spreadTilt;
-      branch.rotation.x = Math.sin(angle) * spreadTilt;
-      branch.castShadow = true;
-      group.add(branch);
-
-      // Gnarly sub-branch
-      if (this.rng() > 0.3) {
-        const subLen = branchLen * (0.4 + this.rng() * 0.3);
-        const sub = new THREE.Mesh(
-          new THREE.CylinderGeometry(branchR * 0.15, branchR * 0.4, subLen, 4),
-          this.deadOakMaterial
-        );
-        sub.position.copy(branch.position);
-        sub.position.y += branchLen * 0.25;
-        sub.position.x += Math.cos(angle) * branchLen * 0.4;
-        sub.position.z += Math.sin(angle) * branchLen * 0.4;
-        sub.rotation.z = branch.rotation.z + (this.rng() - 0.5) * 0.6;
-        sub.rotation.x = branch.rotation.x + (this.rng() - 0.5) * 0.6;
-        sub.castShadow = true;
-        group.add(sub);
-      }
-    }
-
-    return group;
-  }
-
-  // Gnarly snag — twisted thick stump with broken branches
-  createGnarlySnag() {
-    const group = new THREE.Group();
-    const scale = 0.6 + this.rng() * 0.5;
-    const height = (3 + this.rng() * 4) * scale;
-    const lean = (this.rng() - 0.5) * 0.2;
-
-    // Thick broken trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15 * scale, 0.5 * scale, height, 6),
-      this.snagMaterial
-    );
-    trunk.position.y = height / 2;
-    trunk.rotation.z = lean;
-    trunk.rotation.x = (this.rng() - 0.5) * 0.1;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    // 2-4 broken stubs sticking out
-    const stubCount = 2 + Math.floor(this.rng() * 3);
-    for (let i = 0; i < stubCount; i++) {
-      const stubLen = (1 + this.rng() * 2.5) * scale;
-      const stubR = (0.06 + this.rng() * 0.06) * scale;
-      const stub = new THREE.Mesh(
-        new THREE.CylinderGeometry(stubR * 0.2, stubR, stubLen, 4),
-        this.snagMaterial
-      );
-      const attachY = height * (0.3 + this.rng() * 0.5);
-      const angle = this.rng() * Math.PI * 2;
-      stub.position.set(
-        Math.cos(angle) * 0.25 * scale,
-        attachY,
-        Math.sin(angle) * 0.25 * scale
-      );
-      // Stubs point outward at various angles — some drooping, some up
-      const tilt = 0.5 + this.rng() * 1.0;
-      stub.rotation.z = Math.cos(angle) * tilt;
-      stub.rotation.x = Math.sin(angle) * tilt;
-      stub.castShadow = true;
-      group.add(stub);
-    }
-
-    // Optional: snow clump on top of broken trunk
-    if (this.rng() > 0.5) {
-      const snowCap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3 * scale, 4, 3, 0, Math.PI * 2, 0, Math.PI * 0.5),
-        this.snowMaterial
-      );
-      snowCap.position.y = height + 0.1 * scale;
-      group.add(snowCap);
-    }
-
-    return group;
-  }
-
-  // Random dead tree for moonlight — mix of birch, oak, snags
-  createMoonlightTree() {
-    const roll = this.rng();
-    if (roll < 0.4) return this.createDeadBirch();
-    if (roll < 0.7) return this.createDeadOak();
-    return this.createGnarlySnag();
-  }
-
   createBackcountryJump(feet) {
     const group = new THREE.Group();
     const scale = feet / 30;
@@ -2976,9 +1990,7 @@ export class BackcountryTerrain {
       this.chunks[0].zOffset > playerZ + this.chunkLength * 2
     ) {
       const old = this.chunks.shift();
-      this.scene.remove(old.mesh);
-      old.mesh.geometry.dispose();
-      for (const obj of old.objects) this.scene.remove(obj);
+      this._disposeChunk(old);
       // Clean up obstacles belonging to this chunk
       if (old.chunkObstacles && old.chunkObstacles.length > 0) {
         const toRemove = new Set(old.chunkObstacles);
@@ -2996,9 +2008,7 @@ export class BackcountryTerrain {
   reset(spawnZ = 0) {
     // Dispose all existing chunks
     for (const chunk of this.chunks) {
-      this.scene.remove(chunk.mesh);
-      chunk.mesh.geometry.dispose();
-      for (const obj of chunk.objects) this.scene.remove(obj);
+      this._disposeChunk(chunk);
     }
     this.chunks = [];
     this.obstacles = [];
@@ -3469,12 +2479,35 @@ export class BackcountryTerrain {
     return group;
   }
 
+  // Recursively dispose all geometries and materials in an object tree
+  _disposeObject(obj) {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) {
+        for (const m of obj.material) m.dispose();
+      } else {
+        obj.material.dispose();
+      }
+    }
+    if (obj.children) {
+      for (const child of obj.children) this._disposeObject(child);
+    }
+  }
+
+  _disposeChunk(chunk) {
+    this.scene.remove(chunk.mesh);
+    chunk.mesh.geometry.dispose();
+    if (chunk.mesh.material) chunk.mesh.material.dispose();
+    for (const obj of chunk.objects) {
+      this.scene.remove(obj);
+      this._disposeObject(obj);
+    }
+  }
+
   // Clean up everything when switching back to park
   dispose() {
     for (const chunk of this.chunks) {
-      this.scene.remove(chunk.mesh);
-      chunk.mesh.geometry.dispose();
-      for (const obj of chunk.objects) this.scene.remove(obj);
+      this._disposeChunk(chunk);
     }
     this.chunks = [];
     this.obstacles = [];

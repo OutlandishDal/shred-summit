@@ -108,62 +108,6 @@ export class ShopSystem {
     return ITEM_MAP[id] || null;
   }
 
-  getAllItems() {
-    return ITEMS;
-  }
-
-  getItemsByCategory(category, equipType = null) {
-    return ITEMS.filter(item => {
-      if (item.category !== category) return false;
-      // For boards, filter by equipment type
-      if (category === 'board' && equipType && item.equipType) {
-        return item.equipType === equipType;
-      }
-      return true;
-    });
-  }
-
-  isOwned(id) {
-    return this.data.purchased.includes(id);
-  }
-
-  isEquipped(id) {
-    const item = this.getItem(id);
-    if (!item) return false;
-    return this.data.equipped[item.category] === id;
-  }
-
-  purchase(id) {
-    const item = this.getItem(id);
-    if (!item) return false;
-    if (this.isOwned(id)) return false;
-
-    // Try to spend tokens
-    if (!this.ridePass.spendTokens(item.tier, item.cost)) return false;
-
-    this.data.purchased.push(id);
-    this.save();
-    return true;
-  }
-
-  equip(id) {
-    const item = this.getItem(id);
-    if (!item || !this.isOwned(id)) return false;
-
-    this.data.equipped[item.category] = id;
-    this.save();
-    return true;
-  }
-
-  unequip(category) {
-    if (this.data.equipped[category]) {
-      this.data.equipped[category] = null;
-      this.save();
-      return true;
-    }
-    return false;
-  }
-
   getEquipped() {
     return { ...this.data.equipped };
   }
@@ -173,31 +117,4 @@ export class ShopSystem {
     return id ? this.getItem(id) : null;
   }
 
-  // Get token cost display string
-  getCostDisplay(item) {
-    const tierNames = {
-      [S1]: 'S1',
-      [S2]: 'S2',
-      [S3]: 'S3',
-      [B]: 'BOARD',
-    };
-    return `${item.cost} ${tierNames[item.tier] || '?'}`;
-  }
-
-  // Get tier icon
-  getTierIcon(tier) {
-    if (tier === S1) return '\u2605'; // star
-    if (tier === S2) return '\u2605'; // star (pink)
-    if (tier === S3) return '\u2605'; // star (legendary)
-    if (tier === B) return '\u2666';  // diamond
-    return '?';
-  }
-
-  getTierClass(tier) {
-    if (tier === S1) return 'shop-tier-s1';
-    if (tier === S2) return 'shop-tier-s2';
-    if (tier === S3) return 'shop-tier-s3';
-    if (tier === B) return 'shop-tier-board';
-    return '';
-  }
 }

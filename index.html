@@ -55,19 +55,6 @@
       transition: opacity 0.2s;
     }
 
-    #aurora-multiplier {
-      position: absolute;
-      top: 90px; right: 32px;
-      font-size: 16px;
-      font-weight: 700;
-      opacity: 0;
-      transition: opacity 0.3s, text-shadow 0.3s;
-      background: linear-gradient(90deg, #40ff80, #8060ff, #40c0c0);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      filter: drop-shadow(0 2px 8px rgba(100, 255, 160, 0.5));
-    }
 
     /* Landing announcement container */
     #landing-announce {
@@ -229,6 +216,49 @@
       transition: width 0.15s;
     }
 
+    /* Pop meter: fills while jump is held; release in the gold zone for a perfect pop */
+    #pop-meter {
+      position: absolute;
+      bottom: 34px; left: 50%;
+      width: 240px; margin-left: -120px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    #pop-meter.visible { opacity: 1; }
+    #pop-meter-track {
+      position: relative;
+      height: 12px;
+      background: rgba(10,20,35,0.55);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    #pop-meter-sweet {
+      position: absolute; top: 0; bottom: 0;
+      left: 72%; width: 16%;
+      background: rgba(255,204,0,0.35);
+      border-left: 2px solid #ffcc00;
+      border-right: 2px solid #ffcc00;
+    }
+    #pop-meter-fill {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      width: 0%;
+      background: linear-gradient(90deg, #7fd3ff, #ffffff);
+    }
+    #pop-meter.in-sweet #pop-meter-fill { background: linear-gradient(90deg, #ffcc00, #fff3b0); }
+    #pop-meter.over #pop-meter-fill { background: linear-gradient(90deg, #7fd3ff, #ff6b35); }
+    #pop-meter-label {
+      margin-top: 4px;
+      text-align: center;
+      color: rgba(255,255,255,0.75);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 3px;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    }
+    #pop-meter.perfect #pop-meter-label { color: #ffcc00; }
+
     #controls-hint {
       position: absolute;
       bottom: 50px; right: 32px;
@@ -315,30 +345,6 @@
     }
     #lobby-drop-in:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
 
-    /* Big party code banner */
-    #party-code-banner {
-      position: absolute;
-      top: 30px;
-      left: 50%;
-      transform: translateX(-50%);
-      text-align: center;
-      z-index: 5;
-      pointer-events: none;
-    }
-    .party-code-label {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 14px;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.5);
-      margin-bottom: 4px;
-    }
-    #party-code-big {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 52px;
-      letter-spacing: 10px;
-      color: #fff;
-      text-shadow: 0 2px 16px rgba(0,0,0,0.5);
-    }
     .lobby-hint {
       position: absolute;
       left: 50%;
@@ -351,150 +357,156 @@
       white-space: nowrap;
     }
 
-    /* Bottom equipment / stance bar */
-    #lobby-equipment-bar {
-      position: absolute;
-      bottom: 28px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      z-index: 2;
-      pointer-events: auto;
-    }
-    .equip-bar-row {
-      display: flex;
-      gap: 8px;
-    }
-    .equip-bar-btn {
-      padding: 10px 24px;
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 8px;
-      color: rgba(255,255,255,0.6);
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 18px;
-      letter-spacing: 3px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .equip-bar-btn:hover { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); }
-    .equip-bar-btn.selected {
-      background: rgba(255,255,255,0.22);
-      border-color: #fff;
-      color: #fff;
-    }
-    #equip-bar-stance .equip-bar-btn {
-      padding: 7px 18px;
-      font-size: 15px;
-      letter-spacing: 2px;
-    }
-
-    /* Party panel */
+    /* ---- Multiplayer ---- */
     #party-panel {
-      position: absolute;
-      top: 30px;
-      left: 30px;
-      transform: none;
-      background: rgba(0,0,0,0.5);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 12px;
-      padding: 16px 24px;
-      text-align: center;
-      z-index: 3;
-      pointer-events: auto;
-      min-width: 220px;
-      max-width: 260px;
+      display: none; flex-direction: column; align-items: center;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97); z-index: 3;
+      padding: 60px 16px 40px; overflow-y: auto; pointer-events: auto;
     }
-    #party-panel h3 {
-      margin: 0 0 12px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 18px;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.9);
+    #party-panel.active { display: flex; }
+    #duel-panel {
+      display: none; flex-direction: column; align-items: center;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10,18,30,0.97); z-index: 3;
+      padding: 60px 16px 40px; overflow-y: auto; pointer-events: auto;
+    }
+    #duel-panel.active { display: flex; }
+    #duel-list { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; }
+    #duel-list .party-member .party-btn { font-size: 16px; padding: 6px 14px; }
+    #duel-list .duel-empty {
+      font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.6); text-align: center; margin-bottom: 10px;
+    }
+    #duel-error {
+      font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px;
+      color: #ff5252; margin-top: 16px; min-height: 20px; text-align: center;
+    }
+    #duel-error.ok { color: #69f0ae; }
+    .duel-overlay {
+      display: none; position: fixed; inset: 0; z-index: 150;
+      align-items: center; justify-content: center;
+      background: rgba(5,10,20,0.6); pointer-events: auto;
+    }
+    .duel-overlay.active { display: flex; }
+    .duel-card {
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      background: rgba(10,18,30,0.96); border: 2px solid rgba(255,193,7,0.6); border-radius: 14px;
+      padding: 28px 32px; max-width: min(420px, calc(100vw - 32px)); text-align: center;
+      font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; color: #fff;
+    }
+    .duel-card h2 { font-size: 44px; letter-spacing: 5px; color: #ffc107; margin: 0; }
+    #duel-invite-text { font-size: 24px; }
+    #duel-result-scores { display: flex; flex-direction: column; gap: 6px; width: 100%; font-size: 22px; }
+    #duel-result-scores .row { display: flex; justify-content: space-between; gap: 24px; }
+    #duel-result-scores .row.win { color: #69f0ae; }
+    #duel-result-note { font-size: 15px; color: rgba(255,255,255,0.6); }
+    #duel-hud {
+      display: none; position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      z-index: 90; font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; color: #fff;
+      background: rgba(0,0,0,0.45); border: 1px solid rgba(255,193,7,0.6); border-radius: 10px;
+      padding: 8px 18px; text-align: center; pointer-events: none;
+    }
+    #duel-hud .big { font-size: 22px; color: #ffc107; }
+    #duel-hud .small { font-size: 14px; color: rgba(255,255,255,0.8); }
+    #party-panel h2, #duel-panel h2 {
+      font-size: 48px; font-family: 'Bebas Neue', sans-serif;
+      color: #fff; letter-spacing: 6px; margin-bottom: 12px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    .party-sub {
+      font-size: 13px; letter-spacing: 1px; color: rgba(255,255,255,0.5);
+      margin-bottom: 28px; text-align: center; max-width: 340px;
+    }
+    #party-join-view, #party-active-view {
+      display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 360px;
     }
     .party-btn {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 16px;
-      letter-spacing: 2px;
-      padding: 8px 20px;
-      border: 1px solid rgba(255,255,255,0.3);
-      background: rgba(255,255,255,0.1);
-      color: #fff;
-      border-radius: 6px;
-      cursor: pointer;
-      margin: 4px;
-      transition: background 0.2s;
+      font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 3px;
+      color: #fff; background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3); border-radius: 8px;
+      padding: 10px 28px; cursor: pointer; transition: all 0.15s;
     }
-    .party-btn:hover { background: rgba(255,255,255,0.2); }
-    #party-join-input {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 18px;
-      letter-spacing: 4px;
-      text-align: center;
-      width: 120px;
-      padding: 6px;
-      background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.3);
-      color: #fff;
-      border-radius: 6px;
-      outline: none;
-    }
-    #party-join-input::placeholder { color: rgba(255,255,255,0.3); }
-    #party-code {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 28px;
-      letter-spacing: 6px;
-      color: #ffd700;
-    }
-    #party-members {
-      margin: 10px 0;
-      max-height: 120px;
-    }
-    .party-member {
-      padding: 4px 0;
-      font-size: 14px;
-      color: rgba(255,255,255,0.8);
-      letter-spacing: 1px;
-      font-family: 'Inter', sans-serif;
-    }
-    .party-member.host::after {
-      content: ' \2605';
-      color: #ffd700;
-    }
-    #party-error {
-      color: #ff4444;
-      font-size: 12px;
-      margin-top: 6px;
-      min-height: 16px;
-      font-family: 'Inter', sans-serif;
-    }
+    .party-btn:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
+    .party-btn:disabled { opacity: 0.4; cursor: default; }
+    .party-btn.primary { border-color: #ffc107; color: #ffc107; background: rgba(255,193,7,0.1); }
+    .party-btn.primary:hover { background: rgba(255,193,7,0.2); }
+    .party-btn.danger { border-color: rgba(255,82,82,0.6); color: #ff8a80; }
     .party-divider {
-      color: rgba(255,255,255,0.3);
-      font-size: 12px;
-      margin: 8px 0;
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 3px;
+      color: rgba(255,255,255,0.35); margin: 22px 0 14px;
     }
-    .party-code-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 8px;
+    .party-join-row, .party-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #party-join-input {
+      font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 6px;
+      color: #fff; background: rgba(255,255,255,0.1); text-transform: uppercase;
+      border: 2px solid rgba(255,255,255,0.3); border-radius: 8px;
+      padding: 6px 12px; width: 170px; outline: none; text-align: center;
     }
-    .party-join-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+    #party-join-input:focus { border-color: #ffc107; }
+    .party-code-label {
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 3px;
+      color: rgba(255,255,255,0.4);
     }
-    #party-start {
-      background: rgba(76,255,136,0.2);
-      border-color: rgba(76,255,136,0.5);
-      color: #4cff88;
+    #party-code {
+      font-family: 'Bebas Neue', sans-serif; font-size: 56px; letter-spacing: 10px;
+      color: #ffc107; margin-bottom: 10px; user-select: all;
     }
-    #party-start:hover { background: rgba(76,255,136,0.3); }
+    #party-map-label {
+      font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.6); margin: 20px 0 8px; text-align: center;
+    }
+    #party-members { width: 100%; margin-bottom: 20px; }
+    .party-member {
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px;
+      color: #fff; padding: 8px 14px; margin-bottom: 6px;
+      background: rgba(255,255,255,0.06); border-radius: 6px;
+    }
+    .party-member.me { background: rgba(255,193,7,0.08); }
+    .party-member-status { font-size: 14px; color: rgba(255,255,255,0.45); }
+    .party-member-status.riding { color: #69f0ae; }
+    #party-error {
+      font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px;
+      color: #ff5252; margin-top: 16px; min-height: 20px; text-align: center;
+    }
+    #party-error.ok { color: #69f0ae; }
+    #party-back {
+      margin-top: 16px; padding: 10px 36px;
+      font-size: 18px; font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px;
+      color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.25); border-radius: 8px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    #party-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+    #party-banner {
+      position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+      font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px; color: #fff;
+      background: rgba(0,0,0,0.35); border: 1px solid rgba(255,193,7,0.5);
+      border-radius: 10px; padding: 8px 18px; text-align: center;
+      z-index: 2; pointer-events: auto; cursor: pointer;
+    }
+    #party-banner-code { color: #ffc107; font-size: 26px; letter-spacing: 6px; }
+    #party-banner-info { font-size: 13px; color: rgba(255,255,255,0.7); }
+    #lobby-party-hint {
+      position: absolute; left: 50%; bottom: calc(30% + 76px); transform: translateX(-50%);
+      font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 2px;
+      color: #ffc107; z-index: 2; white-space: nowrap; text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+    #party-hud {
+      position: absolute; top: 48px; left: 32px;
+      font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.85); text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+    #start-multiplayer-btn { margin-top: 28px; pointer-events: auto; }
+    @media (max-width: 600px) {
+      #party-panel h2, #duel-panel h2 { font-size: 36px; }
+      .duel-card h2 { font-size: 34px; }
+      #party-code { font-size: 44px; }
+      #party-banner { top: 12px; padding: 6px 12px; }
+      #party-banner-code { font-size: 20px; }
+      #party-hud { top: 36px; left: 16px; font-size: 12px; }
+    }
 
     /* Remote player nickname overlays */
     .remote-nickname {
@@ -522,243 +534,6 @@
       white-space: nowrap;
       display: none;
     }
-
-    /* Quests panel */
-    #quests-panel {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(10,18,30,0.97);
-      z-index: 3;
-      padding-top: 40px;
-    }
-    #quests-panel.active { display: flex; }
-    #quests-panel h2 {
-      font-size: 48px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #fff;
-      letter-spacing: 6px;
-      margin-bottom: 16px;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
-    }
-    .quest-tabs {
-      display: flex;
-      gap: 0;
-      margin-bottom: 12px;
-    }
-    .quest-tab {
-      padding: 8px 24px;
-      font-size: 14px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.4);
-      background: none;
-      border: 1px solid rgba(255,255,255,0.1);
-      cursor: pointer;
-      transition: color 0.2s, border-color 0.2s, background 0.2s;
-    }
-    .quest-tab:first-child { border-radius: 6px 0 0 6px; }
-    .quest-tab:last-child { border-radius: 0 6px 6px 0; }
-    .quest-tab.active {
-      color: #fff;
-      background: rgba(255,255,255,0.1);
-      border-color: rgba(255,255,255,0.3);
-    }
-    .quest-tab:hover:not(.active) { color: rgba(255,255,255,0.6); }
-    .quest-season-timer {
-      margin-bottom: 8px;
-      font-size: 13px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: rgba(255,255,255,0.45);
-      letter-spacing: 3px;
-    }
-    .quest-season-timer span {
-      color: rgba(255,255,255,0.7);
-    }
-    .quest-xp-bar {
-      margin-bottom: 16px;
-      font-size: 16px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #ffcc00;
-      letter-spacing: 3px;
-      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
-    }
-    .quest-list {
-      width: 90%;
-      max-width: 440px;
-      max-height: 55vh;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-    .quest-list::-webkit-scrollbar { width: 4px; }
-    .quest-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
-    .quest-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-    .quest-item {
-      display: flex;
-      align-items: center;
-      padding: 10px 12px;
-      margin-bottom: 6px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 8px;
-      gap: 10px;
-      transition: background 0.2s;
-    }
-    .quest-item.completed {
-      background: rgba(76,255,136,0.06);
-      border-color: rgba(76,255,136,0.15);
-    }
-    .quest-item-info { flex: 1; min-width: 0; }
-    .quest-item-desc {
-      font-size: 13px;
-      color: rgba(255,255,255,0.8);
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .quest-item.completed .quest-item-desc {
-      color: rgba(76,255,136,0.8);
-    }
-    .quest-progress-bar {
-      width: 100%;
-      height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .quest-progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #4cf, #4cff88);
-      border-radius: 2px;
-      transition: width 0.3s;
-    }
-    .quest-item.completed .quest-progress-fill {
-      background: #4cff88;
-    }
-    .quest-progress-text {
-      font-size: 10px;
-      color: rgba(255,255,255,0.35);
-      margin-top: 2px;
-      letter-spacing: 0.5px;
-    }
-    .quest-item.completed .quest-progress-text {
-      color: rgba(76,255,136,0.5);
-    }
-    .quest-xp-badge {
-      font-size: 14px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #ffcc00;
-      letter-spacing: 1px;
-      white-space: nowrap;
-      min-width: 50px;
-      text-align: right;
-    }
-    .quest-item.completed .quest-xp-badge {
-      color: rgba(76,255,136,0.6);
-    }
-    .quest-check {
-      font-size: 18px;
-      color: #4cff88;
-      display: none;
-    }
-    .quest-item.completed .quest-check { display: block; }
-    #quests-back {
-      margin-top: 20px;
-      padding: 10px 36px;
-      font-size: 18px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.7);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    #quests-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
-
-    /* Scores panel */
-    #scores-panel {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(10,18,30,0.97);
-      z-index: 3;
-      padding-top: 40px;
-    }
-    #scores-panel.active { display: flex; }
-    #scores-panel h2 {
-      font-size: 48px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #fff;
-      letter-spacing: 6px;
-      margin-bottom: 16px;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
-    }
-    .scores-tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .scores-tab {
-      padding: 8px 20px;
-      font-size: 14px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.4);
-      background: none;
-      border: 1px solid rgba(255,255,255,0.1);
-      cursor: pointer;
-      transition: color 0.2s, border-color 0.2s, background 0.2s;
-    }
-    .scores-tab { border-radius: 4px; }
-    .scores-tab.active {
-      color: #fff;
-      background: rgba(255,255,255,0.1);
-      border-color: rgba(255,255,255,0.3);
-    }
-    .scores-tab:hover:not(.active) { color: rgba(255,255,255,0.6); }
-    .scores-label {
-      margin-bottom: 12px;
-      font-size: 13px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: rgba(255,255,255,0.4);
-      letter-spacing: 3px;
-    }
-    .scores-list {
-      width: 90%;
-      max-width: 440px;
-      max-height: 55vh;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-    .scores-list::-webkit-scrollbar { width: 4px; }
-    .scores-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
-    .scores-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-    #scores-back {
-      margin-top: 20px;
-      padding: 10px 36px;
-      font-size: 18px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.7);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    #scores-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
 
     /* Map panel */
     #map-panel {
@@ -964,154 +739,6 @@
       color: #fff;
     }
 
-    /* Ride Pass panel */
-    #ridepass-panel {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(10,18,30,0.97);
-      z-index: 3;
-      padding-top: 40px;
-    }
-    #ridepass-panel.active { display: flex; }
-    #ridepass-panel h2 {
-      font-size: 48px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #fff;
-      letter-spacing: 6px;
-      margin-bottom: 12px;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
-    }
-    .rp-tokens-bar {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 12px;
-    }
-    .rp-token {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 16px;
-      letter-spacing: 2px;
-      padding: 4px 12px;
-      border-radius: 6px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .rp-token-s1 { color: #ffcc00; }
-    .rp-token-s2 { color: #ff66cc; }
-    .rp-token-board { color: #4cf; }
-    .rp-token-icon { margin-right: 4px; }
-    .rp-level-bar {
-      width: 90%;
-      max-width: 440px;
-      margin-bottom: 16px;
-      text-align: center;
-    }
-    .rp-level-label {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 22px;
-      color: #ffcc00;
-      letter-spacing: 3px;
-      text-shadow: 0 1px 8px rgba(255,204,0,0.3);
-    }
-    .rp-progress-track {
-      width: 100%;
-      height: 6px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 3px;
-      overflow: hidden;
-      margin: 6px 0;
-    }
-    .rp-progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #ffcc00, #ff9900);
-      border-radius: 3px;
-      transition: width 0.3s;
-    }
-    .rp-xp-label {
-      font-size: 12px;
-      color: rgba(255,255,255,0.4);
-      letter-spacing: 1px;
-    }
-    .rp-level-list {
-      width: 90%;
-      max-width: 440px;
-      max-height: 42vh;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-    .rp-level-list::-webkit-scrollbar { width: 4px; }
-    .rp-level-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 2px; }
-    .rp-level-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-    .rp-level-item {
-      display: flex;
-      align-items: center;
-      padding: 8px 12px;
-      margin-bottom: 4px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 8px;
-      gap: 10px;
-    }
-    .rp-level-item.claimed {
-      background: rgba(76,255,136,0.06);
-      border-color: rgba(76,255,136,0.15);
-    }
-    .rp-level-item.locked { opacity: 0.35; }
-    .rp-level-item.current {
-      border-color: rgba(255,204,0,0.4);
-      background: rgba(255,204,0,0.06);
-    }
-    .rp-level-num {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 18px;
-      color: rgba(255,255,255,0.5);
-      width: 32px;
-      text-align: center;
-      letter-spacing: 1px;
-    }
-    .rp-level-item.claimed .rp-level-num { color: rgba(76,255,136,0.7); }
-    .rp-level-item.current .rp-level-num { color: #ffcc00; }
-    .rp-reward-icon { font-size: 18px; width: 24px; text-align: center; }
-    .rp-icon-s1 { color: #ffcc00; }
-    .rp-icon-s2 { color: #ff66cc; }
-    .rp-icon-s3 { color: #ff3300; }
-    .rp-icon-board { color: #4cf; }
-    .rp-icon-title { color: #ffd700; }
-    .rp-reward-desc {
-      flex: 1;
-      font-size: 13px;
-      color: rgba(255,255,255,0.7);
-      letter-spacing: 0.5px;
-    }
-    .rp-level-item.claimed .rp-reward-desc { color: rgba(76,255,136,0.7); }
-    .rp-claim-badge {
-      font-size: 16px;
-      color: #4cff88;
-      display: none;
-    }
-    .rp-level-item.claimed .rp-claim-badge { display: block; }
-    .rp-title-section {
-      margin-top: 10px;
-      text-align: center;
-      width: 90%;
-      max-width: 440px;
-    }
-    .rp-title-heading {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 14px;
-      color: rgba(255,255,255,0.4);
-      letter-spacing: 3px;
-      margin-bottom: 8px;
-    }
-    .rp-title-options {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      justify-content: center;
-    }
     .rp-title-btn {
       padding: 6px 16px;
       font-family: 'Bebas Neue', sans-serif;
@@ -1130,20 +757,7 @@
       border-color: #ffcc00;
       background: rgba(255,204,0,0.1);
     }
-    #ridepass-back {
-      margin-top: 14px;
-      padding: 10px 36px;
-      font-size: 18px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.7);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    #ridepass-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
+
     .lb-title {
       font-size: 10px;
       font-family: 'Bebas Neue', sans-serif;
@@ -1151,229 +765,6 @@
       letter-spacing: 2px;
       opacity: 0.7;
     }
-
-    /* Shop panel */
-    #shop-panel {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(10,18,30,0.97);
-      z-index: 3;
-      padding-top: 30px;
-      overflow: hidden;
-    }
-    #shop-panel.active { display: flex; }
-    #shop-panel h2 {
-      font-size: 48px;
-      font-family: 'Bebas Neue', sans-serif;
-      color: #fff;
-      letter-spacing: 6px;
-      margin: 0 0 12px 0;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.4);
-    }
-    .shop-tokens-bar {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 12px;
-    }
-    .shop-token {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 14px;
-      border-radius: 8px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 18px;
-      letter-spacing: 2px;
-      border: 1px solid rgba(255,255,255,0.15);
-      background: rgba(255,255,255,0.06);
-    }
-    .shop-token-s1 { color: #ffcc00; }
-    .shop-token-s2 { color: #ff66cc; }
-    .shop-token-s3 { color: #ffd700; }
-    .shop-token-board { color: #4cf; }
-    .shop-tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 12px;
-    }
-    .shop-tab {
-      padding: 8px 20px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 16px;
-      letter-spacing: 2px;
-      color: rgba(255,255,255,0.5);
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .shop-tab:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.8); }
-    .shop-tab.active {
-      background: rgba(255,255,255,0.15);
-      color: #fff;
-      border-color: rgba(255,255,255,0.4);
-    }
-    #shop-item-list {
-      flex: 1;
-      width: 90%;
-      max-width: 500px;
-      overflow-y: auto;
-      padding: 4px 0 8px 0;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.15) transparent;
-    }
-    .shop-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      margin-bottom: 6px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 8px;
-      transition: all 0.15s;
-      overflow: hidden;
-    }
-    .shop-item.owned {
-      border-color: rgba(76, 255, 136, 0.3);
-      background: rgba(76, 255, 136, 0.06);
-    }
-    .shop-item.equipped {
-      border-color: rgba(255, 204, 0, 0.5);
-      background: rgba(255, 204, 0, 0.08);
-    }
-    .shop-item.legendary {
-      border-color: rgba(255, 215, 0, 0.4);
-      background: linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,100,0,0.06));
-    }
-    .shop-color-swatch {
-      width: 36px;
-      height: 36px;
-      border-radius: 6px;
-      border: 2px solid rgba(255,255,255,0.2);
-      flex-shrink: 0;
-    }
-    .shop-item-info {
-      flex: 1;
-      min-width: 0;
-    }
-    .shop-item-brand {
-      font-size: 9px;
-      font-family: 'Inter', sans-serif;
-      font-weight: 700;
-      letter-spacing: 2px;
-      color: rgba(255,255,255,0.4);
-      text-transform: uppercase;
-    }
-    .shop-item-name {
-      font-size: 15px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 2px;
-      color: #fff;
-      line-height: 1.1;
-    }
-    .shop-item-style {
-      font-size: 9px;
-      font-family: 'Inter', sans-serif;
-      color: rgba(255,255,255,0.35);
-      letter-spacing: 1px;
-    }
-    .shop-stats {
-      display: flex;
-      gap: 8px;
-      margin-top: 4px;
-    }
-    .shop-stat {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 9px;
-      font-family: 'Inter', sans-serif;
-      color: rgba(255,255,255,0.5);
-      letter-spacing: 1px;
-    }
-    .shop-stat-bar {
-      width: 40px;
-      height: 4px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .shop-stat-fill {
-      height: 100%;
-      border-radius: 2px;
-    }
-    .shop-stat-fill.speed { background: #4cf; }
-    .shop-stat-fill.pop { background: #ff6b6b; }
-    .shop-stat-fill.flex { background: #a78bfa; }
-    .shop-price {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 14px;
-      letter-spacing: 1px;
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-    .shop-price.shop-tier-s1 { color: #ffcc00; }
-    .shop-price.shop-tier-s2 { color: #ff66cc; }
-    .shop-price.shop-tier-s3 { color: #ffd700; }
-    .shop-price.shop-tier-board { color: #4cf; }
-    .shop-btn {
-      padding: 4px 10px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 13px;
-      letter-spacing: 1px;
-      border-radius: 5px;
-      cursor: pointer;
-      border: 1px solid;
-      transition: all 0.15s;
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-    .shop-btn-buy {
-      color: #fff;
-      background: rgba(76, 255, 136, 0.15);
-      border-color: rgba(76, 255, 136, 0.4);
-    }
-    .shop-btn-buy:hover { background: rgba(76, 255, 136, 0.3); }
-    .shop-btn-buy.disabled {
-      opacity: 0.3;
-      cursor: not-allowed;
-    }
-    .shop-btn-equip {
-      color: #ffcc00;
-      background: rgba(255, 204, 0, 0.1);
-      border-color: rgba(255, 204, 0, 0.3);
-    }
-    .shop-btn-equip:hover { background: rgba(255, 204, 0, 0.25); }
-    .shop-btn-equipped {
-      color: rgba(255,255,255,0.4);
-      background: rgba(255,255,255,0.05);
-      border-color: rgba(255,255,255,0.15);
-      cursor: default;
-    }
-    #shop-back {
-      margin-top: 10px;
-      margin-bottom: 20px;
-      padding: 10px 36px;
-      font-size: 18px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 3px;
-      color: rgba(255,255,255,0.7);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    #shop-back:hover { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff; }
 
     /* Customize panel (hidden by default) */
     #customize-panel {
@@ -1708,24 +1099,6 @@
       #auth-screen .auth-subtitle { font-size: 11px; letter-spacing: 4px; }
       .auth-form { width: 260px; }
     }
-
-    /* Logout button in lobby */
-    #lobby-logout {
-      position: static;
-      width: 100%;
-      padding: 8px 16px;
-      font-size: 15px;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 2px;
-      color: rgba(255,255,255,0.8);
-      background: rgba(255,255,255,0.08);
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 10px;
-      cursor: pointer;
-      z-index: 10;
-      text-align: center;
-    }
-    #lobby-logout:hover { color: #fff; background: rgba(0,0,0,0.4); }
 
     /* Start screen */
     #start-screen {
@@ -2314,30 +1687,12 @@
         padding: 12px 16px;
       }
 
-      /* Quests panel mobile */
-      #quests-panel h2 { font-size: 36px; }
-      .quest-list { max-height: 45vh; }
-      /* Scores panel mobile */
-      #scores-panel h2 { font-size: 36px; }
-      .scores-list { max-height: 45vh; }
-      .scores-tab { padding: 6px 12px; font-size: 13px; }
-      /* Shop mobile */
-      #shop-panel h2 { font-size: 36px; }
-      #shop-item-list { width: 95%; }
-      .shop-tokens-bar { gap: 8px; }
-      .shop-token { font-size: 14px; padding: 3px 8px; }
-      .shop-tab { padding: 6px 12px; font-size: 13px; }
       /* Map mobile */
       #map-panel h2 { font-size: 36px; }
       #lobby-map { font-size: 18px; padding: 8px 16px; }
       .map-tab { padding: 6px 16px; font-size: 14px; letter-spacing: 2px; }
       .park-card { padding: 14px; }
       .park-card-name { font-size: 20px; }
-      /* Ride pass mobile */
-      #ridepass-panel h2 { font-size: 36px; }
-      .rp-level-list { max-height: 35vh; }
-      .rp-tokens-bar { gap: 8px; }
-      .rp-token { font-size: 14px; padding: 3px 8px; }
 
       /* Lobby */
       #lobby-screen h2 {
@@ -2359,7 +1714,6 @@
       #score-display { font-size: 26px; top: 16px; right: 16px; }
       #score-label { top: 6px; right: 16px; font-size: 9px; }
       #combo-display { top: 48px; right: 16px; font-size: 14px; }
-      #aurora-multiplier { top: 66px; right: 16px; font-size: 12px; }
       #checkpoint-display { top: 16px; left: 16px; font-size: 12px; }
 
       #speed-display { bottom: 130px; left: 16px; font-size: 22px; }
@@ -2367,6 +1721,7 @@
       #altitude-display { bottom: 150px; left: 16px; font-size: 11px; }
 
       #trick-meter { bottom: 130px; right: 16px; width: 120px; }
+      #pop-meter { bottom: 170px; width: 180px; margin-left: -90px; }
       #controls-hint { display: none; }
 
       #jump-height { font-size: 48px; }
@@ -2405,9 +1760,10 @@
     <div class="subtitle">Freestyle Snowboarding</div>
     <div class="press-start desktop-text">PRESS SPACE OR CLICK TO DROP IN</div>
     <div class="press-start mobile-text" style="display:none">TAP TO DROP IN</div>
+    <button id="start-multiplayer-btn" class="party-btn">PLAY WITH FRIENDS</button>
     <div class="controls-info">
-      A/D — STEER &nbsp;&middot;&nbsp; S — BRAKE &nbsp;&middot;&nbsp; SPACE — JUMP &nbsp;&middot;&nbsp; SHIFT — TUCK<br>
-      IN AIR: W/S — FLIP &nbsp;&middot;&nbsp; Q/E — SPIN &nbsp;&middot;&nbsp; FLIP+SPIN — CORK &nbsp;&middot;&nbsp; GRABS: G INDY · R METHOD · F STALEFISH · T MELON · V NOSE · C TAIL
+      A/D — STEER &nbsp;&middot;&nbsp; S — BRAKE &nbsp;&middot;&nbsp; HOLD SPACE — OLLIE &nbsp;&middot;&nbsp; SHIFT — TUCK<br>
+      IN AIR: W/S — FLIP &nbsp;&middot;&nbsp; A/D — SPIN &nbsp;&middot;&nbsp; FLIP+SPIN — CORK &nbsp;&middot;&nbsp; HOLD SPACE 1s — PREP LANDING &nbsp;&middot;&nbsp; GRABS: G INDY · R METHOD · F STALEFISH · T MELON · V NOSE · C TAIL
     </div>
   </div>
 
@@ -2427,7 +1783,6 @@
     <div id="score-label">SCORE</div>
     <div id="score-display">0</div>
     <div id="combo-display"></div>
-    <div id="aurora-multiplier"></div>
     <div id="jump-height"><span id="jump-height-value">0</span> <span class="unit">FT</span></div>
     <div id="landing-announce">
       <div id="stomped-label">STOMPED!</div>
@@ -2439,12 +1794,17 @@
     <div id="speed-label">KM/H</div>
     <div id="altitude-display">ALT 2400m</div>
     <div id="checkpoint-display">CHECKPOINT 1</div>
+    <div id="party-hud" style="display:none"></div>
     <div id="checkpoint-alert">CHECKPOINT REACHED</div>
     <div id="trick-meter"><div id="trick-meter-fill"></div></div>
+    <div id="pop-meter">
+      <div id="pop-meter-track"><div id="pop-meter-sweet"></div><div id="pop-meter-fill"></div></div>
+      <div id="pop-meter-label">POP</div>
+    </div>
     <div id="controls-hint">
-      A/D STEER · S BRAKE · SPACE JUMP<br>
-      SHIFT TUCK · W/S FLIP · Q/E SPIN<br>
-      FLIP+SPIN=CORK · GRFTVB GRABS
+      A/D STEER · S BRAKE · HOLD SPACE OLLIE<br>
+      SHIFT TUCK · W/S FLIP · A/D SPIN<br>
+      FLIP+SPIN=CORK · HOLD SPACE PREP LANDING · GRFTVB GRABS
     </div>
   </div>
 
@@ -2475,81 +1835,85 @@
     <button class="touch-customize-btn" id="finish-customize-btn">CUSTOMIZE</button>
   </div>
 
+  <!-- 1v1: incoming challenge, live HUD while riding/watching, result -->
+  <div id="duel-invite" class="duel-overlay">
+    <div class="duel-card">
+      <h2>1V1</h2>
+      <div id="duel-invite-text"></div>
+      <div class="party-row">
+        <button id="duel-accept" class="party-btn primary">ACCEPT</button>
+        <button id="duel-decline" class="party-btn danger">DECLINE</button>
+      </div>
+    </div>
+  </div>
+  <div id="duel-hud"></div>
+  <div id="duel-result" class="duel-overlay">
+    <div class="duel-card">
+      <h2 id="duel-result-title"></h2>
+      <div id="duel-result-scores"></div>
+      <div id="duel-result-note"></div>
+      <button id="duel-result-done" class="party-btn primary">BACK TO LOBBY</button>
+    </div>
+  </div>
+
   <div id="lobby-screen">
     <!-- Right side button stack -->
     <div class="lobby-btn-stack">
-      <div class="lobby-corner-btn" id="lobby-shop">SHOP</div>
+      <div class="lobby-corner-btn" id="lobby-create-party">CREATE PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-join-party">JOIN PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-multiplayer" style="display:none">PARTY</div>
+      <div class="lobby-corner-btn" id="lobby-duel">1V1 CHALLENGE</div>
       <div class="lobby-corner-btn" id="lobby-map">MAP</div>
-      <div class="lobby-corner-btn" id="lobby-quests">QUESTS</div>
-      <div class="lobby-corner-btn" id="lobby-ridepass">RIDE PASS</div>
-      <div class="lobby-corner-btn" id="lobby-scores">SCORES</div>
+      <div class="lobby-corner-btn" id="lobby-customize">CUSTOMIZE</div>
       <div class="lobby-corner-btn" id="lobby-account">ACCOUNT</div>
-      <button id="lobby-logout">LOG OUT</button>
     </div>
 
-    <!-- Big party code banner (hidden until party created/joined) -->
-    <div id="party-code-banner" style="display:none">
-      <div class="party-code-label">PARTY CODE</div>
-      <div id="party-code-big">------</div>
+    <!-- Party code banner (shown while in a party) -->
+    <div id="party-banner" style="display:none">
+      <div id="party-banner-code"></div>
+      <div id="party-banner-info"></div>
     </div>
 
     <!-- Center: DROP IN -->
+    <div id="lobby-party-hint"></div>
     <button id="lobby-drop-in">DROP IN</button>
     <div class="lobby-hint">ESC TO RETURN TO LOBBY AFTER CRASHING</div>
 
-    <!-- Bottom equipment / stance selector -->
-    <div id="lobby-equipment-bar">
-      <div class="equip-bar-row" id="equip-bar-main">
-        <button class="equip-bar-btn selected" data-equip-bar="snowboard">SNOWBOARD</button>
-        <button class="equip-bar-btn" data-equip-bar="ski">SKI</button>
-      </div>
-      <div class="equip-bar-row" id="equip-bar-stance">
-        <button class="equip-bar-btn selected" data-stance-bar="regular">REGULAR</button>
-        <button class="equip-bar-btn" data-stance-bar="goofy">GOOFY</button>
-      </div>
-    </div>
-
-    <!-- Party panel -->
+    <!-- Multiplayer panel (hidden until MULTIPLAYER clicked) -->
     <div id="party-panel">
+      <h2>MULTIPLAYER</h2>
       <div id="party-join-view">
-        <h3>MULTIPLAYER</h3>
-        <button class="party-btn" id="party-create">CREATE PARTY</button>
-        <div class="party-divider">&mdash; OR &mdash;</div>
+        <div class="party-sub">Ride with friends on any phone or computer. Everyone signs in with their own account.</div>
+        <button id="party-create" class="party-btn primary">CREATE PARTY</button>
+        <div class="party-divider">&mdash; OR JOIN A FRIEND &mdash;</div>
         <div class="party-join-row">
-          <input id="party-join-input" type="text" maxlength="6" placeholder="CODE" autocomplete="off" spellcheck="false" />
-          <button class="party-btn" id="party-join-btn">JOIN</button>
+          <input id="party-join-input" maxlength="6" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="party-join-btn" class="party-btn">JOIN</button>
         </div>
-        <div id="party-error"></div>
       </div>
       <div id="party-active-view" style="display:none">
-        <h3>PARTY</h3>
-        <div class="party-code-row">
-          <span id="party-code">------</span>
-          <button class="party-btn" id="party-copy">COPY</button>
+        <div class="party-code-label">PARTY CODE</div>
+        <div id="party-code">------</div>
+        <div class="party-row">
+          <button id="party-copy" class="party-btn">COPY INVITE LINK</button>
         </div>
+        <div id="party-map-label"></div>
         <div id="party-members"></div>
-        <button class="party-btn" id="party-start" style="display:none">START GAME</button>
-        <button class="party-btn" id="party-leave">LEAVE PARTY</button>
+        <div class="party-row">
+          <button id="party-start" class="party-btn primary">DROP IN TOGETHER</button>
+          <button id="party-leave" class="party-btn danger">LEAVE</button>
+        </div>
       </div>
+      <div id="party-error"></div>
+      <button id="party-back">BACK</button>
     </div>
 
-    <!-- Shop panel (hidden until SHOP clicked) -->
-    <div id="shop-panel">
-      <h2>SHOP</h2>
-      <div class="shop-tokens-bar">
-        <span class="shop-token shop-token-s1"><span>&#9733;</span> <span id="shop-s1-count">0</span></span>
-        <span class="shop-token shop-token-s2"><span>&#9733;</span> <span id="shop-s2-count">0</span></span>
-        <span class="shop-token shop-token-s3"><span>&#9733;</span> <span id="shop-s3-count">0</span></span>
-        <span class="shop-token shop-token-board"><span>&#9830;</span> <span id="shop-board-count">0</span></span>
-      </div>
-      <div class="shop-tabs">
-        <div class="shop-tab active" data-shop-tab="jacket">JACKETS</div>
-        <div class="shop-tab" data-shop-tab="pants">PANTS</div>
-        <div class="shop-tab" data-shop-tab="helmet">HELMETS</div>
-        <div class="shop-tab" data-shop-tab="board">BOARDS</div>
-      </div>
-      <div id="shop-item-list"></div>
-      <button id="shop-back">BACK</button>
+    <div id="duel-panel">
+      <h2>1V1 CHALLENGE</h2>
+      <div class="party-sub">Challenge a friend in your party. You ride the 1v1 course while they watch, then they ride it while you watch. Three checkpoints, and every section is bigger than the last. Highest score wins.</div>
+      <div id="duel-list"></div>
+      <div id="duel-error"></div>
+      <button id="duel-back" class="party-btn">BACK</button>
     </div>
 
     <!-- Map panel (hidden until MAP clicked) -->
@@ -2579,32 +1943,11 @@
             <div class="map-trail-tag">EXPERT ONLY</div>
           </div>
 
-          <div class="map-chair" data-chair="summit" style="left: 18%; top: 16%;">
-            <div class="map-chair-dot black"></div>
-            <div class="map-chair-line" style="height: 80px;"></div>
-            <div class="map-chair-label">SUMMIT CHAIR</div>
-            <div class="map-trail-tag">ADVANCED</div>
-          </div>
-
-          <div class="map-chair" data-chair="biggie" style="left: 68%; top: 16%;">
-            <div class="map-chair-dot blue"></div>
-            <div class="map-chair-line" style="height: 80px;"></div>
-            <div class="map-chair-label">BIGGIE CHAIR</div>
-            <div class="map-trail-tag">INTERMEDIATE</div>
-          </div>
-
           <div class="map-chair" data-chair="oldgrowth" style="left: 15%; top: 34%;">
             <div class="map-chair-dot green"></div>
             <div class="map-chair-line" style="height: 80px;"></div>
             <div class="map-chair-label">OLD GROWTH CHAIR</div>
             <div class="map-trail-tag">EXPERT</div>
-          </div>
-
-          <div class="map-chair" data-chair="moonlight" style="left: 65%; top: 34%;">
-            <div class="map-chair-dot purple"></div>
-            <div class="map-chair-line" style="height: 80px;"></div>
-            <div class="map-chair-label">MOONLIGHT CHAIR</div>
-            <div class="map-trail-tag">ADVANCED</div>
           </div>
 
           <div class="map-lodge">BASE LODGE</div>
@@ -2619,20 +1962,10 @@
             <div class="park-card-desc">Classic park progression — small jumps to massive booters</div>
             <div class="park-card-difficulty" style="color:#4caf50;">&#9679; ALL LEVELS</div>
           </div>
-          <div class="park-card" data-park="woodward">
-            <div class="park-card-name">WOODWARD COPPER PARK</div>
-            <div class="park-card-desc">Starts big with 100ft kickers, kinked rails, ends with 150ft booters</div>
-            <div class="park-card-difficulty" style="color:#ff9800;">&#9679; ADVANCED</div>
-          </div>
           <div class="park-card" data-park="xgames">
             <div class="park-card-name">X-GAMES PARK</div>
             <div class="park-card-desc">Massive 200ft booters, 4x thick rails, donkey dicks &amp; waterfalls</div>
             <div class="park-card-difficulty" style="color:#e53935;">&#9679; EXPERT ONLY</div>
-          </div>
-          <div class="park-card" data-park="street">
-            <div class="park-card-name">HEAVY METAL STREET</div>
-            <div class="park-card-desc">Urban stair sets, concrete ledges &amp; handrails — city vibes</div>
-            <div class="park-card-difficulty" style="color:#2196f3;">&#9679; INTERMEDIATE</div>
           </div>
           <div class="park-card" data-park="slopestyle">
             <div class="park-card-name">SLOPESTYLE COURSE</div>
@@ -2643,63 +1976,6 @@
       </div>
 
       <button id="map-back">BACK</button>
-    </div>
-
-    <!-- Ride Pass panel (hidden until RIDE PASS clicked) -->
-    <div id="ridepass-panel">
-      <h2>RIDE PASS</h2>
-      <div class="rp-tokens-bar">
-        <span class="rp-token rp-token-s1"><span class="rp-token-icon">&#9733;</span> <span id="rp-s1-count">0</span></span>
-        <span class="rp-token rp-token-s2"><span class="rp-token-icon">&#9733;</span> <span id="rp-s2-count">0</span></span>
-        <span class="rp-token rp-token-board"><span class="rp-token-icon">&#9830;</span> <span id="rp-board-count">0</span></span>
-      </div>
-      <div class="rp-level-bar">
-        <span class="rp-level-label" id="rp-level-label">LEVEL 0</span>
-        <div class="rp-progress-track">
-          <div class="rp-progress-fill" id="rp-progress-fill"></div>
-        </div>
-        <span class="rp-xp-label" id="rp-xp-label">0 / 100 XP</span>
-      </div>
-      <div id="rp-level-list" class="rp-level-list"></div>
-      <div id="rp-title-section" class="rp-title-section" style="display:none">
-        <div class="rp-title-heading">EQUIPPED TITLE</div>
-        <div id="rp-title-options" class="rp-title-options"></div>
-      </div>
-      <button id="ridepass-back">BACK</button>
-    </div>
-
-    <!-- Quests panel (hidden until QUESTS clicked) -->
-    <div id="quests-panel">
-      <h2>QUESTS</h2>
-      <div class="quest-tabs">
-        <button class="quest-tab active" data-tab="daily">DAILY</button>
-        <button class="quest-tab" data-tab="season">SEASON</button>
-      </div>
-      <div id="quest-season-timer" class="quest-season-timer" style="display:none">RESETS IN <span id="quest-timer-value">--</span></div>
-      <div class="quest-xp-bar">
-        <span id="quest-xp-label">0 XP</span>
-      </div>
-      <div id="quest-list" class="quest-list"></div>
-      <button id="quests-back">BACK</button>
-    </div>
-
-    <!-- Scores panel (hidden until SCORES clicked) -->
-    <div id="scores-panel">
-      <h2>LEADERBOARDS</h2>
-      <div class="scores-tabs">
-        <button class="scores-tab active" data-scores-tab="big-white">BIG WHITE</button>
-        <button class="scores-tab" data-scores-tab="woodward">WOODWARD</button>
-        <button class="scores-tab" data-scores-tab="xgames">X-GAMES</button>
-        <button class="scores-tab" data-scores-tab="biggie">BIGGIE</button>
-        <button class="scores-tab" data-scores-tab="summit">SUMMIT</button>
-        <button class="scores-tab" data-scores-tab="peak">PEAK</button>
-        <button class="scores-tab" data-scores-tab="moonlight">MOONLIGHT</button>
-      </div>
-      <div class="scores-label">ALL TIME — WORLDWIDE</div>
-      <div id="scores-list" class="scores-list"></div>
-      <div id="scores-loading" class="lb-loading">LOADING...</div>
-      <div id="scores-error" class="lb-error" style="display:none"></div>
-      <button id="scores-back">BACK</button>
     </div>
 
     <!-- Customize panel (hidden until CUSTOMIZE clicked) -->
@@ -2732,6 +2008,14 @@
         </div>
       </div>
       <div class="lobby-row">
+        <label>Jacket Fit</label>
+        <div class="equipment-options">
+          <button class="equipment-btn selected" data-fit-part="jacket" data-fit="regular">REGULAR</button>
+          <button class="equipment-btn" data-fit-part="jacket" data-fit="semi">SEMI-BAGGY</button>
+          <button class="equipment-btn" data-fit-part="jacket" data-fit="baggy">BAGGY</button>
+        </div>
+      </div>
+      <div class="lobby-row">
         <label>Pants</label>
         <div class="color-options" data-part="pants">
           <div class="color-swatch selected" style="background:#263238" data-color="0x263238"></div>
@@ -2740,6 +2024,14 @@
           <div class="color-swatch" style="background:#b71c1c" data-color="0xb71c1c"></div>
           <div class="color-swatch" style="background:#e0e0e0" data-color="0xe0e0e0"></div>
           <div class="color-swatch" style="background:#004d40" data-color="0x004d40"></div>
+        </div>
+      </div>
+      <div class="lobby-row">
+        <label>Pants Fit</label>
+        <div class="equipment-options">
+          <button class="equipment-btn selected" data-fit-part="pants" data-fit="regular">REGULAR</button>
+          <button class="equipment-btn" data-fit-part="pants" data-fit="semi">SEMI-BAGGY</button>
+          <button class="equipment-btn" data-fit-part="pants" data-fit="baggy">BAGGY</button>
         </div>
       </div>
       <div class="lobby-row">

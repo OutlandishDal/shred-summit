@@ -5,7 +5,7 @@ import { TrickSystem } from './TrickSystem.js';
 import { InputManager, isTouchDevice } from './InputManager.js';
 import { TouchControls } from './TouchControls.js';
 import { SnowParticles } from './Particles.js';
-import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, getFirebaseAuth, createAccount, loginAccount, logoutAccount, resetPassword, onAuthChange, cloudSaveProgress, cloudLoadProgress, submitSummitScore, fetchSummitScores } from './firebase.js';
+import { initFirebase, isFirebaseConfigured, submitScore, fetchWorldwideScores, createAccount, loginAccount, logoutAccount, resetPassword, onAuthChange, cloudSaveProgress, cloudLoadProgress, submitSummitScore, fetchSummitScores } from './firebase.js';
 import { NicknameManager } from './NicknameManager.js';
 import { QuestSystem } from './QuestSystem.js';
 import { ShopSystem } from './ShopSystem.js';
@@ -38,21 +38,20 @@ export class Game {
     this.terrain = new Terrain(this.scene);
     this.parkTerrain = this.terrain; // keep reference to default park terrain
     this.gameMode = 'park';          // 'park' | 'backcountry'
-    this.backcountryChair = null;    // 'summit', 'biggie', 'peak', 'moonlight'
-    this.auroraIntensity = 0;        // 0=dark moonlit, 1=full aurora
-    this.auroraActive = false;       // true when playing Moonlight Ridge
-    this.auroraMultiplier = 1.0;     // score multiplier from aurora (1.0–7.5)
-    this.auroraMesh = null;          // sky aurora visual
+    this.backcountryChair = null;    // 'peak', 'oldgrowth'
     this.nightMode = false;          // true when local clock says night
     this.nightBlend = 0;             // 0=day, 1=full night (for dawn/dusk lerp)
     this.starField = null;           // night sky stars (backcountry only)
     this.daynightPref = localStorage.getItem('shred-daynight') || 'auto'; // 'auto' | 'day' | 'night'
-    this.parkId = 'big-white';       // 'big-white', 'woodward', 'xgames'
+    this.parkId = 'big-white';       // 'big-white', 'xgames', 'slopestyle'
     this.selectedEquipment = 'snowboard';
     this.selectedStance = 'regular';
+    this.fits = { jacket: 'regular', pants: 'regular' }; // clothing fit from the customize menu
+    try { Object.assign(this.fits, JSON.parse(localStorage.getItem('shred-fits') || '{}')); } catch (e) { /* ignore */ }
     this.player = new Player(this.scene, this.selectedEquipment);
     this.player.stance = this.selectedStance;
     this.player.updateStanceYaw();
+    this.applyFits();
     this.loadPlayerModel(); // load GLB character model (async, non-blocking)
     this.tricks = new TrickSystem();
     this.quests = new QuestSystem();
@@ -61,18 +60,18 @@ export class Game {
     this.quests.checkSeasonReset();
     this.syncRidePassSeason();
     this.shop = new ShopSystem(this.ridePass);
-    this.activeShopTab = 'jacket';
     this.particles = new SnowParticles(this.scene);
     this.multiplayer = new MultiplayerManager(this);
+    this.duel = null; // our 1v1, while we're in one
 
     // Mobile: bring camera closer so snowboarder appears bigger on small screens
     if (isTouchDevice) {
-      this.cameraOffset = new THREE.Vector3(0, 6, 3.5);
+      this.cameraOffset = new THREE.Vector3(0, 4.8, 2.8);
       this.mobileLookDir = new THREE.Vector3(0, -6, -8); // fixed angle relative to camera
       this.baseFOV = 45;
     } else {
-      this.cameraOffset = new THREE.Vector3(0, 3, 4);
-      this.cameraLookAhead = new THREE.Vector3(0, -2, -20);
+      this.cameraOffset = new THREE.Vector3(0, 2.2, 2.9);
+      this.cameraLookAhead = new THREE.Vector3(0, -1.2, -20);
       this.baseFOV = 60;
     }
     this.camera.fov = this.baseFOV;
@@ -110,7 +109,6 @@ export class Game {
     this.ui = {
       score: document.getElementById('score-display'),
       combo: document.getElementById('combo-display'),
-      auroraMultiplier: document.getElementById('aurora-multiplier'),
       landingAnnounce: document.getElementById('landing-announce'),
       stompedLabel: document.getElementById('stomped-label'),
       trickName: document.getElementById('trick-name'),
@@ -119,6 +117,9 @@ export class Game {
       jumpHeight: document.getElementById('jump-height'),
       jumpHeightValue: document.getElementById('jump-height-value'),
       speed: document.getElementById('speed-display'),
+      popMeter: document.getElementById('pop-meter'),
+      popMeterFill: document.getElementById('pop-meter-fill'),
+      popMeterLabel: document.getElementById('pop-meter-label'),
       meterFill: document.getElementById('trick-meter-fill'),
       startScreen: document.getElementById('start-screen'),
       deathScreen: document.getElementById('death-screen'),
@@ -133,14 +134,6 @@ export class Game {
       customizePanel: document.getElementById('customize-panel'),
       customizeBack: document.getElementById('customize-back'),
       lobbyCustomize: document.getElementById('lobby-customize'),
-      lobbyQuests: document.getElementById('lobby-quests'),
-      questsPanel: document.getElementById('quests-panel'),
-      questList: document.getElementById('quest-list'),
-      questsBack: document.getElementById('quests-back'),
-      questXpLabel: document.getElementById('quest-xp-label'),
-      shopPanel: document.getElementById('shop-panel'),
-      shopBack: document.getElementById('shop-back'),
-      lobbyShop: document.getElementById('lobby-shop'),
       lobbyAccount: document.getElementById('lobby-account'),
       accountPanel: document.getElementById('account-panel'),
       accountBack: document.getElementById('account-back'),
@@ -155,32 +148,9 @@ export class Game {
       accountTitleOptions: document.getElementById('account-title-options'),
       accountLogoutBtn: document.getElementById('account-logout-btn'),
       daynightToggle: document.getElementById('daynight-toggle'),
-      shopItemList: document.getElementById('shop-item-list'),
-      shopS1Count: document.getElementById('shop-s1-count'),
-      shopS2Count: document.getElementById('shop-s2-count'),
-      shopS3Count: document.getElementById('shop-s3-count'),
-      shopBoardCount: document.getElementById('shop-board-count'),
       mapPanel: document.getElementById('map-panel'),
       mapBack: document.getElementById('map-back'),
       lobbyMap: document.getElementById('lobby-map'),
-      scoresPanel: document.getElementById('scores-panel'),
-      scoresBack: document.getElementById('scores-back'),
-      scoresList: document.getElementById('scores-list'),
-      scoresLoading: document.getElementById('scores-loading'),
-      scoresError: document.getElementById('scores-error'),
-      lobbyScores: document.getElementById('lobby-scores'),
-      ridepassPanel: document.getElementById('ridepass-panel'),
-      ridepassBack: document.getElementById('ridepass-back'),
-      lobbyRidepass: document.getElementById('lobby-ridepass'),
-      rpLevelList: document.getElementById('rp-level-list'),
-      rpLevelLabel: document.getElementById('rp-level-label'),
-      rpProgressFill: document.getElementById('rp-progress-fill'),
-      rpXpLabel: document.getElementById('rp-xp-label'),
-      rpS1Count: document.getElementById('rp-s1-count'),
-      rpS2Count: document.getElementById('rp-s2-count'),
-      rpBoardCount: document.getElementById('rp-board-count'),
-      rpTitleSection: document.getElementById('rp-title-section'),
-      rpTitleOptions: document.getElementById('rp-title-options'),
       finishScreen: document.getElementById('finish-screen'),
       finishTitle: document.getElementById('finish-title'),
       finishScore: document.getElementById('finish-score'),
@@ -208,8 +178,26 @@ export class Game {
       authError: document.getElementById('auth-error'),
       authLoading: document.getElementById('auth-loading'),
       authForgot: document.getElementById('auth-forgot'),
-      lobbyLogout: document.getElementById('lobby-logout'),
       // Multiplayer party
+      lobbyMultiplayer: document.getElementById('lobby-multiplayer'),
+      lobbyCreateParty: document.getElementById('lobby-create-party'),
+      lobbyJoinParty: document.getElementById('lobby-join-party'),
+      lobbyDuel: document.getElementById('lobby-duel'),
+      duelPanel: document.getElementById('duel-panel'),
+      duelList: document.getElementById('duel-list'),
+      duelError: document.getElementById('duel-error'),
+      duelBack: document.getElementById('duel-back'),
+      duelInvite: document.getElementById('duel-invite'),
+      duelInviteText: document.getElementById('duel-invite-text'),
+      duelAccept: document.getElementById('duel-accept'),
+      duelDecline: document.getElementById('duel-decline'),
+      duelHud: document.getElementById('duel-hud'),
+      duelResult: document.getElementById('duel-result'),
+      duelResultTitle: document.getElementById('duel-result-title'),
+      duelResultScores: document.getElementById('duel-result-scores'),
+      duelResultNote: document.getElementById('duel-result-note'),
+      duelResultDone: document.getElementById('duel-result-done'),
+      startMultiplayerBtn: document.getElementById('start-multiplayer-btn'),
       partyPanel: document.getElementById('party-panel'),
       partyJoinView: document.getElementById('party-join-view'),
       partyActiveView: document.getElementById('party-active-view'),
@@ -218,10 +206,17 @@ export class Game {
       partyJoinBtn: document.getElementById('party-join-btn'),
       partyCode: document.getElementById('party-code'),
       partyCopy: document.getElementById('party-copy'),
+      partyMapLabel: document.getElementById('party-map-label'),
       partyMembers: document.getElementById('party-members'),
-      partyLeave: document.getElementById('party-leave'),
       partyStart: document.getElementById('party-start'),
+      partyLeave: document.getElementById('party-leave'),
       partyError: document.getElementById('party-error'),
+      partyBack: document.getElementById('party-back'),
+      partyBanner: document.getElementById('party-banner'),
+      partyBannerCode: document.getElementById('party-banner-code'),
+      partyBannerInfo: document.getElementById('party-banner-info'),
+      lobbyPartyHint: document.getElementById('lobby-party-hint'),
+      partyHud: document.getElementById('party-hud'),
     };
 
     // Leaderboard (localStorage)
@@ -266,7 +261,13 @@ export class Game {
         } else if (this.state === 'dead' || this.state === 'finished') {
           this.openLobby();
         } else if (this.state === 'lobby') {
-          this.closeLobby();
+          if (this.ui.partyPanel.classList.contains('active')) {
+            this.ui.partyPanel.classList.remove('active');
+          } else if (this.ui.duelPanel.classList.contains('active')) {
+            this.ui.duelPanel.classList.remove('active');
+          } else {
+            this.dropIn();
+          }
         }
       }
     });
@@ -305,6 +306,7 @@ export class Game {
 
     // Lobby setup
     this.setupLobby();
+    this.setupParty();
     this.setupLeaderboardTabs();
     this.setupNickname();
 
@@ -316,7 +318,6 @@ export class Game {
     if (!isFirebaseConfigured()) {
       // No Firebase — skip auth, go straight to start screen
       this.ui.startScreen.style.display = '';
-      if (this.ui.lobbyLogout) this.ui.lobbyLogout.style.display = 'none';
       return;
     }
 
@@ -392,12 +393,6 @@ export class Game {
       }
     });
 
-    // Logout button
-    this.ui.lobbyLogout.addEventListener('click', async () => {
-      await logoutAccount();
-      // onAuthChange will handle showing auth screen
-    });
-
     // Listen for auth state changes
     onAuthChange(async (user) => {
       if (user) {
@@ -446,15 +441,21 @@ export class Game {
     this.ui.startScreen.style.display = '';
     this.input.disabled = false;
     this.state = 'start';
+    this.ui.startMultiplayerBtn.style.display = this.multiplayer.available ? '' : 'none';
+
+    // Opened from an invite link (?party=CODE) → join straight away
+    this.joinPartyFromInviteLink();
   }
 
   onLogout() {
+    this.multiplayer.leaveParty();
     this.state = 'auth';
     this.input.disabled = true;
     this.ui.startScreen.style.display = 'none';
-    this.ui.lobbyScreen.style.display = 'none';
-    this.ui.deathScreen.style.display = 'none';
-    this.ui.finishScreen.style.display = 'none';
+    // Hide via classes (not inline styles) so the screens still work after the next login
+    this.ui.lobbyScreen.classList.remove('active');
+    this.ui.deathScreen.classList.remove('active');
+    this.ui.finishScreen.classList.remove('active');
     this.ui.authScreen.classList.add('active');
     this.ui.authEmail.value = '';
     this.ui.authPassword.value = '';
@@ -507,12 +508,32 @@ export class Game {
   initRenderer() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     document.body.appendChild(this.renderer.domElement);
+
+    // Soft sky-over-snow environment, used only for reflections on the riders (built once, tiny)
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envScene = new THREE.Scene();
+    const envGeo = new THREE.SphereGeometry(10, 24, 12);
+    const sky = new THREE.Color(0x8fbfe8), horizon = new THREE.Color(0xf4f8fc), snow = new THREE.Color(0xdfe8f0);
+    const colors = [];
+    const p = envGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const t = p.getY(i) / 10; // -1 down .. 1 up
+      const c = t > 0 ? horizon.clone().lerp(sky, Math.pow(t, 0.6)) : horizon.clone().lerp(snow, Math.min(1, -t * 3));
+      colors.push(c.r, c.g, c.b);
+    }
+    envGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    envScene.add(new THREE.Mesh(envGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const sunSpot = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    sunSpot.position.set(5, 7, 4);
+    envScene.add(sunSpot);
+    Player.envMap = pmrem.fromScene(envScene, 0.02).texture;
+    pmrem.dispose();
   }
 
   initScene() {
@@ -535,8 +556,8 @@ export class Game {
     this.sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
     this.sun.position.set(30, 50, 20);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.width = 2048;
-    this.sun.shadow.mapSize.height = 2048;
+    this.sun.shadow.mapSize.width = 1024;
+    this.sun.shadow.mapSize.height = 1024;
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 250;
     this.sun.shadow.camera.left = -60;
@@ -554,144 +575,6 @@ export class Game {
     this.rimLight = new THREE.DirectionalLight(0xaaccee, 0.3);
     this.rimLight.position.set(-20, 20, -10);
     this.scene.add(this.rimLight);
-  }
-
-  createAuroraMesh() {
-    if (this.auroraMesh) {
-      this.scene.remove(this.auroraMesh);
-      this.auroraMesh.geometry.dispose();
-      this.auroraMesh.material.dispose();
-      this.auroraMesh = null;
-    }
-
-    const vertexShader = `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      uniform float uTime;
-      uniform float uIntensity;
-      varying vec2 vUv;
-
-      // Hash for pseudo-random per-ray variation
-      float hash(float n) { return fract(sin(n) * 43758.5453); }
-
-      void main() {
-        float x = vUv.x;
-        float y = vUv.y;
-
-        // === VERTICAL RAYS — the dominant aurora feature ===
-        // Many individual rays fanning upward from the horizon
-        float rays = 0.0;
-        vec3 rayColor = vec3(0.0);
-
-        for (int i = 0; i < 18; i++) {
-          float fi = float(i);
-          // Each ray has a unique horizontal position that drifts slowly
-          float rayX = hash(fi * 7.3) + sin(uTime * 0.12 + fi * 1.7) * 0.06;
-          // Ray width varies — some thin, some wider
-          float rayW = 0.008 + hash(fi * 3.1) * 0.018;
-          // Distance from ray center
-          float dx = abs(x - rayX);
-          // Soft gaussian-ish falloff
-          float rayStrength = exp(-dx * dx / (rayW * rayW));
-
-          // Each ray has slightly different vertical extent
-          float rayTop = 0.5 + hash(fi * 11.0) * 0.45;
-          float rayBottom = 0.0;
-          // Rays brighten at base, fade at top
-          float vertFade = smoothstep(rayBottom, rayBottom + 0.08, y)
-                         * smoothstep(rayTop, rayTop * 0.5, y);
-          // Slow pulsing per-ray
-          float pulse = 0.6 + 0.4 * sin(uTime * (0.3 + hash(fi * 5.0) * 0.4) + fi * 2.0);
-
-          rayStrength *= vertFade * pulse;
-
-          // Color per ray: mostly vivid green, some teal, rare purple
-          vec3 rc;
-          float colorSeed = hash(fi * 13.0);
-          if (colorSeed < 0.55) {
-            rc = vec3(0.08, 1.0, 0.35);    // vivid green (dominant)
-          } else if (colorSeed < 0.75) {
-            rc = vec3(0.05, 0.9, 0.55);    // green-teal
-          } else if (colorSeed < 0.88) {
-            rc = vec3(0.12, 0.7, 0.85);    // cyan-teal
-          } else {
-            rc = vec3(0.45, 0.1, 0.75);    // purple accent
-          }
-
-          rayColor += rc * rayStrength;
-          rays += rayStrength;
-        }
-
-        // === BACKGROUND GLOW — soft diffuse aurora wash behind the rays ===
-        float drift = sin(x * 2.5 + uTime * 0.2) * 0.06
-                    + sin(x * 5.0 - uTime * 0.3) * 0.03;
-        float glow1 = exp(-(y - 0.25 + drift) * (y - 0.25 + drift) / 0.04) * 0.4;
-        float glow2 = exp(-(y - 0.45 - drift * 0.7) * (y - 0.45 - drift * 0.7) / 0.06) * 0.3;
-        vec3 glowColor = vec3(0.06, 0.6, 0.3) * glow1 + vec3(0.04, 0.45, 0.5) * glow2;
-
-        // Combine rays + glow — rays are bright and dominant
-        vec3 col = rayColor * 2.8 + glowColor * 1.5;
-
-        // Vertical fade: transparent at very bottom, gentle fade at top
-        float vFade = smoothstep(0.0, 0.05, y) * smoothstep(1.0, 0.7, y);
-
-        // Horizontal fade at edges
-        float hFade = smoothstep(0.0, 0.06, x) * smoothstep(1.0, 0.94, x);
-
-        float alpha = (length(rayColor) * 0.8 + length(glowColor) * 0.3) * vFade * hFade * uIntensity;
-        col *= uIntensity;
-
-        gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uIntensity: { value: 0 },
-      },
-      vertexShader,
-      fragmentShader,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
-    // Curved sky dome — centered in front of player, just above horizon
-    const geo = new THREE.PlaneGeometry(1000, 250, 64, 32);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      // Curve into a wide dome arc centered ahead of the player
-      const angle = (x / 1000) * Math.PI * 1.2; // ~216 degree arc for wide coverage
-      const radius = 450;
-      pos.setX(i, Math.sin(angle) * radius);
-      pos.setZ(i, -Math.cos(angle) * radius - 100); // push forward in front of player
-      pos.setY(i, y + 10); // sit right at horizon line
-    }
-    pos.needsUpdate = true;
-    geo.computeVertexNormals();
-
-    this.auroraMesh = new THREE.Mesh(geo, material);
-    this.auroraMesh.renderOrder = -1; // render behind everything
-    this.auroraMesh.frustumCulled = false;
-    this.scene.add(this.auroraMesh);
-  }
-
-  disposeAuroraMesh() {
-    if (this.auroraMesh) {
-      this.scene.remove(this.auroraMesh);
-      this.auroraMesh.geometry.dispose();
-      this.auroraMesh.material.dispose();
-      this.auroraMesh = null;
-    }
   }
 
   // ===== DAY/NIGHT CYCLE =====
@@ -737,7 +620,7 @@ export class Game {
       this.rimLight.intensity = 0.3 - t * 0.1;
       this.renderer.toneMappingExposure = 1.1 - t * 0.15;
     } else {
-      // Backcountry night (non-moonlight): dark sky for bright stars, terrain still readable
+      // Backcountry night: dark sky for bright stars, terrain still readable
       const bg = new THREE.Color(0x8aafc4).lerp(new THREE.Color(0x080c18), t);
       this.scene.background.copy(bg);
       const fogC = new THREE.Color(0xbccfe0).lerp(new THREE.Color(0x1a2230), t);
@@ -759,7 +642,7 @@ export class Game {
   createStarField() {
     if (this.starField) return;
 
-    // Curved sky dome with star shader — same approach as aurora mesh
+    // Curved sky dome with star shader
     const vertexShader = `
       varying vec2 vUv;
       void main() {
@@ -900,7 +783,7 @@ export class Game {
       side: THREE.DoubleSide,
     });
 
-    // Curved sky dome — same geometry approach as aurora mesh
+    // Curved sky dome
     const geo = new THREE.PlaneGeometry(1000, 250, 64, 32);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -1095,6 +978,7 @@ export class Game {
           this.player.stance = this.selectedStance;
           this.player.updateStanceYaw();
           this.loadPlayerModel();
+          this.applyFits();
           // Re-apply saved colors then shop items
           for (const [part, color] of Object.entries(savedColors)) {
             this.player.setColor(part, color);
@@ -1111,13 +995,20 @@ export class Game {
           if (stanceRow) {
             stanceRow.style.display = this.selectedEquipment === 'ski' ? 'none' : '';
           }
-          // Sync bottom equipment bar
-          document.querySelectorAll('[data-equip-bar]').forEach(b => b.classList.remove('selected'));
-          const barBtn = document.querySelector(`[data-equip-bar="${newType}"]`);
-          if (barBtn) barBtn.classList.add('selected');
-          const stanceBar = document.getElementById('equip-bar-stance');
-          if (stanceBar) stanceBar.style.display = newType === 'ski' ? 'none' : '';
         }
+      });
+    });
+
+    // Jacket / pants fit (regular, semi-baggy, baggy)
+    document.querySelectorAll('[data-fit-part]').forEach(btn => {
+      const part = btn.dataset.fitPart;
+      btn.classList.toggle('selected', this.fits[part] === btn.dataset.fit);
+      btn.addEventListener('click', () => {
+        document.querySelectorAll(`[data-fit-part="${part}"]`).forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        this.fits[part] = btn.dataset.fit;
+        try { localStorage.setItem('shred-fits', JSON.stringify(this.fits)); } catch (e) { /* ignore */ }
+        this.player.setFit(part, btn.dataset.fit);
       });
     });
 
@@ -1129,78 +1020,16 @@ export class Game {
         this.selectedStance = btn.dataset.stance;
         this.player.stance = this.selectedStance;
         this.player.updateStanceYaw();
-        // Sync bottom stance bar
-        document.querySelectorAll('[data-stance-bar]').forEach(b => b.classList.remove('selected'));
-        const barBtn = document.querySelector(`[data-stance-bar="${this.selectedStance}"]`);
-        if (barBtn) barBtn.classList.add('selected');
       });
     });
 
-    // Bottom equipment bar (snowboard / ski)
-    document.querySelectorAll('[data-equip-bar]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const newType = btn.dataset.equipBar;
-        document.querySelectorAll('[data-equip-bar]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        // Show/hide stance row
-        const stanceBar = document.getElementById('equip-bar-stance');
-        if (stanceBar) stanceBar.style.display = newType === 'ski' ? 'none' : '';
-        if (newType !== this.selectedEquipment) {
-          this.selectedEquipment = newType;
-          const savedColors = {};
-          document.querySelectorAll('.color-options').forEach(group => {
-            const part = group.dataset.part;
-            const sel = group.querySelector('.color-swatch.selected');
-            if (sel) savedColors[part] = parseInt(sel.dataset.color);
-          });
-          this.scene.remove(this.player.group);
-          this.player = new Player(this.scene, this.selectedEquipment);
-          this.player.stance = this.selectedStance;
-          this.player.updateStanceYaw();
-          this.loadPlayerModel();
-          for (const [part, color] of Object.entries(savedColors)) {
-            this.player.setColor(part, color);
-          }
-          this.applyEquippedItems();
-          // Sync customize panel buttons
-          document.querySelectorAll('[data-equipment]').forEach(b => b.classList.remove('selected'));
-          const matchBtn = document.querySelector(`[data-equipment="${newType}"]`);
-          if (matchBtn) matchBtn.classList.add('selected');
-          const stanceRow = document.getElementById('stance-row');
-          if (stanceRow) stanceRow.style.display = newType === 'ski' ? 'none' : '';
-          const boardRow = document.querySelector('[data-part="board"]');
-          if (boardRow) {
-            boardRow.closest('.lobby-row').querySelector('label').textContent =
-              newType === 'ski' ? 'Skis' : 'Board';
-          }
-        }
-      });
-    });
-
-    // Bottom stance bar (regular / goofy)
-    document.querySelectorAll('[data-stance-bar]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-stance-bar]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        this.selectedStance = btn.dataset.stanceBar;
-        this.player.stance = this.selectedStance;
-        this.player.updateStanceYaw();
-        // Sync customize panel buttons
-        document.querySelectorAll('[data-stance]').forEach(b => b.classList.remove('selected'));
-        const matchBtn = document.querySelector(`[data-stance="${this.selectedStance}"]`);
-        if (matchBtn) matchBtn.classList.add('selected');
-      });
-    });
-
-    // Drop In button — park mode (or multiplayer start)
+    // Drop In button — selected park (or the party's map)
     this.ui.lobbyDropIn.addEventListener('click', () => {
-      if (this.multiplayer.active) {
-        if (!this.multiplayer.isHost) return; // Only host can start
-        this.multiplayer.setGameMode('park', null, this.parkId);
+      if (!this.multiplayer.active) {
+        this.gameMode = 'park';
+        this.backcountryChair = null;
       }
-      this.gameMode = 'park';
-      this.backcountryChair = null;
-      this.closeLobby();
+      this.dropIn();
     });
 
     // Customize button → open customize panel
@@ -1213,47 +1042,7 @@ export class Game {
     // Back button → close customize panel
     this.ui.customizeBack.addEventListener('click', () => {
       this.ui.customizePanel.classList.remove('active');
-    });
-
-    // Quests button → open quests panel
-    this.ui.lobbyQuests.addEventListener('click', () => {
-      this.activeQuestTab = 'daily';
-      document.querySelectorAll('.quest-tab').forEach(t =>
-        t.classList.toggle('active', t.dataset.tab === 'daily')
-      );
-      this.renderQuestList('daily');
-      this.ui.questsPanel.classList.add('active');
-    });
-
-    // Quests back button
-    this.ui.questsBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.questsPanel.classList.remove('active');
-    });
-
-    // Shop button → open shop panel
-    this.ui.lobbyShop.addEventListener('click', () => {
-      this.openShopPanel();
-    });
-
-    // Shop panel — block clicks
-    this.ui.shopPanel.addEventListener('click', (e) => e.stopPropagation());
-
-    // Shop back button
-    this.ui.shopBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.shopPanel.classList.remove('active');
-    });
-
-    // Shop tab switching
-    document.querySelectorAll('.shop-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeShopTab = tab.dataset.shopTab;
-        document.querySelectorAll('.shop-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.shopTab === this.activeShopTab)
-        );
-        this.renderShopItems(this.activeShopTab);
-      });
+      this.multiplayer.refreshSelf();
     });
 
     // Map button → open map panel
@@ -1271,15 +1060,14 @@ export class Game {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const chairId = el.dataset.chair;
-        if (this.multiplayer.active) {
-          if (!this.multiplayer.isHost) return;
-          this.multiplayer.setGameMode('backcountry', chairId);
+        if (this.multiplayer.active && !this.multiplayer.setMap('backcountry', chairId, this.parkId)) {
+          this.showPartyHint('THE PARTY LEADER PICKS THE MAP');
+          return;
         }
-        console.log('[chair click] chairId:', chairId, 'multiplayer:', this.multiplayer.active);
         this.gameMode = 'backcountry';
         this.backcountryChair = chairId;
         this.ui.mapPanel.classList.remove('active');
-        this.closeLobby();
+        this.dropIn();
       });
     });
 
@@ -1301,60 +1089,14 @@ export class Game {
         e.stopPropagation();
         document.querySelectorAll('.park-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
+        if (this.multiplayer.active && !this.multiplayer.setMap('park', null, card.dataset.park)) {
+          this.showPartyHint('THE PARTY LEADER PICKS THE MAP');
+          this.highlightParkCard(this.multiplayer.map.parkId);
+          return;
+        }
         this.parkId = card.dataset.park;
         this.gameMode = 'park';
         this.backcountryChair = null;
-      });
-    });
-
-    // Scores button → open scores panel
-    this.activeScoresTab = 'big-white';
-    this.ui.lobbyScores.addEventListener('click', () => {
-      this.activeScoresTab = 'big-white';
-      document.querySelectorAll('.scores-tab').forEach(t =>
-        t.classList.toggle('active', t.dataset.scoresTab === 'big-white')
-      );
-      this.fetchAndRenderScores('big-white');
-      this.ui.scoresPanel.classList.add('active');
-    });
-    this.ui.scoresPanel.addEventListener('click', (e) => e.stopPropagation());
-    this.ui.scoresBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.scoresPanel.classList.remove('active');
-    });
-    document.querySelectorAll('.scores-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeScoresTab = tab.dataset.scoresTab;
-        document.querySelectorAll('.scores-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.scoresTab === this.activeScoresTab)
-        );
-        this.fetchAndRenderScores(this.activeScoresTab);
-      });
-    });
-
-    // Ride Pass button → open ridepass panel
-    this.ui.lobbyRidepass.addEventListener('click', () => {
-      this.openRidePassPanel();
-    });
-
-    // Panels — block clicks from reaching lobby buttons underneath
-    this.ui.ridepassPanel.addEventListener('click', (e) => e.stopPropagation());
-    this.ui.questsPanel.addEventListener('click', (e) => e.stopPropagation());
-
-    // Ride Pass back button
-    this.ui.ridepassBack.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ui.ridepassPanel.classList.remove('active');
-    });
-
-    // Quest tab switching
-    document.querySelectorAll('.quest-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeQuestTab = tab.dataset.tab;
-        document.querySelectorAll('.quest-tab').forEach(t =>
-          t.classList.toggle('active', t.dataset.tab === this.activeQuestTab)
-        );
-        this.renderQuestList(this.activeQuestTab);
       });
     });
 
@@ -1391,6 +1133,7 @@ export class Game {
         return;
       }
       this.nicknameManager.save(value);
+      this.multiplayer.refreshSelf();
       this.ui.accountNickname.textContent = value;
       this.ui.accountNicknameEditRow.style.display = 'none';
       this.ui.accountNickname.parentElement.style.display = 'flex';
@@ -1426,108 +1169,566 @@ export class Game {
       localStorage.setItem('shred-daynight', this.daynightPref);
       this.updateDaynightButton();
     });
+  }
 
-    // ---- PARTY SYSTEM ----
-    this.ui.partyCreate.addEventListener('click', async () => {
-      this.ui.partyError.textContent = 'CREATING...';
-      try {
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('CONNECTION TIMED OUT')), 5000));
-        const code = await Promise.race([this.multiplayer.createParty(), timeout]);
-        if (code) { this.ui.partyError.textContent = ''; this.showPartyView(code); }
-        else this.ui.partyError.textContent = 'FAILED TO CREATE PARTY';
-      } catch (e) {
-        console.warn('Party create error:', e);
-        this.ui.partyError.textContent = e.message || 'CONNECTION FAILED';
-      }
+  // ---- MULTIPLAYER ----
+
+  setupParty() {
+    const mp = this.multiplayer;
+    const ui = this.ui;
+
+    // Multiplayer needs Firebase (accounts + Realtime Database)
+    ui.startMultiplayerBtn.style.display = isFirebaseConfigured() ? '' : 'none';
+
+    ui.lobbyMultiplayer.addEventListener('click', () => this.openPartyPanel());
+    ui.lobbyCreateParty.addEventListener('click', () => {
+      this.openPartyPanel();
+      if (mp.available) this.runPartyAction('CREATING PARTY...', () => mp.createParty());
+    });
+    ui.lobbyJoinParty.addEventListener('click', () => {
+      this.openPartyPanel();
+      setTimeout(() => ui.partyJoinInput.focus(), 50);
     });
 
-    this.ui.partyJoinBtn.addEventListener('click', async () => {
-      this.ui.partyError.textContent = '';
-      const code = this.ui.partyJoinInput.value.trim().toUpperCase();
-      if (code.length !== 6) {
-        this.ui.partyError.textContent = 'ENTER A 6-CHARACTER CODE';
-        return;
-      }
-      const result = await this.multiplayer.joinParty(code);
-      if (result.error) {
-        this.ui.partyError.textContent = result.error;
-      } else {
-        this.showPartyView(code);
-      }
-    });
+    // 1v1 challenges
+    ui.lobbyDuel.addEventListener('click', () => this.openDuelPanel());
+    ui.duelPanel.addEventListener('click', (e) => e.stopPropagation());
+    ui.duelBack.addEventListener('click', () => ui.duelPanel.classList.remove('active'));
+    ui.duelAccept.addEventListener('click', (e) => { e.stopPropagation(); mp.respondToDuel(true); });
+    ui.duelDecline.addEventListener('click', (e) => { e.stopPropagation(); mp.respondToDuel(false); ui.duelInvite.classList.remove('active'); });
+    ui.duelResultDone.addEventListener('click', (e) => { e.stopPropagation(); this.finishDuel(); });
+    for (const el of [ui.duelInvite, ui.duelResult]) el.addEventListener('click', (e) => e.stopPropagation());
+    ui.partyBanner.addEventListener('click', () => this.openPartyPanel());
+    ui.partyPanel.addEventListener('click', (e) => e.stopPropagation());
+    ui.partyBack.addEventListener('click', () => ui.partyPanel.classList.remove('active'));
 
-    this.ui.partyJoinInput.addEventListener('keydown', (e) => {
+    // Start screen → go to the lobby with the multiplayer panel open
+    ui.startMultiplayerBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (e.code === 'Enter') this.ui.partyJoinBtn.click();
-    });
-    this.ui.partyJoinInput.addEventListener('keyup', (e) => e.stopPropagation());
-
-    this.ui.partyLeave.addEventListener('click', async () => {
-      await this.multiplayer.leaveParty();
-      this.hidePartyView();
+      this.ensureNickname(() => {
+        this.enterLobbyFromStart();
+        this.openPartyPanel();
+      });
     });
 
-    this.ui.partyCopy.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.multiplayer.partyCode);
-      this.ui.partyCopy.textContent = 'COPIED!';
-      setTimeout(() => { this.ui.partyCopy.textContent = 'COPY'; }, 1500);
+    ui.partyCreate.addEventListener('click', async () => {
+      await this.runPartyAction('CREATING PARTY...', () => mp.createParty());
     });
 
-    this.ui.partyStart.addEventListener('click', () => {
-      this.multiplayer.setGameMode(this.gameMode || 'park', this.backcountryChair || null, this.parkId || null);
+    const join = async () => {
+      const code = ui.partyJoinInput.value;
+      await this.runPartyAction('JOINING...', () => mp.joinParty(code));
+    };
+    ui.partyJoinBtn.addEventListener('click', join);
+    ui.partyJoinInput.addEventListener('input', () => {
+      ui.partyJoinInput.value = ui.partyJoinInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    ui.partyJoinInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') join();
+    });
+    ui.partyJoinInput.addEventListener('keyup', (e) => e.stopPropagation());
+
+    ui.partyCopy.addEventListener('click', async () => {
+      const url = mp.inviteLink;
+      if (!url) return;
+      try {
+        if (isTouchDevice && navigator.share) {
+          await navigator.share({ title: 'Shred Summit', text: `Ride with me! Party code ${mp.partyCode}`, url });
+          return;
+        }
+        await navigator.clipboard.writeText(url);
+        ui.partyCopy.textContent = 'COPIED!';
+      } catch (e) {
+        ui.partyCopy.textContent = 'SHARE THE CODE ABOVE';
+      }
+      setTimeout(() => { ui.partyCopy.textContent = 'COPY INVITE LINK'; }, 1800);
+    });
+
+    ui.partyStart.addEventListener('click', () => this.dropIn());
+
+    ui.partyLeave.addEventListener('click', async () => {
+      await mp.leaveParty();
+      this.setPartyError('');
+    });
+  }
+
+  async runPartyAction(pendingText, action) {
+    const ui = this.ui;
+    ui.partyCreate.disabled = true;
+    ui.partyJoinBtn.disabled = true;
+    this.setPartyError(pendingText, true);
+    try {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('CONNECTION TIMED OUT, CHECK YOUR INTERNET')), 10000));
+      const result = await Promise.race([action(), timeout]);
+      this.setPartyError(result.error || '');
+    } catch (e) {
+      console.warn('[multiplayer]', e);
+      const denied = /permission/i.test(e.message || '');
+      this.setPartyError(denied ? 'MULTIPLAYER IS NOT SET UP ON THE SERVER YET' : (e.message || 'CONNECTION FAILED'));
+    } finally {
+      ui.partyCreate.disabled = false;
+      ui.partyJoinBtn.disabled = false;
+      this.renderPartyPanel();
+    }
+  }
+
+  setPartyError(text, ok = false) {
+    this.ui.partyError.textContent = text;
+    this.ui.partyError.classList.toggle('ok', ok);
+  }
+
+  openPartyPanel() {
+    this.renderPartyPanel();
+    this.ui.mapPanel.classList.remove('active');
+    this.ui.customizePanel.classList.remove('active');
+    this.ui.accountPanel.classList.remove('active');
+    this.ui.duelPanel.classList.remove('active');
+    this.ui.partyPanel.classList.add('active');
+    if (!this.multiplayer.available) this.setPartyError('SIGN IN TO PLAY ONLINE');
+  }
+
+  enterLobbyFromStart() {
+    if (this.state !== 'start') return;
+    this.ui.startScreen.style.display = 'none';
+    this.clock.start();
+    this.openLobby();
+  }
+
+  /** Opened with ?party=CODE → join that party and show the lobby. */
+  joinPartyFromInviteLink() {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('party');
+    if (!code) return;
+    params.delete('party');
+    const query = params.toString();
+    history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash);
+
+    this.ensureNickname(() => {
+      this.enterLobbyFromStart();
+      this.openPartyPanel();
+      this.runPartyAction('JOINING...', () => this.multiplayer.joinParty(code));
+    });
+  }
+
+  // ---- 1V1 CHALLENGES ----
+  // The challenger rides the 1v1 course while the opponent watches live, then they swap.
+  // this.duel is our local copy while we're in one: { id, seed, challenger, opponent, phase }.
+
+  memberName(uid) {
+    if (uid === this.multiplayer.uid) return 'YOU';
+    return (this.multiplayer.members[uid]?.nickname || 'YOUR FRIEND').toUpperCase();
+  }
+
+  setDuelError(text, ok = false) {
+    this.ui.duelError.textContent = text;
+    this.ui.duelError.classList.toggle('ok', ok);
+  }
+
+  openDuelPanel() {
+    this.ui.mapPanel.classList.remove('active');
+    this.ui.customizePanel.classList.remove('active');
+    this.ui.accountPanel.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
+    this.setDuelError('');
+    this.renderDuelPanel();
+    this.ui.duelPanel.classList.add('active');
+  }
+
+  renderDuelPanel() {
+    const mp = this.multiplayer;
+    const list = this.ui.duelList;
+    if (!list) return;
+    list.innerHTML = '';
+    const note = (text) => {
+      const el = document.createElement('div');
+      el.className = 'duel-empty';
+      el.textContent = text;
+      list.appendChild(el);
+    };
+    const button = (label, cls, onClick) => {
+      const b = document.createElement('button');
+      b.className = `party-btn ${cls}`;
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+
+    if (!mp.available) {
+      note(isFirebaseConfigured() ? 'SIGN IN TO PLAY ONLINE' : 'ONLINE PLAY NEEDS AN ACCOUNT, SO IT ONLY WORKS ON THE LIVE GAME');
+      return;
+    }
+    if (!mp.active) {
+      note('CREATE OR JOIN A PARTY WITH YOUR FRIEND FIRST');
+      const row = document.createElement('div');
+      row.className = 'party-row';
+      row.append(
+        button('CREATE PARTY', 'primary', () => this.ui.lobbyCreateParty.click()),
+        button('JOIN PARTY', '', () => this.ui.lobbyJoinParty.click()),
+      );
+      list.appendChild(row);
+      return;
+    }
+    const d = mp.duel;
+    if (d && d.state === 'pending' && d.challenger === mp.uid) {
+      note(`WAITING FOR ${this.memberName(d.opponent)} TO ACCEPT...`);
+      const row = document.createElement('div');
+      row.className = 'party-row';
+      row.append(button('CANCEL', 'danger', () => mp.cancelDuel()));
+      list.appendChild(row);
+      return;
+    }
+    const others = Object.keys(mp.members).filter((uid) => uid !== mp.uid);
+    if (others.length === 0) {
+      note(`NOBODY ELSE IS HERE YET. SEND YOUR FRIEND THE CODE ${mp.partyCode}`);
+      return;
+    }
+    const busy = d && ['pending', 'run1', 'run2'].includes(d.state);
+    if (busy) note(`${this.memberName(d.challenger)} AND ${this.memberName(d.opponent)} ARE IN A 1V1 RIGHT NOW`);
+    for (const uid of others) {
+      const row = document.createElement('div');
+      row.className = 'party-member';
+      const name = document.createElement('span');
+      name.textContent = mp.members[uid].nickname || 'Player';
+      const b = button('CHALLENGE', 'primary', async () => {
+        b.disabled = true;
+        this.setDuelError('SENDING...', true);
+        try {
+          const res = await mp.challenge(uid);
+          this.setDuelError(res.error || '');
+        } catch (e) {
+          console.warn('[1v1]', e);
+          this.setDuelError(/permission/i.test(e.message || '') ? '1V1 IS NOT SET UP ON THE SERVER YET' : 'CONNECTION FAILED');
+        }
+        this.renderDuelPanel();
+      });
+      b.disabled = !!busy;
+      row.append(name, b);
+      list.appendChild(row);
+    }
+  }
+
+  onDuelChanged(d) {
+    const mp = this.multiplayer;
+    this.renderDuelPanel();
+    const mine = mp.inDuel(d);
+
+    // Our duel was cancelled, or someone started a new one we're not in
+    if (!mine) {
+      this.ui.duelInvite.classList.remove('active');
+      if (this.duel && this.duel.phase !== 'done') this.endDuel('THE 1V1 WAS CANCELLED');
+      return;
+    }
+
+    const key = `${d.id}:${d.state}`;
+    if (this._duelSeen === key) return;
+    this._duelSeen = key;
+    const me = mp.uid;
+    const other = d.challenger === me ? d.opponent : d.challenger;
+
+    if (d.state === 'pending') {
+      if (d.opponent === me) {
+        this.ui.duelInviteText.textContent = `${this.memberName(d.challenger)} CHALLENGED YOU TO A 1V1`;
+        this.ui.duelInvite.classList.add('active');
+      }
+      return;
+    }
+    this.ui.duelInvite.classList.remove('active');
+
+    if (d.state === 'declined') {
+      if (d.challenger === me) this.setDuelError(`${this.memberName(d.opponent)} DECLINED`);
+      if (this.duel) this.endDuel();
+      return;
+    }
+
+    if (!this.duel) this._preDuelParkId = this.parkId; // put the map back afterwards
+    this.duel = { id: d.id, seed: d.seed, challenger: d.challenger, opponent: d.opponent, phase: d.state, scores: d.scores || {} };
+    mp.duelKey = `duel:${d.id}`;
+
+    if (d.state === 'run1') {
+      if (d.challenger === me) this.beginDuelRide(); else this.beginDuelWatch(other);
+    } else if (d.state === 'run2') {
+      if (d.opponent === me) this.beginDuelRide(); else this.beginDuelWatch(other);
+    } else if (d.state === 'done') {
+      this.showDuelResult(d);
+    }
+  }
+
+  // If the other rider leaves the party mid-1v1, it's ours
+  checkDuelPartners() {
+    const d = this.duel;
+    if (!d || d.phase === 'done') return;
+    const mp = this.multiplayer;
+    if (!mp.active) { this.endDuel(); return; }
+    const other = d.challenger === mp.uid ? d.opponent : d.challenger;
+    if (!mp.members[other]) {
+      this.showDuelResult({ ...d, state: 'done', forfeit: other, left: true });
+    }
+  }
+
+  // Go back to the lobby from wherever we are without forfeiting
+  _duelToLobby() {
+    if (this.state === 'lobby') return;
+    this._duelTransition = true;
+    try { this.openLobby(); } finally { this._duelTransition = false; }
+  }
+
+  beginDuelRide() {
+    this._duelToLobby();
+    this.ui.duelResult.classList.remove('active');
+    this.duel.riding = true;
+    this.duel.watching = null;
+    this.player.group.visible = true;
+    this.closeLobby();
+  }
+
+  beginDuelWatch(uid) {
+    this._duelToLobby();
+    this.duel.riding = false;
+    this.duel.watching = uid;
+    const ui = this.ui;
+    ui.lobbyScreen.classList.remove('active');
+    for (const panel of [ui.partyPanel, ui.duelPanel, ui.mapPanel, ui.customizePanel, ui.accountPanel]) panel.classList.remove('active');
+    this.teardownLobbyScene();
+    this.gameMode = 'park';
+    this.parkId = 'duel';
+    this.backcountryChair = null;
+    this.applyDaynightPref();
+    this.swapTerrain();
+    this.fullReset();
+    if (this.touchControls) this.touchControls.hide();
+    this.player.group.visible = false;
+    this.state = 'watching';
+    this._watchPos = new THREE.Vector3(0, this.terrain.getHeightAt(0, 0) + 1, 0);
+    this.multiplayer.startWatching();
+  }
+
+  updateWatching(dt) {
+    const remote = this.multiplayer.remotePlayers[this.duel?.watching];
+    if (remote) this._watchPos.copy(remote.currentPos);
+    this.terrain.update(this._watchPos.z);
+    this.particles.update(dt);
+    this.multiplayer.update(dt, this.camera);
+
+    const lerp = 1 - Math.pow(1 - 0.1, dt * 60);
+    this.currentCameraPos.lerp(this._watchPos.clone().add(this.cameraOffset), lerp);
+    this.camera.position.copy(this.currentCameraPos);
+    this.camera.lookAt(this._watchPos.clone().add(this.cameraLookAhead));
+  }
+
+  onDuelRunFinished() {
+    const score = this.tricks.totalScore;
+    this.state = 'duelwait';
+    if (this.touchControls) this.touchControls.hide();
+    this.duel.myScore = score;
+    this.multiplayer.submitDuelScore(score);
+  }
+
+  updateDuelHud() {
+    const d = this.duel;
+    const mp = this.multiplayer;
+    let big = '', small = '';
+    if (d && d.phase !== 'done') {
+      const total = this.terrain?.checkpointCount || 3;
+      const theirFirst = d.phase === 'run2' ? (d.scores || {})[d.challenger] : null;
+      if (this.state === 'watching') {
+        const r = mp.remotePlayers[d.watching];
+        big = `WATCHING ${this.memberName(d.watching)} · ${r ? r.score.toLocaleString() : 0} PTS`;
+        small = r ? `CHECKPOINT ${r.checkpoint} / ${total}` : 'WAITING FOR THEM TO DROP IN...';
+        small += theirFirst != null ? ` · THEY NEED ${(theirFirst + 1).toLocaleString()} TO BEAT YOU` : ' · YOU RIDE NEXT';
+      } else if (this.state === 'duelwait') {
+        big = `FINISHED · ${(d.myScore || 0).toLocaleString()} PTS`;
+        small = 'WAITING FOR THE RESULT...';
+      } else if (d.riding) {
+        big = `1V1 · YOUR RUN · ${this.tricks.totalScore.toLocaleString()} PTS`;
+        small = theirFirst != null ? `BEAT ${theirFirst.toLocaleString()} FROM ${this.memberName(d.challenger)}` : `YOU GO FIRST · SET THE SCORE FOR ${this.memberName(d.opponent)}`;
+      }
+    }
+    const html = big ? `<div class="big">${big}</div><div class="small">${small}</div>` : '';
+    if (html !== this._duelHudHtml) {
+      this._duelHudHtml = html;
+      this.ui.duelHud.innerHTML = html;
+      this.ui.duelHud.style.display = html ? 'block' : 'none';
+    }
+  }
+
+  showDuelResult(d) {
+    const mp = this.multiplayer;
+    const me = mp.uid;
+    const other = d.challenger === me ? d.opponent : d.challenger;
+    const scores = d.scores || {};
+    const mine = scores[me] ?? 0, theirs = scores[other] ?? 0;
+    let winner = null;
+    if (d.forfeit) winner = d.forfeit === me ? other : me;
+    else if (mine !== theirs) winner = mine > theirs ? me : other;
+
+    if (this.duel) this.duel.phase = 'done';
+    if (this.state === 'watching' || this.state === 'duelwait') this.player.group.visible = true;
+    this.ui.duelResultTitle.textContent = winner === me ? 'YOU WIN!' : winner ? `${this.memberName(other)} WINS` : "IT'S A TIE";
+    const rows = this.ui.duelResultScores;
+    rows.innerHTML = '';
+    for (const uid of [me, other]) {
+      const row = document.createElement('div');
+      row.className = 'row' + (uid === winner ? ' win' : '');
+      const name = document.createElement('span');
+      name.textContent = uid === me ? 'YOU' : this.memberName(uid);
+      const pts = document.createElement('span');
+      pts.textContent = scores[uid] != null ? `${scores[uid].toLocaleString()} PTS` : '—';
+      row.append(name, pts);
+      rows.appendChild(row);
+    }
+    this.ui.duelResultNote.textContent = d.left ? `${this.memberName(other)} LEFT THE PARTY`
+      : d.forfeit ? `${d.forfeit === me ? 'YOU' : this.memberName(d.forfeit)} QUIT THE 1V1` : '';
+    this.ui.duelInvite.classList.remove('active');
+    this.ui.duelResult.classList.add('active');
+    this.updateDuelHud();
+  }
+
+  // Result dismissed: back to the lobby
+  finishDuel() {
+    this.ui.duelResult.classList.remove('active');
+    this.endDuel();
+  }
+
+  endDuel(message) {
+    const wasIn = !!this.duel;
+    if (this.duel) this.duel.phase = 'done'; // no forfeit when we tidy up
+    this._duelToLobby();
+    this.duel = null;
+    this.multiplayer.duelKey = null;
+    if (this.parkId === 'duel') this.parkId = this._preDuelParkId || 'big-white';
+    this.player.group.visible = true;
+    this.updateDuelHud();
+    if (wasIn && message) this.showPartyHint(message);
+  }
+
+  /** Leave the lobby and start riding. In a party, the leader brings everyone waiting along. */
+  dropIn() {
+    if (this.state !== 'lobby') return;
+    if (this.multiplayer.isLeader) this.multiplayer.startRun();
+    this.closeLobby();
+  }
+
+  applyPartyMap(map) {
+    this.gameMode = map.mode;
+    this.backcountryChair = map.mode === 'backcountry' ? map.chair : null;
+    this.parkId = map.parkId || 'big-white';
+  }
+
+  partyMapName(map) {
+    const el = map.mode === 'backcountry'
+      ? document.querySelector(`.map-chair[data-chair="${map.chair}"] .map-chair-label`)
+      : document.querySelector(`.park-card[data-park="${map.parkId}"] .park-card-name`);
+    return el ? el.textContent.trim() : 'UNKNOWN MAP';
+  }
+
+  highlightParkCard(parkId) {
+    document.querySelectorAll('.park-card').forEach(c =>
+      c.classList.toggle('selected', c.dataset.park === parkId)
+    );
+  }
+
+  showPartyHint(text) {
+    this.ui.lobbyPartyHint.textContent = text;
+    clearTimeout(this._partyHintTimer);
+    this._partyHintTimer = setTimeout(() => { this.ui.lobbyPartyHint.textContent = ''; }, 2500);
+  }
+
+  // Called by MultiplayerManager whenever members or connection state change
+  onPartyChanged() {
+    this.renderPartyPanel();
+    this.renderDuelPanel();
+    this.updatePartyHud();
+    this.checkDuelPartners();
+    if (this.state === 'lobby' && this.lobbyGroup) this.syncLobbyRemotePlayers();
+  }
+
+  onPartyMapChanged(map) {
+    if (this.state === 'lobby' || this.state === 'start') {
+      this.parkId = map.parkId || 'big-white';
+      this.highlightParkCard(this.parkId);
+    }
+    this.renderPartyPanel();
+  }
+
+  // The leader started a run: anyone waiting drops in with them
+  onPartyRunStarted() {
+    if (this.duel) return; // in a 1v1: the party's free run goes on without us
+    if (this.state === 'lobby') {
       this.closeLobby();
-    });
-
-    // Stop party panel clicks from propagating to lobby
-    this.ui.partyPanel.addEventListener('click', (e) => e.stopPropagation());
-  }
-
-  showPartyView(code) {
-    this.ui.partyJoinView.style.display = 'none';
-    this.ui.partyActiveView.style.display = '';
-    this.ui.partyCode.textContent = code;
-    this.ui.partyStart.style.display = this.multiplayer.isHost ? '' : 'none';
-    // Show big party code banner
-    const banner = document.getElementById('party-code-banner');
-    const bigCode = document.getElementById('party-code-big');
-    if (banner) { banner.style.display = ''; bigCode.textContent = code; }
-  }
-
-  hidePartyView() {
-    this.ui.partyJoinView.style.display = '';
-    this.ui.partyActiveView.style.display = 'none';
-    this.ui.partyJoinInput.value = '';
-    this.ui.partyError.textContent = '';
-    this.ui.partyMembers.innerHTML = '';
-    // Hide big party code banner
-    const banner = document.getElementById('party-code-banner');
-    if (banner) banner.style.display = 'none';
-  }
-
-  updatePartyMembers(members, hostUid) {
-    this.ui.partyMembers.innerHTML = '';
-    for (const [uid, data] of Object.entries(members)) {
-      const div = document.createElement('div');
-      div.className = 'party-member' + (uid === hostUid ? ' host' : '');
-      div.textContent = data.nickname || 'Player';
-      this.ui.partyMembers.appendChild(div);
-    }
-
-    // Sync lobby remote players if currently in lobby
-    if (this.state === 'lobby' && this.lobbyGroup) {
-      this.syncLobbyRemotePlayers();
-    }
-  }
-
-  onPartyDissolved() {
-    this.hidePartyView();
-    // If we were playing, go back to lobby
-    if (this.state === 'playing' || this.state === 'dead' || this.state === 'finished') {
+    } else if (this.state === 'dead' || this.state === 'finished') {
       this.openLobby();
+      this.closeLobby();
+    }
+  }
+
+  renderPartyPanel() {
+    const mp = this.multiplayer;
+    const ui = this.ui;
+    const inParty = mp.active;
+
+    ui.partyJoinView.style.display = inParty ? 'none' : 'flex';
+    ui.partyActiveView.style.display = inParty ? 'flex' : 'none';
+    ui.partyCreate.disabled = ui.partyCreate.disabled || !mp.available;
+    ui.lobbyMultiplayer.textContent = `PARTY (${mp.memberCount})`;
+    ui.lobbyMultiplayer.style.display = inParty ? '' : 'none';
+    ui.lobbyCreateParty.style.display = inParty ? 'none' : '';
+    ui.lobbyJoinParty.style.display = inParty ? 'none' : '';
+
+    // Lobby banner
+    ui.partyBanner.style.display = inParty ? '' : 'none';
+    if (inParty) {
+      ui.partyBannerCode.textContent = mp.partyCode;
+      const riders = mp.memberCount === 1 ? 'JUST YOU SO FAR' : `${mp.memberCount} RIDERS`;
+      ui.partyBannerInfo.textContent = `${riders} · ${this.partyMapName(mp.map)}${mp._connected ? '' : ' · RECONNECTING...'}`;
+    }
+
+    if (!inParty) return;
+
+    ui.partyCode.textContent = mp.partyCode;
+    ui.partyMapLabel.textContent = mp.isLeader
+      ? `MAP: ${this.partyMapName(mp.map)} — YOU'RE THE LEADER, PICK MAPS FROM THE MAP MENU`
+      : `MAP: ${this.partyMapName(mp.map)} — THE LEADER PICKS THE MAP`;
+    ui.partyStart.textContent = mp.isLeader ? 'DROP IN TOGETHER' : 'DROP IN';
+
+    const leader = mp.leaderUid;
+    ui.partyMembers.innerHTML = '';
+    const uids = Object.keys(mp.members).sort((a, b) => (a === leader ? -1 : b === leader ? 1 : 0));
+    for (const uid of uids) {
+      const m = mp.members[uid];
+      const row = document.createElement('div');
+      row.className = 'party-member' + (uid === mp.uid ? ' me' : '');
+      const name = document.createElement('span');
+      name.textContent = `${uid === leader ? '★ ' : ''}${m.nickname || 'Player'}${uid === mp.uid ? ' (YOU)' : ''}`;
+      const status = document.createElement('span');
+      status.className = 'party-member-status' + (m.status === 'riding' ? ' riding' : '');
+      status.textContent = m.status === 'riding' ? 'RIDING' : 'IN LOBBY';
+      row.append(name, status);
+      ui.partyMembers.appendChild(row);
+    }
+  }
+
+  updatePartyHud() {
+    const mp = this.multiplayer;
+    const show = mp.active && (this.state === 'playing' || this.state === 'dead' || this.state === 'finished');
+    const text = show
+      ? `PARTY ${mp.partyCode} · ${mp.ridersHere + 1}/${mp.memberCount} ON THIS RUN${mp._connected ? '' : ' · RECONNECTING...'}`
+      : '';
+    if (this._partyHudText !== text) {
+      this._partyHudText = text;
+      this.ui.partyHud.textContent = text;
+      this.ui.partyHud.style.display = show ? '' : 'none';
     }
   }
 
   openLobby() {
+    // Leaving a 1v1 on your own (ESC from a crash etc.) forfeits it
+    if (this.duel && !this._duelTransition && this.duel.phase !== 'done') {
+      this.multiplayer.forfeitDuel();
+    }
+    if (this.state === 'watching' || this.state === 'duelwait') this.player.group.visible = true;
+    this.ui.duelPanel.classList.remove('active');
     this.state = 'lobby';
     // Reset to park mode when returning to lobby
     if (this.gameMode === 'backcountry') {
@@ -1543,8 +1744,6 @@ export class Game {
     this.ui.newRecordLabel.classList.remove('show');
     this.ui.crashVignette.style.opacity = '0';
     this.ui.customizePanel.classList.remove('active');
-    this.ui.questsPanel.classList.remove('active');
-    this.ui.ridepassPanel.classList.remove('active');
     this.ui.mapPanel.classList.remove('active');
     // Reset map tabs to backcountry default
     document.querySelectorAll('.map-tab[data-map-tab]').forEach(t =>
@@ -1558,28 +1757,54 @@ export class Game {
     document.querySelectorAll('.park-card').forEach(c =>
       c.classList.toggle('selected', c.dataset.park === this.parkId)
     );
-    this.ui.shopPanel.classList.remove('active');
     this.ui.accountPanel.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
     this.ui.lobbyScreen.classList.add('active');
     this.player.cleanupDebris();
     this.player.boardGroup.visible = true;
     this.applyEquippedItems();
     this.setupLobbyScene();
 
-    // Multiplayer: stop game sync but keep party connection
-    if (this.multiplayer.active) {
-      this.multiplayer.returnToLobby();
-    }
+    // Multiplayer: stop sending our position but stay in the party
+    this.multiplayer.onLocalReturnedToLobby();
+    this.onPartyChanged();
   }
 
   closeLobby() {
     // Guard against double-calling (e.g. click handler + Firebase callback)
     if (this.state !== 'lobby') return;
 
+    // In a party everyone rides the party's map (a 1v1 rides its own course)
+    if (this.duel) {
+      this.gameMode = 'park';
+      this.parkId = 'duel';
+      this.backcountryChair = null;
+    } else if (this.multiplayer.active) this.applyPartyMap(this.multiplayer.map);
+
     // Hide lobby UI immediately so it disappears even if teardown errors
     this.ui.lobbyScreen.classList.remove('active');
+    this.ui.partyPanel.classList.remove('active');
+    this.ui.duelPanel.classList.remove('active');
     this.teardownLobbyScene();
     this.applyEquippedItems();
+    this.applyDaynightPref();
+    console.log('[closeLobby] gameMode:', this.gameMode, 'chair:', this.backcountryChair, 'nightBlend:', this.nightBlend.toFixed(2));
+    this.swapTerrain();
+    this.player.backcountryMode = this.gameMode === 'backcountry';
+    // Reload per-chair/park leaderboard
+    if (this.gameMode === 'backcountry') {
+      this.summitLeaderboard = this.loadSummitLeaderboard();
+    } else {
+      this.leaderboard = this.loadLeaderboard();
+    }
+    this.fullReset();
+
+    // Multiplayer: start sharing our position
+    this.multiplayer.onLocalRunStarted();
+    this.onPartyChanged();
+  }
+
+  applyDaynightPref() {
     // Evaluate day/night: preference overrides real clock
     if (this.daynightPref === 'day') {
       this.nightBlend = 0;
@@ -1592,21 +1817,6 @@ export class Game {
       this.nightBlend = this.getTimeOfDay();
       this.nightMode = this.nightBlend > 0.1;
     }
-    console.log('[closeLobby] gameMode:', this.gameMode, 'chair:', this.backcountryChair, 'nightBlend:', this.nightBlend.toFixed(2));
-    this.swapTerrain();
-    this.player.backcountryMode = this.gameMode === 'backcountry';
-    // Reload per-chair/park leaderboard
-    if (this.gameMode === 'backcountry') {
-      this.summitLeaderboard = this.loadSummitLeaderboard();
-    } else {
-      this.leaderboard = this.loadLeaderboard();
-    }
-    this.fullReset();
-
-    // Multiplayer: notify manager that game started locally
-    if (this.multiplayer.active) {
-      this.multiplayer.onLocalGameStarted();
-    }
   }
 
   swapTerrain() {
@@ -1616,18 +1826,6 @@ export class Game {
       this.terrain.dispose();
     }
 
-    // Reset atmosphere from previous mode
-    if (this.auroraActive) {
-      this.auroraActive = false;
-      this.auroraIntensity = 0;
-      this.auroraMultiplier = 1.0;
-      this.disposeAuroraMesh();
-      if (this.auroraSnowLight) {
-        this.scene.remove(this.auroraSnowLight.target);
-        this.scene.remove(this.auroraSnowLight);
-        this.auroraSnowLight = null;
-      }
-    }
     this.disposeStarField();
     this.disposeShootingStars();
 
@@ -1646,44 +1844,20 @@ export class Game {
     this.rimLight.intensity = 0.3;
     this.renderer.toneMappingExposure = 1.1;
 
-    // Determine if night mode applies (moonlight always has its own night)
-    const useNight = this.nightMode && this.backcountryChair !== 'moonlight';
+    const useNight = this.nightMode;
 
     if (this.gameMode === 'backcountry') {
       console.log('[swapTerrain] Creating BackcountryTerrain, night:', useNight);
       this.terrain = new BackcountryTerrain(this.scene, this.backcountryChair, useNight);
-
-      // Chair-specific atmosphere
-      if (this.backcountryChair === 'moonlight') {
-        // Moonlight always night with aurora — unaffected by clock
-        this.auroraActive = true;
-        this.auroraIntensity = 0;
-        this.auroraMultiplier = 1.0;
-        this.scene.background = new THREE.Color(0x0a0e1a);
-        this.scene.fog.color.set(0x0a0e1a);
-        this.scene.fog.density = 0.012;
-        this.sun.intensity = 0.35;
-        this.sun.color.set(0x99aadd);
-        this.sun.position.set(-20, 60, 10);
-        this.createAuroraMesh();
-        if (!this.shootingStarPool) this.initShootingStars();
-
-        // Aurora light that casts green/teal glow onto the snow
-        if (!this.auroraSnowLight) {
-          this.auroraSnowLight = new THREE.DirectionalLight(0x30cc80, 0);
-          this.auroraSnowLight.target = new THREE.Object3D();
-          this.scene.add(this.auroraSnowLight);
-          this.scene.add(this.auroraSnowLight.target);
-        }
-      }
     } else {
       console.log('[swapTerrain] Creating Park Terrain, parkId:', this.parkId, 'night:', useNight);
-      const seed = this.multiplayer.active ? this.multiplayer.terrainSeed : null;
+      // Party members share the park layout via a common seed
+      const seed = this.duel ? this.duel.seed : (this.multiplayer.active ? this.multiplayer.map.seed : null);
       this.terrain = new Terrain(this.scene, seed, this.parkId, useNight);
       this.parkTerrain = this.terrain;
     }
 
-    // Apply night atmosphere (non-moonlight only)
+    // Apply night atmosphere
     if (useNight) {
       this.applyNightAtmosphere();
     }
@@ -2321,73 +2495,7 @@ export class Game {
       }
 
       // Multiplayer: send local state and update remote players
-      if (this.multiplayer.active && this.multiplayer._gameStarted) {
-        this.multiplayer.sendState();
-        this.multiplayer.updateRemotePlayers(dt, this.camera);
-      }
-
-      // Aurora system — Moonlight Ridge
-      if (this.auroraActive && this.terrain.config.aurora) {
-        const acfg = this.terrain.config.aurora;
-        // Trick landing triggers brightness flare + multiplier bump
-        const timeSinceLastTrick = performance.now() - trickState.lastTrickTime;
-        if (trickState.lastTrickTime > 0 && timeSinceLastTrick < 200) {
-          this.auroraIntensity = Math.min(acfg.maxBrightness,
-            this.auroraIntensity + acfg.flareRate * dt * 5);
-          // Bump multiplier on trick landing (detected once per trick)
-          if (!this._lastAuroraTrickTime || this._lastAuroraTrickTime !== trickState.lastTrickTime) {
-            this._lastAuroraTrickTime = trickState.lastTrickTime;
-            this.auroraMultiplier = Math.min(7.5, this.auroraMultiplier + 0.5);
-          }
-        }
-        // Decay intensity over time without tricks
-        this.auroraIntensity = Math.max(0, this.auroraIntensity - acfg.decayRate * dt);
-        // Decay multiplier slowly when not tricking
-        if (this.auroraMultiplier > 1.0 && timeSinceLastTrick > 3000) {
-          this.auroraMultiplier = Math.max(1.0, this.auroraMultiplier - 0.3 * dt);
-        }
-        // Feed multiplier to trick system
-        this.tricks.auroraMultiplier = this.auroraMultiplier;
-
-        // Apply to scene atmosphere
-        const t = this.auroraIntensity;
-        this.scene.fog.density = acfg.baseFogDensity + (acfg.litFogDensity - acfg.baseFogDensity) * t;
-        this.sun.intensity = acfg.baseAmbient + (acfg.litAmbient - acfg.baseAmbient) * t;
-        // Dark sky that shifts green with aurora — keeps contrast with bright rays
-        const r = 0.02 + t * 0.01;
-        const g = 0.04 + t * 0.08;
-        const b = 0.08 + t * 0.04;
-        this.scene.background.setRGB(r, g, b);
-        this.scene.fog.color.setRGB(r, g, b);
-
-        // Update aurora sky visual
-        if (this.auroraMesh) {
-          this.auroraMesh.material.uniforms.uTime.value += dt;
-          this.auroraMesh.material.uniforms.uIntensity.value = t;
-          // Follow player position so aurora stays overhead
-          this.auroraMesh.position.x = this.player.position.x;
-          this.auroraMesh.position.y = this.player.position.y;
-          this.auroraMesh.position.z = this.player.position.z - 50;
-        }
-
-        // Aurora casts green/teal light onto snow
-        if (this.auroraSnowLight) {
-          this.auroraSnowLight.intensity = t * 0.7;
-          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.001 * 0.4);
-          // Shift between green and teal
-          this.auroraSnowLight.color.setRGB(
-            0.08 + pulse * 0.05,
-            0.55 + pulse * 0.15,
-            0.35 + (1 - pulse) * 0.2
-          );
-          this.auroraSnowLight.position.set(
-            this.player.position.x,
-            this.player.position.y + 80,
-            this.player.position.z - 20
-          );
-          this.auroraSnowLight.target.position.copy(this.player.position);
-        }
-      }
+      this.multiplayer.update(dt, this.camera);
 
       // Star field follows player (backcountry night)
       if (this.starField) {
@@ -2407,19 +2515,23 @@ export class Game {
       }
 
       // Shooting stars when airborne above 30ft at night
-      if (this.nightMode || this.backcountryChair === 'moonlight') {
+      if (this.nightMode) {
         this.updateShootingStars(dt, playerState.jumpHeightFeet || 0);
       }
 
       // UI
       this.updateUI(trickState, playerState);
-    } else if (this.state === 'dead' || this.state === 'finished') {
+    } else if (this.state === 'dead' || this.state === 'finished' || this.state === 'duelwait') {
       this.particles.update(dt);
       this.updateSkiPatrol(dt);
+      this.multiplayer.update(dt, this.camera);
+    } else if (this.state === 'watching') {
+      this.updateWatching(dt);
     } else if (this.state === 'lobby') {
       this.updateLobby(dt);
     }
 
+    if (this.duel) this.updateDuelHud();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -2435,7 +2547,8 @@ export class Game {
 
         // Finish line reached!
         if (cp.isFinish) {
-          this.showFinishScreen();
+          if (this.duel) this.onDuelRunFinished();
+          else this.showFinishScreen();
           return;
         }
       }
@@ -2450,19 +2563,19 @@ export class Game {
 
     const mobile = isTouchDevice;
     const bc = this.gameMode === 'backcountry';
-    const speedZoom = Math.min(speed * 0.04, mobile ? 0.8 : 3);
+    const speedZoom = Math.min(speed * 0.04, mobile ? 0.6 : 1.8);
     const offset = this.cameraOffset.clone();
     // Backcountry: pull camera higher and further back to see the wide bowl
     if (bc && !mobile) {
-      offset.y += 4;
-      offset.z += 4;
+      offset.y += 3;
+      offset.z += 3;
     }
     if (!mobile) offset.y += speedZoom;
     offset.z += speedZoom * (mobile ? 0.5 : 1.5);
 
     // Pull camera back when airborne for epic view (minimal on mobile)
     if (playerState.isAirborne) {
-      const airPull = Math.min(playerState.airTime * 1.5, mobile ? 1.5 : 5);
+      const airPull = Math.min(playerState.airTime * 1.5, mobile ? 1.2 : 3.5);
       if (!mobile) offset.y += airPull * 0.5;
       offset.z += airPull * (mobile ? 0.3 : 1);
     }
@@ -2473,7 +2586,10 @@ export class Game {
     }
 
     const targetPos = this.player.position.clone().add(offset);
-    const lerpSpeed = mobile ? 0.25 : (playerState.crashed ? 0.02 : 0.06);
+    // Per-frame follow strength at 60fps, converted so the camera trails the same
+    // distance at any frame rate (it used to fall far behind on slow devices)
+    const lerpAt60 = mobile ? 0.25 : (playerState.crashed ? 0.02 : 0.1);
+    const lerpSpeed = 1 - Math.pow(1 - lerpAt60, dt * 60);
     this.currentCameraPos.lerp(targetPos, lerpSpeed);
     this.camera.position.copy(this.currentCameraPos);
 
@@ -2683,81 +2799,6 @@ export class Game {
     }
   }
 
-  async fetchAndRenderScores(tab) {
-    const db = this.firebaseDb;
-    const container = this.ui.scoresList;
-    container.innerHTML = '';
-    this.ui.scoresLoading.style.display = 'block';
-    this.ui.scoresError.style.display = 'none';
-
-    try {
-      let scores;
-      const parkTabs = ['big-white', 'woodward', 'xgames'];
-      if (parkTabs.includes(tab)) {
-        scores = await fetchWorldwideScores(db, 20, tab);
-      } else {
-        scores = await fetchSummitScores(db, tab, 20);
-      }
-
-      this.ui.scoresLoading.style.display = 'none';
-
-      if (scores === null) {
-        this.ui.scoresError.style.display = 'block';
-        this.ui.scoresError.textContent = 'OFFLINE — CHECK CONNECTION';
-        return;
-      }
-
-      if (scores.length === 0) {
-        this.ui.scoresError.style.display = 'block';
-        this.ui.scoresError.textContent = 'NO SCORES YET';
-        return;
-      }
-
-      scores.slice(0, 10).forEach((entry, i) => {
-        const div = document.createElement('div');
-        div.className = 'leaderboard-entry';
-
-        const rankSpan = document.createElement('span');
-        rankSpan.className = 'lb-rank';
-        if (i === 0) rankSpan.classList.add('gold');
-        else if (i === 1) rankSpan.classList.add('silver');
-        else if (i === 2) rankSpan.classList.add('bronze');
-        rankSpan.textContent = `#${i + 1}`;
-
-        const nameWrap = document.createElement('span');
-        nameWrap.className = 'lb-name';
-        const nameText = document.createElement('span');
-        nameText.textContent = entry.nickname || 'ANON';
-        nameWrap.appendChild(nameText);
-        if (entry.title) {
-          const titleSpan = document.createElement('span');
-          titleSpan.className = 'lb-title';
-          titleSpan.textContent = entry.title;
-          nameWrap.appendChild(titleSpan);
-        }
-
-        const scoreSpan = document.createElement('span');
-        scoreSpan.className = 'lb-score';
-        scoreSpan.textContent = entry.score.toLocaleString();
-
-        const labelSpan = document.createElement('span');
-        labelSpan.className = 'lb-label';
-        labelSpan.textContent = 'PTS';
-
-        div.appendChild(rankSpan);
-        div.appendChild(nameWrap);
-        div.appendChild(scoreSpan);
-        div.appendChild(labelSpan);
-        container.appendChild(div);
-      });
-    } catch (e) {
-      console.warn('Scores panel error:', e);
-      this.ui.scoresLoading.style.display = 'none';
-      this.ui.scoresError.style.display = 'block';
-      this.ui.scoresError.textContent = 'OFFLINE — CHECK CONNECTION';
-    }
-  }
-
   restartFromFinish() {
     this.ui.finishScreen.classList.remove('active');
     this.ui.newRecordLabel.classList.remove('show');
@@ -2787,9 +2828,6 @@ export class Game {
     this.quests.onRunStart();
     this.tricks.comboMultiplier = 1;
     this.tricks.comboTimer = 0;
-    this.tricks.auroraMultiplier = 1.0;
-    this.auroraMultiplier = 1.0;
-    this._lastAuroraTrickTime = 0;
 
     // Ensure backcountry mode flag stays in sync
     this.player.backcountryMode = this.gameMode === 'backcountry';
@@ -3046,7 +3084,8 @@ export class Game {
 
     // Seat angles for up to 3 remote players (semicircle around fire)
     const REMOTE_SEAT_ANGLES = [3 * Math.PI / 4, Math.PI / 4, Math.PI];
-    const remoteMemberUids = Object.keys(members).filter(uid => uid !== selfUid);
+    const remoteMemberUids = Object.keys(members)
+      .filter(uid => uid !== selfUid && members[uid].status !== 'riding');
 
     // Remove players who left
     for (const uid of Object.keys(this.lobbyRemotePlayers)) {
@@ -3162,139 +3201,6 @@ export class Game {
     }
   }
 
-  // ---- QUEST RENDERING ----
-
-  renderQuestList(tab) {
-    this.quests.checkDailyReset();
-    this.quests.checkSeasonReset();
-    const quests = tab === 'daily' ? this.quests.getDailyQuests() : this.quests.getSeasonQuests();
-    this.ui.questXpLabel.textContent = `${this.quests.getTotalXP()} XP`;
-
-    // Show/hide season timer
-    const timerEl = document.getElementById('quest-season-timer');
-    if (timerEl) {
-      if (tab === 'season') {
-        const rem = this.quests.getSeasonTimeRemaining();
-        const parts = [];
-        if (rem.days > 0) parts.push(`${rem.days}D`);
-        parts.push(`${rem.hours}H ${rem.minutes}M`);
-        document.getElementById('quest-timer-value').textContent = parts.join(' ');
-        timerEl.style.display = '';
-      } else {
-        timerEl.style.display = 'none';
-      }
-    }
-
-    this.ui.questList.innerHTML = quests.map(q => {
-      const pct = Math.min((q.current / q.target) * 100, 100);
-      const cls = q.completed ? 'quest-item completed' : 'quest-item';
-      const progressText = q.completed ? 'COMPLETE' : `${Math.floor(q.current)} / ${q.target}`;
-      return `<div class="${cls}">
-        <div class="quest-item-info">
-          <div class="quest-item-desc">${q.desc}</div>
-          <div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${pct}%"></div></div>
-          <div class="quest-progress-text">${progressText}</div>
-        </div>
-        <div class="quest-xp-badge">${q.completed ? '' : q.xp + ' XP'}</div>
-        <div class="quest-check">&check;</div>
-      </div>`;
-    }).join('');
-  }
-
-  // ---- RIDE PASS ----
-
-  openRidePassPanel() {
-    const totalXP = this.quests.getTotalXP();
-    this.ridePass.claimAvailable(totalXP);
-
-    const level = this.ridePass.getLevel(totalXP);
-    const progress = this.ridePass.getLevelProgress(totalXP);
-    const xpPerLevel = this.ridePass.getXPPerLevel();
-    const tokens = this.ridePass.getTokens();
-
-    // Header
-    this.ui.rpLevelLabel.textContent = level >= 60 ? 'LEVEL 60 — MAX' : `LEVEL ${level}`;
-    const pct = level >= 60 ? 100 : (progress / xpPerLevel) * 100;
-    this.ui.rpProgressFill.style.width = `${pct}%`;
-    this.ui.rpXpLabel.textContent = level >= 60 ? `${xpPerLevel} / ${xpPerLevel} XP` : `${progress} / ${xpPerLevel} XP`;
-
-    // Tokens
-    this.ui.rpS1Count.textContent = tokens.steezeL1;
-    this.ui.rpS2Count.textContent = tokens.steezeL2;
-    this.ui.rpBoardCount.textContent = tokens.board;
-
-    this.renderRidePassLevels(level);
-    this.renderRidePassTitles();
-    this.ui.ridepassPanel.classList.add('active');
-  }
-
-  renderRidePassLevels(currentLevel) {
-    const rewards = this.ridePass.getAllRewards();
-    const rewardLabel = (r) => {
-      if (r.type === 'steezeL1') return { icon: '&#9733;', desc: `Steeze L1 x${r.qty}`, cls: 'rp-icon-s1' };
-      if (r.type === 'steezeL2') return { icon: '&#9733;', desc: `Steeze L2 x${r.qty}`, cls: 'rp-icon-s2' };
-      if (r.type === 'steezeL3') return { icon: '&#11088;', desc: `Steeze L3${r.title ? ' + "' + r.title + '"' : ''}`, cls: 'rp-icon-s3' };
-      if (r.type === 'board') return { icon: '&#9830;', desc: `Board Token x${r.qty}`, cls: 'rp-icon-board' };
-      if (r.type === 'title') return { icon: '&#127942;', desc: `Title: "${r.title}"`, cls: 'rp-icon-title' };
-      return { icon: '?', desc: '???', cls: '' };
-    };
-
-    this.ui.rpLevelList.innerHTML = rewards.map((r, i) => {
-      const lvl = i + 1;
-      const claimed = this.ridePass.isLevelClaimed(lvl);
-      const isCurrent = lvl === currentLevel + 1;
-      const locked = lvl > currentLevel && !claimed;
-      const info = rewardLabel(r);
-
-      let cls = 'rp-level-item';
-      if (claimed) cls += ' claimed';
-      else if (isCurrent) cls += ' current';
-      else if (locked) cls += ' locked';
-
-      return `<div class="${cls}">
-        <div class="rp-level-num">${lvl}</div>
-        <div class="rp-reward-icon ${info.cls}">${info.icon}</div>
-        <div class="rp-reward-desc">${info.desc}</div>
-        <div class="rp-claim-badge">&#10003;</div>
-      </div>`;
-    }).join('');
-
-    // Auto-scroll to current level area
-    const target = this.ui.rpLevelList.querySelector('.rp-level-item.current') ||
-                   this.ui.rpLevelList.querySelector('.rp-level-item.claimed:last-child');
-    if (target) {
-      setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
-    }
-  }
-
-  renderRidePassTitles() {
-    const titles = this.ridePass.getUnlockedTitles();
-    const selected = this.ridePass.getSelectedTitle();
-
-    if (titles.length === 0) {
-      this.ui.rpTitleSection.style.display = 'none';
-      return;
-    }
-
-    this.ui.rpTitleSection.style.display = 'block';
-    const noneSelected = selected === null;
-    let html = `<button class="rp-title-btn${noneSelected ? ' selected' : ''}" data-title="">NONE</button>`;
-    html += titles.map(t =>
-      `<button class="rp-title-btn${t === selected ? ' selected' : ''}" data-title="${t}">${t}</button>`
-    ).join('');
-
-    this.ui.rpTitleOptions.innerHTML = html;
-
-    this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const title = btn.dataset.title || null;
-        this.ridePass.selectTitle(title);
-        this.ui.rpTitleOptions.querySelectorAll('.rp-title-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-      });
-    });
-  }
-
   // ---- ACCOUNT ----
 
   renderAccountPanel() {
@@ -3333,250 +3239,9 @@ export class Game {
     }
   }
 
-  // ---- SHOP ----
-
-  openShopPanel() {
-    this.activeShopTab = 'jacket';
-    document.querySelectorAll('.shop-tab').forEach(t =>
-      t.classList.toggle('active', t.dataset.shopTab === 'jacket')
-    );
-    this.updateShopTokens();
-    this.renderShopItems('jacket');
-    this.ui.shopPanel.classList.add('active');
-  }
-
-  updateShopTokens() {
-    const tokens = this.ridePass.getTokens();
-    this.ui.shopS1Count.textContent = tokens.steezeL1;
-    this.ui.shopS2Count.textContent = tokens.steezeL2;
-    this.ui.shopS3Count.textContent = tokens.steezeL3;
-    this.ui.shopBoardCount.textContent = tokens.board;
-  }
-
-  renderShopItems(category) {
-    const container = this.ui.shopItemList;
-    const equipType = this.selectedEquipment;
-    let items = this.shop.getItemsByCategory(category, category === 'board' ? equipType : null);
-
-    // Sort: equipped first, then owned, then by tier (S3 > S2 > S1 > Board)
-    const tierOrder = { steezeL3: 0, steezeL2: 1, steezeL1: 2, board: 3 };
-    items = [...items].sort((a, b) => {
-      const aEquipped = this.shop.isEquipped(a.id) ? 0 : 1;
-      const bEquipped = this.shop.isEquipped(b.id) ? 0 : 1;
-      if (aEquipped !== bEquipped) return aEquipped - bEquipped;
-      const aOwned = this.shop.isOwned(a.id) ? 0 : 1;
-      const bOwned = this.shop.isOwned(b.id) ? 0 : 1;
-      if (aOwned !== bOwned) return aOwned - bOwned;
-      return (tierOrder[a.tier] || 9) - (tierOrder[b.tier] || 9);
-    });
-
-    container.innerHTML = items.map(item => {
-      const owned = this.shop.isOwned(item.id);
-      const equipped = this.shop.isEquipped(item.id);
-      const tokens = this.ridePass.getTokens();
-      const canAfford = (tokens[item.tier] || 0) >= item.cost;
-
-      let classes = 'shop-item';
-      if (equipped) classes += ' equipped';
-      else if (owned) classes += ' owned';
-      if (item.legendary) classes += ' legendary';
-
-      const colorHex = '#' + item.color.toString(16).padStart(6, '0');
-
-      // Stats HTML for boards
-      let statsHtml = '';
-      if (item.stats) {
-        statsHtml = `<div class="shop-stats">
-          <div class="shop-stat">SPD <div class="shop-stat-bar"><div class="shop-stat-fill speed" style="width:${item.stats.speed * 10}%"></div></div></div>
-          <div class="shop-stat">POP <div class="shop-stat-bar"><div class="shop-stat-fill pop" style="width:${item.stats.pop * 10}%"></div></div></div>
-          <div class="shop-stat">FLX <div class="shop-stat-bar"><div class="shop-stat-fill flex" style="width:${item.stats.flex * 10}%"></div></div></div>
-        </div>`;
-      }
-
-      // Style tag for boards
-      const styleTag = item.style ? `<div class="shop-item-style">${item.style}</div>` : '';
-
-      // Button
-      let btnHtml;
-      if (equipped) {
-        btnHtml = `<button class="shop-btn shop-btn-equipped">EQUIPPED</button>`;
-      } else if (owned) {
-        btnHtml = `<button class="shop-btn shop-btn-equip" data-shop-equip="${item.id}">EQUIP</button>`;
-      } else {
-        const disabledClass = canAfford ? '' : ' disabled';
-        const priceIcon = this.shop.getTierIcon(item.tier);
-        const tierClass = this.shop.getTierClass(item.tier);
-        btnHtml = `<span class="shop-price ${tierClass}">${priceIcon} ${item.cost}</span>
-          <button class="shop-btn shop-btn-buy${disabledClass}" data-shop-buy="${item.id}">BUY</button>`;
-      }
-
-      return `<div class="${classes}">
-        <div class="shop-color-swatch" style="background:${colorHex}"></div>
-        <div class="shop-item-info">
-          <div class="shop-item-brand">${item.brand}</div>
-          <div class="shop-item-name">${item.name}</div>
-          ${styleTag}
-          ${statsHtml}
-        </div>
-        ${btnHtml}
-      </div>`;
-    }).join('');
-
-    // Add board/ski sub-tabs for the board category
-    if (category === 'board') {
-      const subTabHtml = `<div style="display:flex;gap:6px;margin-bottom:8px;justify-content:center">
-        <button class="shop-btn ${equipType === 'snowboard' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="snowboard" style="font-size:12px;padding:4px 12px">SNOWBOARDS</button>
-        <button class="shop-btn ${equipType === 'ski' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="ski" style="font-size:12px;padding:4px 12px">SKIS</button>
-      </div>`;
-      container.insertAdjacentHTML('afterbegin', subTabHtml);
-    }
-
-    // Attach click handlers
-    container.querySelectorAll('[data-shop-buy]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.shopBuy;
-        this.handleShopPurchase(id);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.shopEquip;
-        this.handleShopEquip(id);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip-type]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Switch equipment type filter for board tab display only
-        const type = btn.dataset.shopEquipType;
-        this.renderShopItems('board');
-        // Re-render with correct equipment type would need the buttons to toggle selectedEquipment
-        // For now, filter the display
-        const items2 = this.shop.getItemsByCategory('board', type);
-        // Just re-render with the selected type
-        this._shopBoardFilter = type;
-        this.renderShopBoardsFiltered(type);
-      });
-    });
-  }
-
-  renderShopBoardsFiltered(equipType) {
-    const container = this.ui.shopItemList;
-    let items = this.shop.getItemsByCategory('board', equipType);
-
-    const tierOrder = { steezeL3: 0, steezeL2: 1, steezeL1: 2, board: 3 };
-    items = [...items].sort((a, b) => {
-      const aEquipped = this.shop.isEquipped(a.id) ? 0 : 1;
-      const bEquipped = this.shop.isEquipped(b.id) ? 0 : 1;
-      if (aEquipped !== bEquipped) return aEquipped - bEquipped;
-      const aOwned = this.shop.isOwned(a.id) ? 0 : 1;
-      const bOwned = this.shop.isOwned(b.id) ? 0 : 1;
-      if (aOwned !== bOwned) return aOwned - bOwned;
-      return (tierOrder[a.tier] || 9) - (tierOrder[b.tier] || 9);
-    });
-
-    const subTabHtml = `<div style="display:flex;gap:6px;margin-bottom:8px;justify-content:center">
-      <button class="shop-btn ${equipType === 'snowboard' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="snowboard" style="font-size:12px;padding:4px 12px">SNOWBOARDS</button>
-      <button class="shop-btn ${equipType === 'ski' ? 'shop-btn-equip' : 'shop-btn-equipped'}" data-shop-equip-type="ski" style="font-size:12px;padding:4px 12px">SKIS</button>
-    </div>`;
-
-    let itemsHtml = items.map(item => {
-      const owned = this.shop.isOwned(item.id);
-      const equipped = this.shop.isEquipped(item.id);
-      const tokens = this.ridePass.getTokens();
-      const canAfford = (tokens[item.tier] || 0) >= item.cost;
-
-      let classes = 'shop-item';
-      if (equipped) classes += ' equipped';
-      else if (owned) classes += ' owned';
-
-      const colorHex = '#' + item.color.toString(16).padStart(6, '0');
-
-      const statsHtml = `<div class="shop-stats">
-        <div class="shop-stat">SPD <div class="shop-stat-bar"><div class="shop-stat-fill speed" style="width:${item.stats.speed * 10}%"></div></div></div>
-        <div class="shop-stat">POP <div class="shop-stat-bar"><div class="shop-stat-fill pop" style="width:${item.stats.pop * 10}%"></div></div></div>
-        <div class="shop-stat">FLX <div class="shop-stat-bar"><div class="shop-stat-fill flex" style="width:${item.stats.flex * 10}%"></div></div></div>
-      </div>`;
-
-      const styleTag = item.style ? `<div class="shop-item-style">${item.style}</div>` : '';
-
-      let btnHtml;
-      if (equipped) {
-        btnHtml = `<button class="shop-btn shop-btn-equipped">EQUIPPED</button>`;
-      } else if (owned) {
-        btnHtml = `<button class="shop-btn shop-btn-equip" data-shop-equip="${item.id}">EQUIP</button>`;
-      } else {
-        const disabledClass = canAfford ? '' : ' disabled';
-        const priceIcon = this.shop.getTierIcon(item.tier);
-        const tierClass = this.shop.getTierClass(item.tier);
-        btnHtml = `<span class="shop-price ${tierClass}">${priceIcon} ${item.cost}</span>
-          <button class="shop-btn shop-btn-buy${disabledClass}" data-shop-buy="${item.id}">BUY</button>`;
-      }
-
-      return `<div class="${classes}">
-        <div class="shop-color-swatch" style="background:${colorHex}"></div>
-        <div class="shop-item-info">
-          <div class="shop-item-brand">${item.brand}</div>
-          <div class="shop-item-name">${item.name}</div>
-          ${styleTag}
-          ${statsHtml}
-        </div>
-        ${btnHtml}
-      </div>`;
-    }).join('');
-
-    container.innerHTML = subTabHtml + itemsHtml;
-
-    // Re-attach click handlers
-    container.querySelectorAll('[data-shop-buy]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.handleShopPurchase(btn.dataset.shopBuy);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.handleShopEquip(btn.dataset.shopEquip);
-      });
-    });
-    container.querySelectorAll('[data-shop-equip-type]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.renderShopBoardsFiltered(btn.dataset.shopEquipType);
-      });
-    });
-  }
-
-  handleShopPurchase(itemId) {
-    const item = this.shop.getItem(itemId);
-    if (!item) return;
-
-    // Confirm legendary purchase
-    if (item.legendary) {
-      if (!confirm('This is your only Legendary token. Are you sure you want to buy this?')) return;
-    }
-
-    if (this.shop.purchase(itemId)) {
-      this.updateShopTokens();
-      this.renderShopItems(this.activeShopTab);
-    }
-  }
-
-  handleShopEquip(itemId) {
-    const item = this.shop.getItem(itemId);
-    if (!item) return;
-
-    // If already equipped, unequip
-    if (this.shop.isEquipped(itemId)) {
-      this.shop.unequip(item.category);
-    } else {
-      this.shop.equip(itemId);
-    }
-    this.applyEquippedItems();
-    this.renderShopItems(this.activeShopTab);
+  applyFits() {
+    this.player.setFit('jacket', this.fits.jacket);
+    this.player.setFit('pants', this.fits.pants);
   }
 
   loadPlayerModel() {
@@ -3658,7 +3323,7 @@ export class Game {
   // ---- SUMMIT LEADERBOARD (backcountry, all-time) ----
 
   loadSummitLeaderboard() {
-    const chair = this.backcountryChair || 'summit';
+    const chair = this.backcountryChair || 'peak';
     try {
       const data = localStorage.getItem(`shred-summit-summit-leaderboard-${chair}`);
       if (data) return JSON.parse(data);
@@ -3667,7 +3332,7 @@ export class Game {
   }
 
   saveSummitLeaderboard() {
-    const chair = this.backcountryChair || 'summit';
+    const chair = this.backcountryChair || 'peak';
     try {
       localStorage.setItem(`shred-summit-summit-leaderboard-${chair}`, JSON.stringify(this.summitLeaderboard));
     } catch (e) { /* ignore */ }
@@ -3870,6 +3535,34 @@ export class Game {
     this.pendingNicknameCallback = callback;
   }
 
+  // Pop meter: shows while jump is held, then briefly shows how the pop went
+  updatePopMeter() {
+    const p = this.player;
+    const [lo, hi] = p.popSweetSpot;
+    // Hold-to-ollie charge, or the automatic rail on/off timing meter
+    const meter = p.railTiming ? p.railTiming.meter : p.ollieCharge;
+    const sincePop = performance.now() - p.lastPopTime;
+    const el = this.ui.popMeter;
+    if (meter > 0) {
+      this._popMeterShown = meter;
+      this.ui.popMeterFill.style.width = `${meter * 100}%`;
+      el.classList.toggle('in-sweet', meter >= lo && meter <= hi);
+      el.classList.toggle('over', meter > hi);
+      el.classList.remove('perfect');
+      this.ui.popMeterLabel.textContent = p.railTiming
+        ? (p.railTiming.kind === 'on' ? 'TAP TO POP ON' : 'TAP TO POP OFF')
+        : (meter > hi ? 'TOO LONG' : 'POP');
+      el.classList.add('visible');
+    } else if (sincePop < 700 && this._popMeterShown) {
+      el.classList.toggle('perfect', p.lastPopPerfect);
+      this.ui.popMeterLabel.textContent = p.lastPopPerfect ? 'PERFECT POP' : 'POP';
+      el.classList.add('visible');
+    } else {
+      el.classList.remove('visible', 'perfect', 'in-sweet', 'over');
+      this._popMeterShown = 0;
+    }
+  }
+
   updateUI(trickState, playerState) {
     // Score
     this.ui.score.textContent = trickState.score.toLocaleString();
@@ -3877,6 +3570,8 @@ export class Game {
     // Speed (divide by visual scale so display matches original feel)
     const kmh = Math.round(playerState.speed / 1.2 * 3.6);
     this.ui.speed.textContent = kmh;
+
+    this.updatePopMeter();
 
     // Altitude
     const alt = Math.round(2400 + this.player.position.y * 0.5);
@@ -3895,23 +3590,14 @@ export class Game {
       this.ui.checkpointAlert.style.opacity = '0';
     }
 
+    this.updatePartyHud();
+
     // Combo
     if (trickState.combo > 1 && trickState.comboTimer > 0) {
       this.ui.combo.style.opacity = '1';
       this.ui.combo.textContent = `${trickState.combo.toFixed(1)}x COMBO`;
     } else {
       this.ui.combo.style.opacity = '0';
-    }
-
-    // Aurora multiplier (Moonlight Ridge)
-    if (this.auroraActive && this.auroraMultiplier > 1.0) {
-      this.ui.auroraMultiplier.style.opacity = '1';
-      this.ui.auroraMultiplier.textContent = `AURORA ${this.auroraMultiplier.toFixed(1)}x`;
-      // Glow intensity scales with multiplier
-      const glow = Math.min((this.auroraMultiplier - 1) / 6.5, 1);
-      this.ui.auroraMultiplier.style.filter = `drop-shadow(0 2px ${8 + glow * 16}px rgba(100, 255, 160, ${0.3 + glow * 0.5}))`;
-    } else {
-      this.ui.auroraMultiplier.style.opacity = '0';
     }
 
     // Jump height (show while airborne)

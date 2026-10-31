@@ -46,7 +46,7 @@ export class TouchControls {
 
     // --- Jump ---
     const jump = this.createButton('JUMP', 'jump-btn', 'touch-btn jump-btn-size');
-    this.setupTapButton(jump, 'jump');
+    this.setupHoldButton(jump, 'Space', 'jump'); // hold to load the ollie, release to pop
     this.groundGroup.appendChild(jump);
 
     // --- Tuck ---
@@ -73,11 +73,11 @@ export class TouchControls {
 
     // --- Spins (right side) ---
     const spinL = this.createButton('SPIN◄', 'spin-l-btn', 'touch-btn air-btn');
-    this.setupHoldButton(spinL, 'KeyQ', 'spinL');
+    this.setupHoldButton(spinL, 'KeyA', 'spinL');
     this.airGroup.appendChild(spinL);
 
     const spinR = this.createButton('SPIN►', 'spin-r-btn', 'touch-btn air-btn');
-    this.setupHoldButton(spinR, 'KeyE', 'spinR');
+    this.setupHoldButton(spinR, 'KeyD', 'spinR');
     this.airGroup.appendChild(spinR);
 
     // --- Grab buttons (center arc) ---
@@ -236,7 +236,7 @@ export class TouchControls {
   hideAirControls() {
     this.airGroup.classList.remove('visible');
     // Release all air-specific keys to prevent stuck inputs
-    const airKeys = ['KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyG', 'KeyR', 'KeyF', 'KeyT', 'KeyV', 'KeyC'];
+    const airKeys = ['KeyW', 'KeyS', 'KeyG', 'KeyR', 'KeyF', 'KeyT', 'KeyV', 'KeyC'];
     airKeys.forEach(k => this.input.setTouchKey(k, false));
     // Clean up active touches for air buttons
     const airIds = ['flipFwd', 'flipBack', 'spinL', 'spinR', 'grab-indy', 'grab-method', 'grab-stale', 'grab-melon', 'grab-nose', 'grab-tail'];
@@ -261,7 +261,7 @@ export class TouchControls {
     this.visible = false;
     // Release everything
     this.activeTouches.clear();
-    const allKeys = ['KeyA', 'KeyD', 'KeyS', 'KeyW', 'KeyQ', 'KeyE', 'ShiftLeft', 'Space', 'KeyG', 'KeyR', 'KeyF', 'KeyT', 'KeyV', 'KeyC'];
+    const allKeys = ['KeyA', 'KeyD', 'KeyS', 'KeyW', 'ShiftLeft', 'Space', 'KeyG', 'KeyR', 'KeyF', 'KeyT', 'KeyV', 'KeyC'];
     allKeys.forEach(k => this.input.setTouchKey(k, false));
     this.container.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
   }
