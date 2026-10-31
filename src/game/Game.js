@@ -491,6 +491,26 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     document.body.appendChild(this.renderer.domElement);
+
+    // Soft sky-over-snow environment, used only for reflections on the riders (built once, tiny)
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envScene = new THREE.Scene();
+    const envGeo = new THREE.SphereGeometry(10, 24, 12);
+    const sky = new THREE.Color(0x8fbfe8), horizon = new THREE.Color(0xf4f8fc), snow = new THREE.Color(0xdfe8f0);
+    const colors = [];
+    const p = envGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const t = p.getY(i) / 10; // -1 down .. 1 up
+      const c = t > 0 ? horizon.clone().lerp(sky, Math.pow(t, 0.6)) : horizon.clone().lerp(snow, Math.min(1, -t * 3));
+      colors.push(c.r, c.g, c.b);
+    }
+    envGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    envScene.add(new THREE.Mesh(envGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const sunSpot = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    sunSpot.position.set(5, 7, 4);
+    envScene.add(sunSpot);
+    Player.envMap = pmrem.fromScene(envScene, 0.02).texture;
+    pmrem.dispose();
   }
 
   initScene() {

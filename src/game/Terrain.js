@@ -133,6 +133,16 @@ export class Terrain {
       color: 0xc8ddef, roughness: 0.3, metalness: 0.05, flatShading: true,
     });
 
+    // Jumps get the detailed treatment: freshly groomed corduroy with a little sparkle
+    this.jumpMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: this._groomedSnowTexture(), roughness: 0.62, metalness: 0,
+      bumpScale: 0.6,
+    });
+    this.jumpMaterial.bumpMap = this.jumpMaterial.map;
+    this.dyeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1f5fd6, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2,
+    });
+
     this.rockMaterial = new THREE.MeshStandardMaterial({
       color: 0x5a6672, roughness: 0.95, flatShading: true,
     });
@@ -149,6 +159,7 @@ export class Terrain {
       color: 0x2266cc, metalness: 0.6, roughness: 0.2,
     });
 
+    this.bandMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
     this.poleMaterial = new THREE.MeshStandardMaterial({
       color: 0xff6600, roughness: 0.6,
     });
@@ -168,6 +179,7 @@ export class Terrain {
     if (nightMode) {
       this.snowMaterial.color.set(0xc0ccdd);
       this.rampMaterial.color.set(0xb0c0d8);
+      this.jumpMaterial.color.set(0xc4d0e2);
     }
 
     for (let i = 0; i < 5; i++) {
@@ -648,6 +660,39 @@ export class Terrain {
     return (j.width + (j.landingWidth - j.width) * k) / 2;
   }
 
+  // Groomed snow: fine corduroy ridges running down the fall line, slight blue shading and sparkle.
+  // 256px, generated once, tiles every 3 m (cords about 25 cm apart).
+  _groomedSnowTexture() {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    const hash = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const ridge = Math.pow(0.5 + 0.5 * Math.sin((x / size) * Math.PI * 2 * 12), 2); // 12 cords per tile
+        const wobble = 0.5 + 0.5 * Math.sin((y / size) * Math.PI * 2 * 3 + x * 0.05);
+        const grain = hash(x, y);
+        let v = 226 + ridge * 16 + wobble * 5 + grain * 8;
+        if (grain > 0.996) v = 255; // sparkle
+        const i = (y * size + x) * 4;
+        img.data[i] = Math.min(255, v - 6);
+        img.data[i + 1] = Math.min(255, v - 2);
+        img.data[i + 2] = Math.min(255, v + 6);
+        img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
+  // A shaped park jump: rounded top edges, sidewalls cut at ~70° down into the hill, groomed
+  // texture, and blue dye lines on the lip and the knuckle like a real park.
   createJumpMesh(j) {
     const group = new THREE.Group();
     // Sample densely on the transition and knuckle, coarser on the deck and landing
@@ -659,39 +704,87 @@ export class Terrain {
     for (let d = j.landStart; d < j.total; d += 1) ds.push(d);
     ds.push(j.total);
 
-    const depth = 6;
-    const pos = [];
-    const idx = [];
-    // Per sample: 0 left-bottom, 1 left-top, 2 right-top, 3 right-bottom
+    const depth = 6, wallRun = 0.35, r = 0.45, tex = 3; // r: rounded shoulder radius; tex: m per texture tile
+    // Left shoulder: quarter circle from the wall top (-hw, y-r) round to the top surface (-hw+r, y)
+    const arc = [];
+    for (let k = 0; k <= 4; k++) {
+      const phi = Math.PI - (Math.PI / 2) * (k / 4);
+      arc.push([r + r * Math.cos(phi), -r + r * Math.sin(phi)]); // [x from the edge, y from the top]
+    }
+    const topCols = 6;
+    const pos = [], uv = [], idx = [];
+    let cols = 0;
     for (const d of ds) {
       const hw = this._jumpHalfWidth(j, d);
       const y = -this.slopeAngle * d + this.jumpRel(j, d);
-      pos.push(-hw, y - depth, -d, -hw, y, -d, hw, y, -d, hw, y - depth, -d);
+      // left foot, left shoulder, flat top, right shoulder, right foot
+      const row = [[-hw - (depth - r) * wallRun, y - depth]];
+      for (const [ex, ey] of arc) row.push([-hw + ex, y + ey]);
+      for (let c = 1; c < topCols; c++) row.push([-hw + r + 2 * (hw - r) * (c / topCols), y]);
+      for (let k = arc.length - 1; k >= 0; k--) row.push([hw - arc[k][0], y + arc[k][1]]);
+      row.push([hw + (depth - r) * wallRun, y - depth]);
+      cols = row.length;
+      for (const [x, yy] of row) {
+        pos.push(x, yy, -d);
+        // Unwrap the walls so the texture doesn't stretch down them
+        const over = Math.max(0, Math.abs(x) - (hw - r));
+        const u = (Math.sign(x) * ((Math.abs(x) - over) + (y - yy) + over * 0.3)) / tex;
+        uv.push(u, d / tex);
+      }
     }
     for (let i = 0; i < ds.length - 1; i++) {
-      const a = i * 4, b = (i + 1) * 4;
-      idx.push(a + 1, b + 1, b + 2, a + 1, b + 2, a + 2); // top
-      idx.push(a, b, b + 1, a, b + 1, a + 1);             // left side
-      idx.push(a + 3, a + 2, b + 2, a + 3, b + 2, b + 3); // right side
+      const a = i * cols, b = (i + 1) * cols;
+      for (let c = 0; c < cols - 1; c++) idx.push(a + c, b + c, b + c + 1, a + c, b + c + 1, a + c + 1);
     }
-    // Back face of the kicker start and the end
-    idx.push(0, 1, 2, 0, 2, 3);
+    // Close the uphill end of the kicker
+    for (let c = 1; c < cols - 2; c++) idx.push(0, c + 1, c);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, this.rampMaterial);
+    const mesh = new THREE.Mesh(geo, this.jumpMaterial);
     mesh.material.side = THREE.DoubleSide;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
 
-    // Marker poles at the lip and the knuckle
-    for (const [d, side] of [[j.transLen, 1], [j.landStart - j.knuckleLen, -1]]) {
+    // Blue dye lines across the top at the lip and at the knuckle
+    const knuckleD = j.landStart - j.knuckleLen;
+    for (const [d0, d1] of [[j.transLen - 0.32, j.transLen - 0.1], [knuckleD - 0.05, knuckleD + 0.2]]) {
+      const lpos = [], lidx = [];
+      const steps = 4, across = 8;
+      for (let k = 0; k <= steps; k++) {
+        const d = d0 + (d1 - d0) * (k / steps);
+        const hw = this._jumpHalfWidth(j, d) - r * 0.6;
+        const y = -this.slopeAngle * d + this.jumpRel(j, d) + 0.015;
+        for (let c = 0; c <= across; c++) lpos.push(-hw + 2 * hw * (c / across), y, -d);
+      }
+      for (let k = 0; k < steps; k++) for (let c = 0; c < across; c++) {
+        const a = k * (across + 1) + c, b = a + across + 1;
+        lidx.push(a, b, b + 1, a, b + 1, a + 1);
+      }
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3));
+      lg.setIndex(lidx);
+      lg.computeVertexNormals();
+      const line = new THREE.Mesh(lg, this.dyeMaterial);
+      line.material.side = THREE.DoubleSide;
+      line.receiveShadow = true;
+      group.add(line);
+    }
+
+    // Marker poles at the lip and the knuckle (orange with a white band)
+    for (const [d, side] of [[j.transLen, 1], [knuckleD, -1]]) {
       const h = 2.5;
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, h, 6), this.poleMaterial);
-      pole.position.set(side * (this._jumpHalfWidth(j, d) + 0.6), -this.slopeAngle * d + this.jumpRel(j, d) + h / 2 - 0.5, -d);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, h, 8), this.poleMaterial);
+      const px = side * (this._jumpHalfWidth(j, d) + 0.8);
+      const py = -this.slopeAngle * d + this.jumpRel(j, d) + h / 2 - 0.5;
+      pole.position.set(px, py, -d);
       group.add(pole);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.3, 8), this.bandMaterial);
+      band.position.set(px, py + h / 2 - 0.35, -d);
+      group.add(band);
     }
     return group;
   }

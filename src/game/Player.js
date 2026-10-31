@@ -4,6 +4,36 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // Pop on a jump lip adds this much of your ollie on top of the lip's own throw (keep in sync with Terrain)
 export const JUMP_POP_MUL = 1.4;
 
+// Tileable normal map drawn from a height function h(x, y) -> 0..1 (cached per kind)
+const _normalMaps = {};
+function makeNormalMap(kind, size, heightFn, strength) {
+  if (_normalMaps[kind]) return _normalMaps[kind];
+  const hs = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) hs[y * size + x] = heightFn(x, y);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const at = (x, y) => hs[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+    const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+    const l = Math.hypot(dx, dy, 1);
+    const i = (y * size + x) * 4;
+    img.data[i] = (-dx / l * 0.5 + 0.5) * 255;
+    img.data[i + 1] = (dy / l * 0.5 + 0.5) * 255;
+    img.data[i + 2] = (1 / l * 0.5 + 0.5) * 255;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  _normalMaps[kind] = tex;
+  return tex;
+}
+// Cheap repeatable hash noise
+const hash2 = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+
 // Scratch objects for the rider rig (IK runs every frame, so no allocations)
 const _ik = {
   d: new THREE.Vector3(), p: new THREE.Vector3(), u: new THREE.Vector3(), v: new THREE.Vector3(),
@@ -182,6 +212,7 @@ export class Player {
     this.riderGroup = new THREE.Group();
 
     this.buildModel();
+    this._upgradeRiderDetail();
     this.scene.add(this.group);
   }
 
@@ -801,6 +832,75 @@ export class Player {
 
     this.boardGroup.add(this.riderGroup);
     this.group.add(this.boardGroup);
+  }
+
+  // Higher-detail rider: smoother body parts, fabric textures and glossy hard parts. There's only
+  // a handful of riders on screen, so this stays cheap; the rest of the world stays low poly.
+  _upgradeRiderDetail() {
+    const smooth = (mesh) => {
+      const g = mesh.geometry, p = g.parameters;
+      // Only the big visible shapes; seams, creases and straps stay as they are
+      if (!p || Math.max(p.radius || 0, p.radiusTop || 0, p.radiusBottom || 0) < 0.04) return;
+      let ng = null;
+      switch (g.type) {
+        case 'CapsuleGeometry':
+          ng = new THREE.CapsuleGeometry(p.radius, p.length, Math.max(p.capSegments, 5), Math.max(p.radialSegments, 14));
+          break;
+        case 'SphereGeometry':
+          ng = new THREE.SphereGeometry(p.radius, Math.max(p.widthSegments, 18), Math.max(p.heightSegments, 12),
+            p.phiStart, p.phiLength, p.thetaStart, p.thetaLength);
+          break;
+        case 'CylinderGeometry':
+          ng = new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, Math.max(p.radialSegments, 14),
+            p.heightSegments, p.openEnded, p.thetaStart, p.thetaLength);
+          break;
+        case 'TorusGeometry':
+          ng = new THREE.TorusGeometry(p.radius, p.tube, Math.max(p.radialSegments, 8), Math.max(p.tubularSegments, 16), p.arc);
+          break;
+      }
+      if (ng) { g.dispose(); mesh.geometry = ng; }
+    };
+    this.boardGroup.traverse((o) => { if (o.isMesh && o !== this.boardMesh) smooth(o); });
+
+    // Puffer jacket: stitched baffles plus a fine nylon weave
+    const jacketN = makeNormalMap('jacket', 128, (x, y) => {
+      const baffle = Math.sin((y / 128) * Math.PI * 4);           // 4 puffy rows per tile
+      return Math.sqrt(Math.abs(baffle)) * 0.8 + hash2(x, y) * 0.06;
+    }, 2.5);
+    // Pants: diagonal twill and some fabric grain
+    const pantsN = makeNormalMap('pants', 128, (x, y) =>
+      Math.sin((x + y) * 0.8) * 0.25 + hash2(x * 0.5 | 0, y) * 0.15, 1.5);
+    // Gloves and boots: leathery grain
+    const grainN = makeNormalMap('grain', 64, (x, y) => hash2(x, y) * 0.5 + hash2(x >> 1, y >> 1) * 0.5, 1.2);
+
+    const fabric = (mat, map, repeat, scale, rough) => {
+      mat.normalMap = map.clone();
+      mat.normalMap.needsUpdate = true;
+      mat.normalMap.repeat.set(repeat[0], repeat[1]);
+      mat.normalScale.set(scale, scale);
+      mat.roughness = rough;
+      mat.needsUpdate = true;
+    };
+    fabric(this.jacketMat, jacketN, [2, 3], 0.6, 0.62);
+    fabric(this.pantsMat, pantsN, [3, 4], 0.4, 0.85);
+    fabric(this.gloveMat, grainN, [2, 2], 0.5, 0.7);
+    fabric(this.bootMat, grainN, [3, 3], 0.4, 0.6);
+    if (this._jacketFoldMat) fabric(this._jacketFoldMat, jacketN, [2, 3], 0.4, 0.7);
+    if (this._pantsFoldMat) fabric(this._pantsFoldMat, pantsN, [3, 4], 0.3, 0.9);
+    // Hard parts: glossy helmet shell, mirrored goggle lens, waxed board
+    this.helmetMat.roughness = 0.22; this.helmetMat.metalness = 0.15;
+    this.boardMat.roughness = 0.3;
+
+    // Reflections from a soft sky/snow environment (set by Game once the renderer exists)
+    if (Player.envMap) {
+      for (const [mat, k] of [[this.jacketMat, 0.35], [this.pantsMat, 0.25], [this.helmetMat, 0.9],
+        [this.goggleLensMat, 0.7], [this.boardMat, 0.7], [this.bindingMat, 0.5], [this.bootMat, 0.4], [this.gloveMat, 0.3]]) {
+        if (!mat) continue;
+        mat.envMap = Player.envMap;
+        mat.envMapIntensity = k;
+        mat.needsUpdate = true;
+      }
+    }
   }
 
   // Turns the procedural rider into a small rig: a spine that bends at the waist, ankles that keep
