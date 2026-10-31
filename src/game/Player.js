@@ -2110,14 +2110,14 @@ export class Player {
       // Maintain sideways stance in air
       this.riderGroup.rotation.y = THREE.MathUtils.lerp(this.riderGroup.rotation.y, this.STANCE_YAW, 0.1);
 
-      // A straight backflip: the rider turns board and body 90° to face where they're going, flips
+      // A straight backflip: the rider turns board and body 65° toward where they're going, flips
       // straight over their back (not a sideways wildcat), then turns back to land. Visual only:
       // the flip axis stays across the direction of travel because x is the outer Euler rotation.
       this._straightBack = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
         (input.flipBackward || this.angularVelocity.x > 2.5);
       this._backOpen = THREE.MathUtils.lerp(this._backOpen || 0, this._straightBack ? 1 : 0, 0.15);
       const openDir = Math.sign(this.STANCE_YAW) || 1;
-      this.boardGroup.rotation.y = this.trickRotation.y + openDir * (Math.PI / 2) * this._backOpen;
+      this.boardGroup.rotation.y = this.trickRotation.y + openDir * THREE.MathUtils.degToRad(65) * this._backOpen;
     }
 
     // ===== OBSTACLE COLLISIONS (capsule vs cylinder/sphere) =====
