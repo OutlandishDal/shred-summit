@@ -198,7 +198,7 @@ export class Player {
     this.capsuleHalfH = 0.8;
 
     // Stance depends on equipment — base values (overridden by stance/switch)
-    this.BASE_STANCE_YAW = this.equipmentType === 'ski' ? 0 : 1.3;
+    this.BASE_STANCE_YAW = this.equipmentType === 'ski' ? Math.PI : 1.3; // skier faces downhill (-z)
     this.BASE_HEAD_YAW = this.equipmentType === 'ski' ? 0 : -0.785;
     this.STANCE_YAW = this.BASE_STANCE_YAW;
     this.HEAD_YAW = this.BASE_HEAD_YAW;
@@ -922,7 +922,7 @@ export class Player {
 
     this._spinePose = { x: 0, y: 0, z: 0 };
     this._armIK = { L: { w: 0, rate: 0.2, target: null, last: null }, R: { w: 0, rate: 0.2, target: null, last: null } };
-    this.legIK = this.equipmentType !== 'ski';
+    this.legIK = true;
     if (this.legIK) {
       this.ankleL = this._makeAnkle(this.kneeL);
       this.ankleR = this._makeAnkle(this.kneeR);
@@ -994,15 +994,19 @@ export class Player {
     // Legs: feet locked into the bindings whatever the body is doing, knees out over the toes
     if (this.legIK) {
       _rig.inv.copy(this.riderGroup.matrixWorld).invert();
-      this.boardMesh.getWorldQuaternion(_rig.qFeet);
-      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.STANCE_YAW)); // boots stay across the board
+      const base = this.boardMesh || this.boardGroup; // skis sit straight in boardGroup
+      const ski = this.equipmentType === 'ski';
+      base.getWorldQuaternion(_rig.qFeet);
+      _rig.qFeet.multiply(_rig.qYaw.setFromAxisAngle(_rig.up, this.STANCE_YAW)); // boots keep the stance angle
       const front = this._frontSign();
       for (const [hip, knee, ankle, side, bz] of [
         [this.hipL, this.kneeL, this.ankleL, -1, front * 0.22],
         [this.hipR, this.kneeR, this.ankleR, 1, -front * 0.22],
       ]) {
-        _rig.t.set(0, this.ANKLE_Y, bz);
-        this.boardMesh.localToWorld(_rig.t).applyMatrix4(_rig.inv);
+        // Snowboard: one binding at each end. Skis: each foot on its own ski (hip side, mapped by stance yaw)
+        if (ski) _rig.t.set(side * 0.14 * Math.cos(this.STANCE_YAW), this.ANKLE_Y, -0.05 * Math.cos(this.STANCE_YAW));
+        else _rig.t.set(0, this.ANKLE_Y, bz);
+        base.localToWorld(_rig.t).applyMatrix4(_rig.inv);
         _rig.pole.set(side * 0.12, 0, 1);
         this._solveTwoBone(hip, _rig.t, this.THIGH_LEN, this.SHIN_LEN, _rig.pole, 1);
         hip.quaternion.copy(_ik.qUpper);
@@ -1025,7 +1029,7 @@ export class Player {
       const elbow = hand === 'L' ? this.elbowL : this.elbowR;
       const t = ik.last;
       _rig.tw.set(t.x, t.y, t.z);
-      (t.space === 'board' ? this.boardMesh : this.riderGroup).localToWorld(_rig.tw);
+      (t.space === 'board' ? (this.boardMesh || this.boardGroup) : this.riderGroup).localToWorld(_rig.tw);
       if (ik.w > 0.97) ik.w = 1;
       // A grab locks the hand on: if the spot is out of arm's reach (spins twist the shoulders
       // away), fold the torso toward it until the hand gets there.
@@ -1333,13 +1337,13 @@ export class Player {
 
       // Nose and tail tips
       const nose = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.15), this.boardMat);
-      nose.position.set(0, 0.03, 0.85); nose.rotation.x = 0.35; ski.add(nose);
+      nose.position.set(0, 0.03, -0.85); nose.rotation.x = -0.35; ski.add(nose); // tips lead downhill (-z)
       const tail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.12), this.boardMat);
-      tail.position.set(0, 0.025, -0.85); tail.rotation.x = -0.3; ski.add(tail);
+      tail.position.set(0, 0.025, 0.85); tail.rotation.x = 0.3; ski.add(tail);
 
       // One binding per ski
       const bind = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.16), bindMat);
-      bind.position.set(0, 0.05, 0.05); ski.add(bind);
+      bind.position.set(0, 0.05, -0.05); ski.add(bind);
 
       this.boardGroup.add(ski);
     }
@@ -1861,9 +1865,12 @@ export class Player {
       this._rideTime += dt;
       const breathe = Math.sin(this._rideTime * 1.5) * 0.015;
       const rg = this.riderGroup;
-      // The body leans with the board on edge; counter a little so the rider angulates instead of toppling
-      rg.rotation.x = THREE.MathUtils.lerp(rg.rotation.x, -lean * 0.3, 0.15);
-      rg.rotation.z = THREE.MathUtils.lerp(rg.rotation.z, 0, 0.15);
+      // The body leans with the board on edge; counter a little so the rider angulates instead of toppling.
+      // A skier faces down the hill, so that's a sideways lean for them (and they ride with softer knees).
+      const skier = this.equipmentType === 'ski';
+      rg.rotation.x = THREE.MathUtils.lerp(rg.rotation.x, skier ? 0 : -lean * 0.3, 0.15);
+      rg.rotation.z = THREE.MathUtils.lerp(rg.rotation.z, skier ? -lean * 0.3 : 0, 0.15);
+      const skiBend = skier ? -0.1 : 0;
 
       if (this.isTucking || this.ollieCharge > 0.05) {
         // Speed tuck / loading an ollie: knees deep, chest folded over the board, hands in front of the knees
@@ -1893,7 +1900,7 @@ export class Player {
         // Heelside (lean < 0): sit down low, fold at the waist, arms reach forward for balance.
         const toe = Math.max(0, lean), heel = Math.max(0, -lean);
         rg.position.y = THREE.MathUtils.lerp(rg.position.y,
-          -0.06 - 0.08 * toe - 0.16 * heel - impactBend * 0.15 + breathe, 0.12);
+          -0.06 + skiBend - 0.08 * toe - 0.16 * heel - impactBend * 0.15 + breathe, 0.12);
         this._setSpine(0.22 + 0.08 * toe + 0.15 * heel + impactBend * 0.3, -lean * 0.3, 0);
 
         // Arms: relaxed and athletic; the leading arm points into the turn
@@ -2245,8 +2252,10 @@ export class Player {
       // A straight backflip: the rider turns board and body 65° toward where they're going, flips
       // straight over their back (not a sideways wildcat), then turns back to land. Visual only:
       // the flip axis stays across the direction of travel because x is the outer Euler rotation.
-      this._straightBack = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
+      // (Skiers already face the way they're going, so their backflips are straight back with no turn.)
+      this._backflipping = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
         (input.flipBackward || this.angularVelocity.x > 2.5);
+      this._straightBack = this._backflipping && this.equipmentType !== 'ski';
       if (this._straightBack) this._didStraightBack = true;
       // Turning back is tied to the flip finishing: it unwinds over the last ~100° of rotation,
       // eased, so the board comes back around in one flowing move instead of whipping after.
@@ -2370,7 +2379,7 @@ export class Player {
         this.lerpJoint(this.elbowR, 'x', -0.1, 0.15);
         this.lerpJoint(this.elbowR, 'z', 0, 0.15);
         this.lerpJoint(this.headGroup, 'x', -0.5, 0.12);
-      } else if (this._straightBack && !this.isTucking) {
+      } else if (this._backflipping && !this.isTucking) {
         // Backflip: chest open to the sky, shoulders back, knees soft (layout it by holding jump)
         const openTwist = (Math.sign(this.STANCE_YAW) || 1) * 0.2 * this._backOpen; // square the shoulders up
         rg.position.y = L(rg.position.y, -0.16, 0.15);
@@ -3076,8 +3085,8 @@ export class Player {
 
   updateStanceYaw() {
     if (this.equipmentType === 'ski') {
-      // Skiers: face forward normally, face backward when switch
-      this.STANCE_YAW = this.isSwitch ? Math.PI : 0;
+      // Skiers: face downhill (-z, the way you travel) normally, uphill when switch
+      this.STANCE_YAW = this.isSwitch ? 0 : Math.PI;
       this.HEAD_YAW = 0;
     } else {
       // Snowboard: regular = 1.3, goofy = -1.3; switch negates it
