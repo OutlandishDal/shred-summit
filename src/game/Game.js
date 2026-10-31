@@ -46,9 +46,12 @@ export class Game {
     this.parkId = 'big-white';       // 'big-white', 'xgames', 'slopestyle'
     this.selectedEquipment = 'snowboard';
     this.selectedStance = 'regular';
+    this.fits = { jacket: 'regular', pants: 'regular' }; // clothing fit from the customize menu
+    try { Object.assign(this.fits, JSON.parse(localStorage.getItem('shred-fits') || '{}')); } catch (e) { /* ignore */ }
     this.player = new Player(this.scene, this.selectedEquipment);
     this.player.stance = this.selectedStance;
     this.player.updateStanceYaw();
+    this.applyFits();
     this.loadPlayerModel(); // load GLB character model (async, non-blocking)
     this.tricks = new TrickSystem();
     this.quests = new QuestSystem();
@@ -955,6 +958,7 @@ export class Game {
           this.player.stance = this.selectedStance;
           this.player.updateStanceYaw();
           this.loadPlayerModel();
+          this.applyFits();
           // Re-apply saved colors then shop items
           for (const [part, color] of Object.entries(savedColors)) {
             this.player.setColor(part, color);
@@ -972,6 +976,19 @@ export class Game {
             stanceRow.style.display = this.selectedEquipment === 'ski' ? 'none' : '';
           }
         }
+      });
+    });
+
+    // Jacket / pants fit (regular, semi-baggy, baggy)
+    document.querySelectorAll('[data-fit-part]').forEach(btn => {
+      const part = btn.dataset.fitPart;
+      btn.classList.toggle('selected', this.fits[part] === btn.dataset.fit);
+      btn.addEventListener('click', () => {
+        document.querySelectorAll(`[data-fit-part="${part}"]`).forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        this.fits[part] = btn.dataset.fit;
+        try { localStorage.setItem('shred-fits', JSON.stringify(this.fits)); } catch (e) { /* ignore */ }
+        this.player.setFit(part, btn.dataset.fit);
       });
     });
 
@@ -2867,6 +2884,11 @@ export class Game {
         });
       });
     }
+  }
+
+  applyFits() {
+    this.player.setFit('jacket', this.fits.jacket);
+    this.player.setFit('pants', this.fits.pants);
   }
 
   loadPlayerModel() {

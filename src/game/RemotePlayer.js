@@ -65,7 +65,9 @@ export class RemotePlayer {
     }
     if (cosmetics.jacketLegendary) p.setLegendaryMaterial('jacket', true);
 
-    // Pants: baggy + legendary
+    // Fit, then shop pants that are always baggy
+    if (cosmetics.jacketFit) p.setFit('jacket', cosmetics.jacketFit);
+    if (cosmetics.pantsFit) p.setFit('pants', cosmetics.pantsFit);
     if (cosmetics.pantsBaggy) p.setBaggyPants(true);
     if (cosmetics.pantsLegendary) p.setLegendaryMaterial('pants', true);
 

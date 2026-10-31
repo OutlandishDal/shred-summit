@@ -49,6 +49,7 @@ const _rig = {
 };
 
 export class Player {
+  static FITS = { regular: 0, semi: 0.5, baggy: 1 };
   constructor(scene, equipmentType = 'snowboard') {
     this.scene = scene;
     this.equipmentType = equipmentType;
@@ -219,6 +220,10 @@ export class Player {
 
     this.buildModel();
     this._upgradeRiderDetail();
+    this.jacketFit = 'regular';
+    this.pantsFit = 'regular';
+    this._shopBaggy = false;
+    this._collectJacketParts();
     this.scene.add(this.group);
   }
 
@@ -384,6 +389,7 @@ export class Player {
     const waistMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 5, 10), jacketMat);
     waistMesh.scale.set(1, 1, 0.7);
     waistMesh.position.set(0, 0.82, 0); this.riderGroup.add(waistMesh);
+    waistMesh.userData.jacketHem = true;
 
     // Upper torso / chest — puffy jacket, broader
     this.torsoMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.22, 6, 10), jacketMat);
@@ -411,6 +417,7 @@ export class Player {
     const zipper = new THREE.Mesh(new THREE.CapsuleGeometry(0.005, 0.35, 3, 4),
       new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.5, roughness: 0.3 }));
     zipper.position.set(0, 1.0, 0.155); this.riderGroup.add(zipper);
+    zipper.userData.jacketPart = true;
 
     // Jacket collar at neckline
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.06, 10, 1, true), jacketMat);
@@ -419,6 +426,7 @@ export class Player {
     // Jacket waist band / hem — solid band
     const waistBand = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.19, 0.035, 12), jacketMat);
     waistBand.position.set(0, 0.74, 0); this.riderGroup.add(waistBand);
+    waistBand.userData.jacketHem = true;
 
     // Jacket brand logo decal (thin plane on chest)
     this.jacketLogoMat = new THREE.MeshStandardMaterial({
@@ -3048,23 +3056,35 @@ export class Player {
     }
   }
 
+  // Shop pants that are cut baggy override the fit picked in the customize menu
   setBaggyPants(isBaggy) {
-    // Baggy pants: scale thighs, calves, and hips wider for a loose fit
-    const s = isBaggy ? 1.875 : 1.0;
-    for (const mesh of [this.thighL, this.thighR, this.calfL, this.calfR]) {
-      mesh.scale.set(s, 1, s);
-    }
-    // Slightly widen hips (keep subtle so no big rectangle)
-    const hipS = isBaggy ? 1.15 : 1.0;
-    this.hipsMesh.scale.set(hipS, 1, hipS);
+    this._shopBaggy = isBaggy;
+    this.setFit('pants', this.pantsFit);
+  }
 
-    // Hide skinny wrinkles when baggy, show when skinny
+  // Fit of the jacket or pants: 'regular', 'semi' (semi-baggy) or 'baggy'
+  setFit(part, fit) {
+    const amt = Player.FITS[fit] ?? 0;
+    if (part === 'jacket') {
+      this.jacketFit = fit;
+      this._applyJacketFit(amt);
+    } else if (part === 'pants') {
+      this.pantsFit = fit;
+      this._applyPantsFit(this._shopBaggy ? 1 : amt);
+    }
+  }
+
+  _applyPantsFit(amt) {
+    // Legs and seat widen; the skinny creases give way to a few loose ridges
+    const s = 1 + 0.875 * amt;
+    for (const mesh of [this.thighL, this.thighR, this.calfL, this.calfR]) mesh.scale.set(s, 1, s);
+    const hipS = 1 + 0.15 * amt;
+    this.hipsMesh.scale.set(hipS, 0.8, 0.7 * hipS);
+
     if (this._pantsWrinkles) {
-      for (const w of this._pantsWrinkles) w.visible = !isBaggy;
+      for (const w of this._pantsWrinkles) w.visible = amt === 0;
     }
-
-    // Add/remove baggy-specific ridges (just a few subtle ones)
-    if (isBaggy && !this._baggyRidges) {
+    if (amt > 0 && !this._baggyRidges) {
       this._baggyRidges = [];
       const mat = this._pantsFoldMat;
       // A couple ridges on each thigh
@@ -3083,7 +3103,41 @@ export class Player {
       }
     }
     if (this._baggyRidges) {
-      for (const r of this._baggyRidges) r.visible = isBaggy;
+      const r = s / 1.875; // ridges are sized for the full baggy cut
+      for (const ridge of this._baggyRidges) { ridge.visible = amt > 0; ridge.scale.set(r, r, 1); }
+    }
+  }
+
+  // Everything the jacket is made of, with its rest scale and position, so the fit can be re-applied
+  _collectJacketParts() {
+    this._jacketParts = [];
+    const under = (o, ...groups) => { for (let p = o.parent; p; p = p.parent) if (groups.includes(p)) return true; return false; };
+    this.riderGroup.traverse((o) => {
+      if (!o.isMesh || under(o, this.neckGroup)) return; // hood stays put
+      const isJacket = o.material === this.jacketMat || o.material === this._jacketFoldMat ||
+        o.userData.jacketPart || o === this.jacketLogoPlane;
+      if (!isJacket) return;
+      const p = o.geometry.parameters || {};
+      this._jacketParts.push({
+        o, arm: under(o, this.shoulderL, this.shoulderR),
+        thin: o === this.jacketLogoPlane || Math.max(p.radius || 0, p.radiusTop || 0, p.radiusBottom || 0) < 0.01,
+        s: o.scale.clone(), p: o.position.clone(),
+      });
+    });
+  }
+
+  _applyJacketFit(amt) {
+    // Body and sleeves puff out around their own axis (thin seams and the logo just move out with
+    // the surface); a baggy jacket also hangs longer over the hips.
+    const body = 1 + 0.25 * amt, sleeve = 1 + 0.3 * amt;
+    for (const { o, arm, thin, s, p } of this._jacketParts || []) {
+      const k = arm ? sleeve : body;
+      o.position.set(p.x * k, p.y, p.z * k);
+      if (!thin) o.scale.set(s.x * k, s.y, s.z * k);
+      if (o.userData.jacketHem) {
+        o.position.y = p.y - 0.06 * amt;
+        if (o.geometry.type === 'CapsuleGeometry') o.scale.y = s.y * (1 + 0.15 * amt);
+      }
     }
   }
 

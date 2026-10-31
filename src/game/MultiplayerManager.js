@@ -226,6 +226,8 @@ export class MultiplayerManager {
       pantsColor: player.pantsMat.color.getHex(),
       helmetColor: player.helmetMat.color.getHex(),
       boardColor: player.boardMat.color.getHex(),
+      jacketFit: player.jacketFit,
+      pantsFit: player.pantsFit,
     };
 
     // Resolve shop items for visual properties
