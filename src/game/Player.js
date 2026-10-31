@@ -115,6 +115,10 @@ export class Player {
     this.lastJumpLayout = false;
     this._backflipTime = 0;
     this._layoutTime = 0;
+    // Prepare for landing (jump held in the air): finish the current rotation, then lock in to land
+    this._prep = null;             // locked rotation targets {x, y, z} while preparing
+    this._landReady = false;       // rotation finished, rider set up for the landing
+    this._jumpFreshInAir = false;  // jump released since takeoff, so the pop's hold doesn't count
     this.grindExitTimer = 0;       // cooldown after jumping off rail
     this._grindedRails = new Set(); // rails already grinded this run — no re-snap
     this.grindAborted = false;     // true when fell off rail due to low speed (no points)
@@ -1395,6 +1399,7 @@ export class Player {
 
   update(dt, input, terrain) {
     if (!this.grounded && !this.grinding) this.railTiming = null; // timing meter is only for the ground and rails
+    if (this.grounded || this.grinding) { this._prep = null; this._landReady = false; this._jumpFreshInAir = false; }
     // Rails keep air speed; it's restored to ground speed on the next landing
     if (this.grounded && !this.grinding && !this.onKicker) this.restoreGroundSpeed();
 
@@ -2097,21 +2102,36 @@ export class Player {
       // Player must time their inputs to land clean rotations.
       // Shift = tuck in air → 1.5x faster spins/flips/corks
       // Flat ground ollie → 1.5x slower rotation (no flip-worthy air without a kicker)
-      // Holding jump in the air opens you up: rotation slows down, and a backflip is laid out
-      const openUp = !!(input.jumpHeld ?? false);
+      // Jump in the air = prepare for landing (a fresh press, so the pop's hold doesn't count).
+      // The rider keeps rotating to the end of the current flip/spin (laying a backflip out), then
+      // stops rotating and sets up to stomp the landing.
+      const jumpHeld = !!(input.jumpHeld ?? false);
+      if (!jumpHeld) this._jumpFreshInAir = true;
+      const prepping = jumpHeld && this._jumpFreshInAir;
+      if (!prepping) { this._prep = null; this._landReady = false; }
+      else if (!this._prep) {
+        // Lock the next clean stop in the direction we're already turning
+        const next = (rot, vel, step) => Math.abs(vel) > 1
+          ? (vel > 0 ? Math.ceil(rot / step - 0.02) : Math.floor(rot / step + 0.02)) * step
+          : Math.round(rot / step) * step;
+        const TAU = Math.PI * 2;
+        this._prep = {
+          x: next(this.trickRotation.x, this.angularVelocity.x, TAU),
+          y: next(this.trickRotation.y, this.angularVelocity.y, Math.PI),
+          z: next(this.trickRotation.z, this.angularVelocity.z, TAU),
+        };
+      }
       this._launchRotation(input);
       const setMul = this._rotMul;
       const tuckMul = (input.tuck || input.grab) ? 1.5 : 1.0;
       const flatMul = this.launchedFromKicker ? 1.0 : 0.83;
-      // Open up: spins slow right down; a backflip stays the same speed but is laid out
-      const spinOpenMul = openUp ? 0.8 : tuckMul;
-      const flipOpenMul = openUp ? 1.0 : tuckMul; // a layout flips as fast as a normal backflip
-      const flipTarget = 6.5 * flipOpenMul * flatMul * setMul; // target flip angular vel
-      const spinTarget = 4.8 * spinOpenMul * flatMul * setMul; // target spin angular vel (was 6.5: too fast)
-      const rampUp = 20.0 * flipOpenMul * flatMul * setMul; // how fast rotation builds (rad/s²)
-      // Layout backflip: backflip (S) with jump held for most of the flip
-      this.isLayingOut = openUp && input.flipBackward && !(input.spinLeft || input.spinRight);
-      if (input.flipBackward) this._backflipTime += dt;
+      const flipTarget = 6.5 * tuckMul * flatMul * setMul; // target flip angular vel
+      const spinTarget = 4.8 * tuckMul * flatMul * setMul; // target spin angular vel (was 6.5: too fast)
+      const rampUp = 20.0 * tuckMul * flatMul * setMul; // how fast rotation builds (rad/s²)
+      // Layout backflip: preparing for landing partway through a backflip lays out the rest of it
+      this.isLayingOut = prepping && !this._landReady && this._prep.x > this.trickRotation.x + 0.05 &&
+        Math.abs(this.angularVelocity.y) < 1 && Math.abs(this._prep.y - this.trickRotation.y) < 0.05;
+      if ((input.flipBackward && !prepping) || this.isLayingOut) this._backflipTime += dt;
       if (this.isLayingOut) this._layoutTime += dt;
       const stopSpeed = 18.0;     // how fast rotation stops on release (rad/s²)
 
@@ -2142,7 +2162,18 @@ export class Player {
         }
       };
 
-      if (isCork) {
+      if (prepping) {
+        // Carry the rotation through to the locked stop, keeping momentum, then hold it there
+        let done = true;
+        for (const a of ['x', 'y', 'z']) {
+          const err = this._prep[a] - this.trickRotation[a];
+          if (Math.abs(err) < 0.02) { this.trickRotation[a] = this._prep[a]; this.angularVelocity[a] = 0; continue; }
+          done = false;
+          const speed = Math.max(Math.abs(this.angularVelocity[a]) * (Math.sign(this.angularVelocity[a]) === Math.sign(err) ? 1 : 0), 4);
+          this.angularVelocity[a] = Math.sign(err) * Math.min(speed, Math.abs(err) / dt);
+        }
+        if (done) this._landReady = true;
+      } else if (isCork) {
         // Cork: flip + spin simultaneously → off-axis diagonal rotation
         const corkFlipTarget = (input.flipForward ? -1 : 1) * flipTarget * 0.7;
         const corkSpinTarget = (input.spinLeft ? 1 : -1) * spinTarget * 0.85;
@@ -2217,7 +2248,7 @@ export class Player {
       // Decay turn rate while airborne so you land neutral
       this.turnRate *= 0.95;
 
-      this.isGrabbing = input.grab;
+      this.isGrabbing = input.grab && !prepping;
       this.grabType = input.grabType;
 
       // --- AIRBORNE RIDER ANIMATIONS ---
@@ -2231,6 +2262,8 @@ export class Player {
       this._backflipping = !(input.spinLeft || input.spinRight) && !this.isGrabbing &&
         (input.flipBackward || this.angularVelocity.x > 2.5);
       this._straightBack = this._backflipping && this.equipmentType !== 'ski';
+      // Preparing to land: start turning back over the last ~100° like a released flip does
+      if (prepping && this._prep.x - this.trickRotation.x < 1.75) this._straightBack = false;
       if (this._straightBack) this._didStraightBack = true;
       // Turning back is tied to the flip finishing: it unwinds over the last ~100° of rotation,
       // eased, so the board comes back around in one flowing move instead of whipping after.
@@ -2334,7 +2367,17 @@ export class Player {
       this.lerpJoint(this.headGroup, 'y', this.HEAD_YAW + spinTwist * 0.8, 0.1);
       this.lerpJoint(this.headGroup, 'z', 0, 0.1);
 
-      if (this.isGrabbing) {
+      if (this._landReady) {
+        // Prepared for landing: board flat under the hips, knees loaded to absorb, chest over the
+        // board, arms out front for balance and eyes spotting the landing
+        rg.position.y = L(rg.position.y, -0.07, 0.15);
+        rg.rotation.x = L(rg.rotation.x, 0.06, 0.12);
+        rg.rotation.z = L(rg.rotation.z, 0, 0.12);
+        this._setSpine(0.15, 0, 0);
+        this._reach('L', 'rider', -0.55, 1.0, 0.22, 0.2);
+        this._reach('R', 'rider', 0.55, 1.0, 0.22, 0.2);
+        this.lerpJoint(this.headGroup, 'x', 0.35, 0.12);
+      } else if (this.isGrabbing) {
         // Wind-up: reaching toward the grab before it connects
         this.applyGrabPose(this.grabType, this.grabWindup > 0, spinTwist);
         this.lerpJoint(this.headGroup, 'x', 0.25, 0.1);
