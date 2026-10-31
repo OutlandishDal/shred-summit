@@ -889,7 +889,7 @@ export class Player {
       ]) {
         _rig.t.set(0, this.ANKLE_Y, bz);
         this.boardMesh.localToWorld(_rig.t).applyMatrix4(_rig.inv);
-        _rig.pole.set(side * 0.3, 0, 1);
+        _rig.pole.set(side * 0.12, 0, 1);
         this._solveTwoBone(hip, _rig.t, this.THIGH_LEN, this.SHIN_LEN, _rig.pole, 1);
         hip.quaternion.copy(_ik.qUpper);
         knee.quaternion.copy(_ik.qLower);
@@ -1710,10 +1710,12 @@ export class Player {
       if (this.isTucking || this.ollieCharge > 0.05) {
         // Speed tuck / loading an ollie: knees deep, chest folded over the board, hands in front of the knees
         const crouch = this.isTucking ? 1 : Math.min(1, this.ollieCharge * 1.5);
-        rg.position.y = THREE.MathUtils.lerp(rg.position.y, -0.08 - 0.22 * crouch, 0.15);
-        this._setSpine(0.3 + 0.4 * crouch, -lean * 0.2, 0);
-        this._reach('L', 'rider', -0.17, 0.5 + rg.position.y, 0.34, 0.2);
-        this._reach('R', 'rider', 0.17, 0.5 + rg.position.y, 0.34, 0.2);
+        // (hand spots are in riderGroup space, which already drops with the crouch)
+        rg.position.y = THREE.MathUtils.lerp(rg.position.y, -0.06 - 0.16 * crouch, 0.15);
+        this._setSpine(0.3 + 0.45 * crouch, -lean * 0.2, 0);
+        this._reach('L', 'rider', -0.09, 0.62, 0.42, 0.2);
+        this._reach('R', 'rider', 0.09, 0.6, 0.4, 0.2);
+        this.lerpJoint(this.headGroup, 'x', -0.35 * crouch, 0.12); // chin up, eyes down the hill
       } else {
         // Carving. Toeside (lean > 0): knees drive over the toes, chest stays fairly tall.
         // Heelside (lean < 0): sit down low, fold at the waist, arms reach forward for balance.
@@ -1749,7 +1751,7 @@ export class Player {
       if (impactBend > 0.1) {
         this.headGroup.rotation.x = THREE.MathUtils.lerp(
           this.headGroup.rotation.x, impactBend * 0.15 + headRestX, 0.15);
-      } else {
+      } else if (!this.isTucking && this.ollieCharge <= 0.05) {
         this.headGroup.rotation.x = THREE.MathUtils.lerp(this.headGroup.rotation.x, headRestX, 0.08);
       }
 
@@ -2169,8 +2171,8 @@ export class Player {
         rg.rotation.x = L(rg.rotation.x, 0, 0.12);
         rg.rotation.z = L(rg.rotation.z, 0, 0.12);
         this._setSpine(0.6, spinTwist, 0);
-        this._reach('L', 'rider', -0.16, 0.56 + rg.position.y, 0.36, 0.25);
-        this._reach('R', 'rider', 0.16, 0.56 + rg.position.y, 0.36, 0.25);
+        this._reach('L', 'rider', -0.15, 0.58, 0.36, 0.25);
+        this._reach('R', 'rider', 0.15, 0.58, 0.36, 0.25);
         this.lerpJoint(this.headGroup, 'x', 0.2, 0.12);
       } else {
         // Default air: knees soft, arms out for balance (pulled in while spinning)
